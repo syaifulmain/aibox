@@ -35,7 +35,7 @@ sudo systemctl daemon-reload
 sudo setfacl -m "u:${TARGET_USER}:rw" /var/lib/incus/unix.socket
 
 echo "==> [5/6] Initializing Btrfs Storage Pool & Network Bridge (incusbr0)..."
-if ! incus storage show default >/dev/null 2>&1; then
+if ! sudo incus storage show default >/dev/null 2>&1; then
     cat << 'EOF' | sudo incus admin init --preseed
 config: {}
 networks:
@@ -72,14 +72,14 @@ fi
 
 sudo btrfs quota enable /var/lib/incus/storage-pools/default 2>/dev/null || true
 
-if ! incus profile show ai-gui >/dev/null 2>&1; then
-    incus profile create ai-gui
+if ! sudo incus profile show ai-gui >/dev/null 2>&1; then
+    sudo incus profile create ai-gui
 fi
-incus profile set ai-gui security.nesting=true
-incus profile device remove ai-gui gpu >/dev/null 2>&1 || true
-incus profile device add ai-gui gpu gpu mode=0666
-incus profile device remove ai-gui kvm >/dev/null 2>&1 || true
-incus profile device add ai-gui kvm unix-char source=/dev/kvm path=/dev/kvm mode=0666
+sudo incus profile set ai-gui security.nesting=true
+sudo incus profile device remove ai-gui gpu >/dev/null 2>&1 || true
+sudo incus profile device add ai-gui gpu gpu mode=0666
+sudo incus profile device remove ai-gui kvm >/dev/null 2>&1 || true
+sudo incus profile device add ai-gui kvm unix-char source=/dev/kvm path=/dev/kvm mode=0666
 
 echo "==> [6/6] Configuring UFW firewall rules for incusbr0..."
 if systemctl is-active --quiet ufw; then

@@ -6,17 +6,21 @@ set -euo pipefail
 # Removes the AIBox desktop package (and optionally removes Incus & all data)
 # ==============================================================================
 
-echo "==> Removing 'aibox' desktop package and CLI helper..."
+echo "==> Removing 'aibox' desktop package..."
 if pacman -Qi aibox >/dev/null 2>&1; then
     sudo pacman -Rns --noconfirm aibox
 fi
-rm -f "$HOME/.local/bin/ai-box"
 rm -rf "$HOME/.cache/aibox"
 
 echo "==> AIBox desktop application and App Launcher shortcut removed cleanly!"
 echo ""
 if [[ "${1:-}" == "--full" ]]; then
     echo "==> --full mode: Removing Incus service, UFW rules, and all containers..."
+    if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw; then
+        sudo ufw delete allow in on incusbr0 >/dev/null 2>&1 || true
+        sudo ufw route delete allow in on incusbr0 >/dev/null 2>&1 || true
+        sudo ufw route delete allow out on incusbr0 >/dev/null 2>&1 || true
+    fi
     sudo systemctl disable --now incus.service incus.socket 2>/dev/null || true
     sudo rm -rf /etc/systemd/system/incus.service.d
     sudo systemctl daemon-reload

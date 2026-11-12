@@ -42,7 +42,22 @@ Run the test suite:
 
 Launch **AIBox** from the app launcher (`Super` + `Space`). By default, project workspaces, cached images, and settings are stored in `.aibox/` under the launch directory. The configuration menu lets you change storage paths and environment options.
 
-Press `?` in the app to view keyboard shortcuts.
+## Keyboard Shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Space` / `Enter` | Enter selected OS terminal in `/workspace` |
+| `N` | Create a new isolated OS environment |
+| `F` | Open shared workspace folder on Host |
+| `S` | Start or stop selected environment |
+| `P` | Create instant 1-second Btrfs snapshot |
+| `C` | Copy AI agent execution command |
+| `Delete` | Wipe / destroy selected environment |
+| `1` / `2` | Switch between Environments and OS Catalog |
+| `3` | Open the configuration menu |
+| `R` | Refresh status and disk usage |
+| `?` | Toggle keyboard shortcuts overlay |
+| `Q` | Quit AIBox |
 
 ## Uninstall
 

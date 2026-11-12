@@ -5,8 +5,8 @@ pkgdesc='Isolated Linux OS environment manager for AI, Desktop, and Mobile proje
 arch=('x86_64' 'aarch64')
 license=('MIT')
 options=('!debug')
-depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'incus')
-makedepends=('gcc' 'make')
+depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'incus' 'acl' 'util-linux')
+makedepends=('gcc' 'make' 'qt6-base')
 source=()
 sha256sums=()
 
