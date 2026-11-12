@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=AIBox
+Name[id]=AIBox
+Name[da]=AIBox
+Comment=Isolated Linux OS environment manager for AI projects
+Comment[id]=Manajer environment OS Linux terisolasi untuk projek AI besar
+Comment[da]=Isoleret Linux OS-administrator til AI-projekter
+Exec=aibox %f
+Icon=aibox
+Terminal=false
+Categories=Development;Utility;System;
+StartupWMClass=aibox
+Keywords=ai;incus;container;vm;linux;sandbox;environment;
