@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ==============================================================================
+# AIBox Clean Uninstaller
+# Menghapus aplikasi AIBox (dan opsional menghapus Incus beserta seluruh data)
+# ==============================================================================
+
+echo "==> Menghapus paket aplikasi desktop 'aibox' dan CLI helper..."
+if pacman -Qi aibox >/dev/null 2>&1; then
+    sudo pacman -Rns --noconfirm aibox
+fi
+rm -f "$HOME/.local/bin/ai-box"
+
+echo "==> Aplikasi desktop AIBox dan shortcut di App Launcher berhasil dihapus bersih!"
+echo ""
+if [[ "${1:-}" == "--full" ]]; then
+    echo "==> Mode --full: Menghapus service Incus, aturan UFW, dan seluruh container..."
+    sudo systemctl disable --now incus.service incus.socket 2>/dev/null || true
+    sudo rm -rf /etc/systemd/system/incus.service.d
+    sudo systemctl daemon-reload
+    sudo pacman -Rns --noconfirm incus dnsmasq xorg-xhost 2>/dev/null || true
+    sudo rm -rf /var/lib/incus
+    echo "==> Seluruh komponen Incus telah dihapus bersih."
+else
+    echo "Catatan: Service Incus dan environment Anda tetap disimpan."
+    echo "Jika ingin menghapus Incus beserta seluruh container juga, jalankan: ./bin/uninstall --full"
+fi
