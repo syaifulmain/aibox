@@ -35,7 +35,7 @@ private slots:
 
     void sanitizeEnvironmentName()
     {
-        QCOMPARE(Backend::sanitizeName("  Projek Kasir AI 2026! "), QString("projek-kasir-ai-2026"));
+        QCOMPARE(Backend::sanitizeName("  Project POS AI 2026! "), QString("project-pos-ai-2026"));
         QCOMPARE(Backend::sanitizeName("---Mobile__POS---"), QString("mobile-pos"));
     }
 

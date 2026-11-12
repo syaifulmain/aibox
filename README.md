@@ -2,66 +2,70 @@
 
 ![AIBox Screenshot](screenshot.png)
 
-**AIBox** adalah aplikasi desktop native untuk **Omarchy** (C++17 & Qt Quick 6) yang mengelola environment OS Linux terisolasi (berbasis **Incus**, **Btrfs**, **KVM**, dan **GPU Passthrough**) khusus untuk pengembangan projek AI, Desktop App, dan Mobile App skala besar tanpa mengotori atau merusak sistem operasi utama Anda.
+**AIBox** is a native desktop application for **Omarchy** (C++17 & Qt Quick 6) that manages isolated Linux OS environments (powered by **Incus**, **Btrfs**, **KVM**, and **GPU Passthrough**) for large-scale AI, Desktop App, and Mobile App projects without polluting or risking your host operating system.
 
 ---
 
-## Fitur Utama
+## Key Features
 
-- **Tampilan Native Omarchy (Live Theme & Language)**: Mengikuti warna aksen (`~/.local/state/omarchy/current/theme/colors.toml`), *window rounding* Hyprland, dan bahasa Omarchy secara *real-time*.
-- **Manajemen Environment OS Penuh**:
-  - Menampilkan daftar semua environment yang telah dibuat beserta status (`RUNNING` / `STOPPED`), kuota Disk, pemakaian RAM, alokasi CPU, dan alamat IPv4.
-  - **Pilih Ukuran & Preset di Awal**: Bebas memilih preset **Desktop & Mobile (GPU + KVM + GUI)**, **Standard AI/Web (Docker)**, atau **Full KVM Virtual Machine**, serta menentukan batas ukuran Disk (`20GiB`–`100GiB`), RAM (`4GiB`–`12GiB`), dan CPU Core.
-- **Katalog OS & Ketuk untuk Download (One-Tap OS Cache)**:
-  - Tersedia daftar distro populer (**Ubuntu 24.04 LTS**, **Ubuntu 22.04 LTS**, **Debian 12**, **Arch Linux**, **Fedora 41**, **Alpine Linux**, **Kali Linux**, **Rocky Linux 9**).
-  - Ketuk **Download OS** untuk menyimpan image OS ke cache lokal sehingga pembuatan environment baru selesai dalam **< 1 detik**.
-- **Shared Folder Dua Arah Otomatis (`/workspace`)**:
-  - Setiap environment otomatis terhubung ke `~/ai-workspaces/<nama-projek>` di OS utama dan `/workspace` di dalam environment dengan sinkronisasi izin file (ACL + UID shifting).
-- **Snapshot Instan 1 Detik (Time Machine) & Wipe Bersih**:
-  - Simpan kondisi seluruh OS sebelum AI melakukan perombakan besar, kembalikan (*restore*) kapan saja dalam 1 detik, atau hapus bersih (*wipe*) seluruh OS setelah projek selesai.
+- **Native Omarchy Look & Feel**: Automatically follows your active Omarchy theme accent (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland window rounding in real time.
+- **Full OS Environment Management**:
+  - View all created environments with live status (`RUNNING` / `STOPPED`), disk quota, memory usage, CPU core allocation, and IPv4 address.
+  - **Custom Hardware Quotas & Capability Presets**: Choose between **Desktop & Mobile (GPU + KVM + GUI Bridge)**, **Standard AI / Web (Docker)**, or **Full KVM Virtual Machine (`--vm`)**, and set strict Disk (`20GiB`–`100GiB`), RAM (`4GiB`–`12GiB`), and CPU core limits upfront.
+- **OS Image Catalog & One-Tap Local Cache**:
+  - Includes a curated catalog of popular Linux distributions (**Ubuntu 24.04 LTS**, **Ubuntu 22.04 LTS**, **Debian 12**, **Arch Linux**, **Fedora 41**, **Alpine Linux 3.21**, **Kali Linux**, **Rocky Linux 9**).
+  - Pre-download OS images into local storage so new environments launch in under **1 second**.
+- **Real-Time Progress, Cancellation, & Background Persistence**:
+  - Live step-by-step progress bar (`0%–100%`) and terminal output stream during environment creation and OS downloads, with an instant **Cancel** button that cleans up partial state.
+  - Runs long tasks in a detached background session (`setsid`): if you close the GUI window while an environment is being created, it continues safely in the background, sends a desktop notification (`notify-send`) upon completion, and automatically re-attaches to the progress bar when you reopen AIBox.
+- **Seamless Two-Way Shared Workspace (`/workspace`)**:
+  - Every environment automatically mounts `~/ai-workspaces/<project-name>` on the Host to `/workspace` inside the isolated OS with synchronized permissions (POSIX ACL + UID shifting).
+- **1-Second Btrfs Snapshots (Time Machine) & Clean Wipe**:
+  - Save the entire OS state in 1 second before letting an autonomous AI agent perform major system changes, restore any snapshot instantly, or wipe the entire OS clean in 1 second when the project is complete.
 - **Headless Virtual Display Runner (`Xvfb`)**:
-  - Jalankan *automated GUI testing* oleh AI di layar virtual `1920x1080` tanpa mengganggu layar atau kursor mouse Anda.
+  - Run automated GUI tests (`flutter test`, `npm test`, `pytest`) inside a `1920x1080` virtual screen inside the container without hijacking your host cursor or display.
 
 ---
 
-## Pintasan Keyboard (Keyboard Shortcuts)
+## Keyboard Shortcuts
 
-| Tombol | Aksi |
+| Key | Action |
 | :--- | :--- |
-| `Space` / `Enter` | Masuk ke terminal OS yang dipilih (langsung di `/workspace`) |
-| `N` | Buat environment OS baru |
-| `F` | Buka folder *shared workspace* di File Manager Host |
-| `S` | Nyalakan (*Start*) atau matikan (*Stop*) environment |
-| `P` | Simpan *Snapshot* Btrfs instan (1 detik) |
-| `C` | Salin perintah eksekusi AI (`incus exec <nama> --cwd /workspace -- bash`) |
-| `Delete` | Hapus total (*Wipe*) environment yang dipilih |
-| `1` / `2` | Pindah antara tab **Environments** dan **OS Images & Downloads** |
-| `↑` / `↓` | Pilih environment di daftar |
-| `R` | Muat ulang (*Refresh*) status environment & cache OS |
-| `?` | Tampilkan / sembunyikan panduan pintasan keyboard |
-| `Q` | Keluar dari aplikasi |
+| `Space` / `Enter` | Enter the selected OS terminal directly at `/workspace` |
+| `N` | Create a new isolated Linux OS environment |
+| `F` | Open the shared workspace folder in the Host file manager |
+| `S` | Start or stop the selected environment (0% RAM/CPU when stopped) |
+| `P` | Save an instant 1-second Btrfs snapshot |
+| `C` | Copy the AI agent execution command (`incus exec <name> --cwd /workspace -- bash`) |
+| `Delete` | Wipe / destroy the selected environment completely |
+| `1` / `2` | Switch between **Environments** and **OS Images & Downloads** tabs |
+| `↑` / `↓` | Select previous / next environment |
+| `R` | Refresh environment status and cached OS images |
+| `?` | Toggle the keyboard shortcuts overlay |
+| `Esc` | Close active dialog or minimize progress modal |
+| `Q` | Quit AIBox |
 
 ---
 
-## Cara Setup & Instalasi Bersih (di Mesin Baru / Setup Ulang)
+## Clean Setup & Installation (New Machine / Re-setup)
 
-Seluruh kode sumber dan skrip konfigurasi tersimpan rapi di repositori Git ini (`~/Work/aibox`).
+All source code and system setup scripts are self-contained in this Git repository (`~/Work/aibox`).
 
-### 1. Setup Sistem Incus (Jalankan Sekali Saja)
-Menginstal Incus, mengaktifkan storage Btrfs + kuota disk, membuka jalur firewall UFW, dan membuat profil akselerasi GPU/KVM:
+### 1. Initialize Host System & Incus (Run Once)
+Installs Incus, enables the native Btrfs storage pool with disk quotas, configures UFW firewall rules for `incusbr0`, and creates the `ai-gui` GPU/KVM passthrough profile:
 ```bash
 cd ~/Work/aibox
 ./bin/setup-system
 ```
 
-### 2. Build & Install Aplikasi Desktop (`aibox`)
-Mengompilasi aplikasi C++/Qt6 menjadi satu binary dan menginstalnya sebagai paket resmi Arch Linux (`pacman`) beserta ikon dan shortcut di **Omarchy App Launcher (`Super + Space`)**:
+### 2. Build & Install the Desktop Application (`aibox`)
+Compiles the C++/Qt6 application into a single binary and installs it as a native Arch Linux (`pacman`) package along with its icon and **Omarchy App Launcher (`Super + Space`)** entry:
 ```bash
 cd ~/Work/aibox
 ./bin/install
 ```
 
-### 3. Menjalankan Unit Test
+### 3. Run Unit Tests
 ```bash
 cd ~/Work/aibox
 ./bin/test
@@ -69,19 +73,19 @@ cd ~/Work/aibox
 
 ---
 
-## Cara Uninstall dengan Bersih (100% Tanpa Sisa Sampah)
+## Clean Uninstallation (Zero Leftovers)
 
-Karena aplikasi ini diinstal melalui paket sistem (`pacman` / `makepkg`), Anda bisa menghapusnya kapan saja tanpa meninggalkan file sampah di sistem:
+Because AIBox is installed as a tracked `pacman` package, you can remove it cleanly at any time:
 
-* **Hapus Aplikasi GUI AIBox & Shortcut App Launcher Saja** (environment dan data projek tetap aman):
+* **Uninstall the AIBox Desktop App & App Launcher Shortcut Only** (keeps Incus and your environments intact):
   ```bash
   cd ~/Work/aibox
   ./bin/uninstall
-  # atau langsung lewat pacman:
+  # or directly via pacman:
   sudo pacman -Rns aibox
   ```
 
-* **Hapus Total AIBox + Incus + Seluruh Container OS**:
+* **Full Uninstall (Removes AIBox + Incus + All Containers)**:
   ```bash
   cd ~/Work/aibox
   ./bin/uninstall --full
