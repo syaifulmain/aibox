@@ -91,20 +91,38 @@ ApplicationWindow {
         id: btn
         property string label: ""
         property string shortcutHint: ""
+        property string variant: "" // "primary" | "danger" | "success" | ""
         property bool primary: false
         property bool danger: false
+        property bool success: false
         property bool disabled: false
+        property int minWidth: 0
         signal clicked()
 
+        readonly property bool isPrimary: primary || variant === "primary"
+        readonly property bool isDanger: danger || variant === "danger"
+        readonly property bool isSuccess: success || variant === "success"
+
         implicitHeight: 34
-        implicitWidth: btnRow.implicitWidth + 24
+        implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + 24)
+                                    : (label === "?" ? 34 : btnRow.implicitWidth + 24)
+        Layout.preferredHeight: implicitHeight
+        Layout.preferredWidth: implicitWidth
         radius: Math.min(4, theme.radius)
         opacity: btn.disabled ? 0.4 : (btnMouse.containsMouse ? 0.9 : 1.0)
-        color: btn.primary
+        color: btn.isPrimary
                ? theme.accent
-               : (btn.danger ? "#261319" : (btnMouse.containsMouse ? theme.lighterBackground : win.surfaceCard))
-        border.width: btn.primary ? 0 : 1
-        border.color: btn.danger ? theme.red : (btnMouse.containsMouse ? theme.muted : win.borderSubtle)
+               : (btn.isDanger
+                  ? (btnMouse.containsMouse ? "#32161f" : "#261319")
+                  : (btn.isSuccess
+                     ? (btnMouse.containsMouse ? "#1c3829" : "#162920")
+                     : (btnMouse.containsMouse ? theme.lighterBackground : win.surfaceCard)))
+        border.width: btn.isPrimary ? 0 : 1
+        border.color: btn.isDanger
+                      ? theme.red
+                      : (btn.isSuccess
+                         ? theme.green
+                         : (btnMouse.containsMouse ? theme.muted : win.borderSubtle))
 
         RowLayout {
             id: btnRow
@@ -113,10 +131,14 @@ ApplicationWindow {
 
             Text {
                 text: btn.label
-                color: btn.primary ? theme.accentForeground : (btn.danger ? theme.red : theme.foreground)
+                color: btn.isPrimary
+                       ? theme.accentForeground
+                       : (btn.isDanger
+                          ? theme.red
+                          : (btn.isSuccess ? theme.green : theme.foreground))
                 font.family: win.sansFont
                 font.pixelSize: 12
-                font.weight: btn.primary ? Font.Medium : Font.Normal
+                font.weight: btn.isPrimary ? Font.Medium : Font.Normal
             }
 
             Rectangle {
@@ -124,15 +146,19 @@ ApplicationWindow {
                 height: 18
                 width: hintText.implicitWidth + 10
                 radius: 2
-                color: btn.primary ? Qt.rgba(0, 0, 0, 0.18) : win.surfaceInput
-                border.width: btn.primary ? 0 : 1
-                border.color: win.borderSubtle
+                color: btn.isPrimary
+                       ? Qt.rgba(0, 0, 0, 0.18)
+                       : (btn.isDanger ? "#180a0e" : (btn.isSuccess ? "#0c1810" : win.surfaceInput))
+                border.width: btn.isPrimary ? 0 : 1
+                border.color: btn.isDanger ? "#4a1c26" : (btn.isSuccess ? "#1b4028" : win.borderSubtle)
 
                 Text {
                     id: hintText
                     anchors.centerIn: parent
                     text: btn.shortcutHint
-                    color: btn.primary ? theme.accentForeground : theme.muted
+                    color: btn.isPrimary
+                           ? theme.accentForeground
+                           : (btn.isDanger ? theme.red : (btn.isSuccess ? theme.green : theme.muted))
                     font.family: win.monoFont
                     font.pixelSize: 10
                 }
@@ -340,8 +366,9 @@ ApplicationWindow {
                     // Segmented Tab Switcher
                     Rectangle {
                         Layout.leftMargin: 12
-                        height: 32
-                        width: segRow.implicitWidth + 6
+                        Layout.preferredHeight: 34
+                        Layout.preferredWidth: segRow.implicitWidth + 8
+                        Layout.alignment: Qt.AlignVCenter
                         radius: Math.min(4, theme.radius)
                         color: win.surfaceInput
                         border.width: 1
@@ -359,7 +386,7 @@ ApplicationWindow {
                                 ]
                                 delegate: Rectangle {
                                     required property var modelData
-                                    height: 26
+                                    height: 28
                                     width: tabItemRow.implicitWidth + 18
                                     radius: Math.min(3, theme.radius)
                                     color: win.activeTab === modelData.tab ? win.surfaceSelected : "transparent"
@@ -397,27 +424,38 @@ ApplicationWindow {
 
                     Item { Layout.fillWidth: true }
 
-                    ActionButton {
-                        label: qsTr("Refresh")
-                        shortcutHint: "R"
-                        disabled: backend.busy
-                        onClicked: backend.refresh()
-                    }
+                    RowLayout {
+                        spacing: 10
+                        Layout.alignment: Qt.AlignVCenter
 
-                    ActionButton {
-                        label: "?"
-                        onClicked: win.helpVisible = !win.helpVisible
-                    }
+                        ActionButton {
+                            label: qsTr("Refresh")
+                            shortcutHint: "R"
+                            minWidth: 96
+                            disabled: backend.busy
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: backend.refresh()
+                        }
 
-                    ActionButton {
-                        label: qsTr("+ New Environment")
-                        shortcutHint: "N"
-                        primary: true
-                        disabled: backend.busy
-                        onClicked: {
-                            win.newEnvName = ""
-                            backend.clearError()
-                            win.createVisible = true
+                        ActionButton {
+                            label: "?"
+                            minWidth: 34
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: win.helpVisible = !win.helpVisible
+                        }
+
+                        ActionButton {
+                            label: qsTr("+ New Environment")
+                            shortcutHint: "N"
+                            variant: "primary"
+                            minWidth: 165
+                            disabled: backend.busy
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: {
+                                win.newEnvName = ""
+                                backend.clearError()
+                                win.createVisible = true
+                            }
                         }
                     }
                 }
@@ -780,35 +818,61 @@ ApplicationWindow {
                             // Environment Header & Primary Action
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 12
+                                spacing: 16
 
                                 ColumnLayout {
-                                    Layout.fillWidth: true
                                     spacing: 4
+                                    Layout.alignment: Qt.AlignVCenter
 
                                     RowLayout {
-                                        spacing: 10
+                                        spacing: 12
+                                        Layout.alignment: Qt.AlignVCenter
+
                                         Text {
+                                            id: selectedEnvTitle
                                             text: backend.selectedEnvironment.name || ""
                                             color: theme.foreground
                                             font.family: win.monoFont
                                             font.pixelSize: 18
                                             font.weight: Font.Medium
+                                            elide: Text.ElideRight
+                                            Layout.maximumWidth: 380
+                                            Layout.alignment: Qt.AlignVCenter
                                         }
+
                                         Rectangle {
-                                            height: 20
-                                            width: detailStatusText.implicitWidth + 12
+                                            implicitHeight: 22
+                                            implicitWidth: statusBadgeRow.implicitWidth + 16
+                                            Layout.preferredHeight: 22
+                                            Layout.preferredWidth: implicitWidth
+                                            Layout.alignment: Qt.AlignVCenter
                                             radius: 3
                                             color: (backend.selectedEnvironment.running || false) ? "#162920" : win.surfaceInput
                                             border.width: 1
                                             border.color: (backend.selectedEnvironment.running || false) ? "#284d3a" : win.borderSubtle
-                                            Text {
-                                                id: detailStatusText
+
+                                            RowLayout {
+                                                id: statusBadgeRow
                                                 anchors.centerIn: parent
-                                                text: backend.selectedEnvironment.status || ""
-                                                color: (backend.selectedEnvironment.running || false) ? theme.green : theme.muted
-                                                font.family: win.monoFont
-                                                font.pixelSize: 10
+                                                spacing: 6
+
+                                                Rectangle {
+                                                    width: 6
+                                                    height: 6
+                                                    radius: 3
+                                                    color: (backend.selectedEnvironment.running || false) ? theme.green : theme.muted
+                                                    Layout.alignment: Qt.AlignVCenter
+                                                }
+
+                                                Text {
+                                                    id: detailStatusText
+                                                    text: backend.selectedEnvironment.status || ""
+                                                    color: (backend.selectedEnvironment.running || false) ? theme.green : theme.muted
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 10
+                                                    font.weight: Font.Medium
+                                                    Layout.alignment: Qt.AlignVCenter
+                                                }
                                             }
                                         }
                                     }
@@ -821,11 +885,15 @@ ApplicationWindow {
                                     }
                                 }
 
+                                Item { Layout.fillWidth: true }
+
                                 ActionButton {
                                     label: qsTr("Enter OS Terminal")
                                     shortcutHint: "Space"
-                                    primary: true
+                                    variant: "primary"
+                                    minWidth: 165
                                     disabled: backend.busy
+                                    Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                                     onClicked: backend.enterEnvironment(backend.selectedEnvironment.name || "")
                                 }
                             }
@@ -833,25 +901,32 @@ ApplicationWindow {
                             // Secondary Action Bar
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 8
+                                spacing: 10
+
+                                ActionButton {
+                                    label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
+                                    shortcutHint: "S"
+                                    variant: (backend.selectedEnvironment.running || false) ? "danger" : "success"
+                                    minWidth: 110
+                                    disabled: backend.busy
+                                    Layout.alignment: Qt.AlignVCenter
+                                    onClicked: backend.toggleStartStop(backend.selectedEnvironment.name || "")
+                                }
 
                                 ActionButton {
                                     label: qsTr("Open Shared Folder")
                                     shortcutHint: "F"
+                                    minWidth: 165
+                                    Layout.alignment: Qt.AlignVCenter
                                     onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
                                 }
 
                                 ActionButton {
                                     label: qsTr("Copy AI Command")
                                     shortcutHint: "C"
+                                    minWidth: 155
+                                    Layout.alignment: Qt.AlignVCenter
                                     onClicked: backend.copyAiCommand(backend.selectedEnvironment.name || "")
-                                }
-
-                                ActionButton {
-                                    label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
-                                    shortcutHint: "S"
-                                    disabled: backend.busy
-                                    onClicked: backend.toggleStartStop(backend.selectedEnvironment.name || "")
                                 }
 
                                 Item { Layout.fillWidth: true }
@@ -859,8 +934,10 @@ ApplicationWindow {
                                 ActionButton {
                                     label: qsTr("Wipe OS")
                                     shortcutHint: "Del"
-                                    danger: true
+                                    variant: "danger"
+                                    minWidth: 110
                                     disabled: backend.busy
+                                    Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                                     onClicked: {
                                         win.deleteWorkspaceOnWipe = false
                                         win.wipeVisible = true
@@ -984,8 +1061,8 @@ ApplicationWindow {
 
                                         FlatInput {
                                             id: snapNameInput
-                                            Layout.preferredWidth: 180
-                                            implicitHeight: 32
+                                            Layout.preferredWidth: 200
+                                            implicitHeight: 34
                                             placeholder: qsTr("Snapshot label (optional)")
                                             onAccepted: {
                                                 if (!backend.busy) {
@@ -996,7 +1073,8 @@ ApplicationWindow {
                                         }
 
                                         ActionButton {
-                                            implicitHeight: 32
+                                            implicitHeight: 34
+                                            minWidth: 145
                                             label: qsTr("+ Save Snapshot")
                                             shortcutHint: "P"
                                             disabled: backend.busy
@@ -1107,7 +1185,7 @@ ApplicationWindow {
                                     FlatInput {
                                         id: headlessInput
                                         Layout.fillWidth: true
-                                        implicitHeight: 32
+                                        implicitHeight: 34
                                         placeholder: qsTr("Command for 1920x1080 Xvfb screen (e.g. flutter test, npm test, pytest)")
                                         onAccepted: {
                                             if (!backend.busy && headlessInput.text.length > 0)
@@ -1116,7 +1194,8 @@ ApplicationWindow {
                                     }
 
                                     ActionButton {
-                                        implicitHeight: 32
+                                        implicitHeight: 34
+                                        minWidth: 120
                                         label: qsTr("Run Headless")
                                         disabled: backend.busy
                                         onClicked: {
@@ -1262,6 +1341,8 @@ ApplicationWindow {
                                         label: modelData.downloading
                                                ? qsTr("Downloading...")
                                                : (modelData.downloaded ? qsTr("Remove Cache") : qsTr("Download OS"))
+                                        variant: modelData.downloaded ? "danger" : ""
+                                        minWidth: 135
                                         disabled: backend.busy
                                         onClicked: {
                                             if (modelData.downloaded)
@@ -1273,7 +1354,8 @@ ApplicationWindow {
 
                                     ActionButton {
                                         label: qsTr("Use This OS")
-                                        primary: true
+                                        variant: "primary"
+                                        minWidth: 125
                                         disabled: backend.busy
                                         onClicked: {
                                             win.newEnvOsId = modelData.id
@@ -1709,12 +1791,14 @@ ApplicationWindow {
 
                             ActionButton {
                                 label: qsTr("Cancel")
+                                minWidth: 96
                                 onClicked: win.createVisible = false
                             }
 
                             ActionButton {
                                 label: qsTr("Create Environment")
-                                primary: true
+                                variant: "primary"
+                                minWidth: 165
                                 disabled: backend.busy || win.newEnvName.trim().length === 0
                                 onClicked: {
                                     backend.createEnvironment(win.newEnvName, win.newEnvOsId, win.newEnvPreset,
@@ -1810,7 +1894,8 @@ ApplicationWindow {
                             Item { Layout.fillWidth: true }
                             ActionButton {
                                 label: qsTr("Cancel Creation")
-                                danger: true
+                                variant: "danger"
+                                minWidth: 140
                                 onClicked: backend.cancelTask()
                             }
                         }
@@ -1924,12 +2009,14 @@ ApplicationWindow {
 
                         ActionButton {
                             label: qsTr("Cancel")
+                            minWidth: 96
                             onClicked: win.wipeVisible = false
                         }
 
                         ActionButton {
                             label: qsTr("Wipe Environment Now")
-                            danger: true
+                            variant: "danger"
+                            minWidth: 185
                             onClicked: {
                                 backend.wipeEnvironment(backend.selectedEnvironment.name || "", win.deleteWorkspaceOnWipe)
                                 win.wipeVisible = false
