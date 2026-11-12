@@ -23,6 +23,9 @@ ApplicationWindow {
     readonly property color surfaceCard: "#12131c"
     readonly property color surfaceInput: "#0b0c12"
     readonly property color surfaceSelected: "#192136"
+    readonly property color accentColor: theme.accent
+    readonly property color redColor: theme.red
+    readonly property color greenColor: theme.green
 
     property int activeTab: 0
     property bool helpVisible: false
@@ -91,10 +94,11 @@ ApplicationWindow {
         id: btn
         property string label: ""
         property string shortcutHint: ""
-        property string variant: "" // "primary" | "danger" | "success" | ""
+        property string variant: "" // "primary" | "danger" | "success" | "accent" | ""
         property bool primary: false
         property bool danger: false
         property bool success: false
+        property bool accent: false
         property bool disabled: false
         property int minWidth: 0
         signal clicked()
@@ -102,6 +106,7 @@ ApplicationWindow {
         readonly property bool isPrimary: primary || variant === "primary"
         readonly property bool isDanger: danger || variant === "danger"
         readonly property bool isSuccess: success || variant === "success"
+        readonly property bool isAccent: accent || variant === "accent" || variant === "theme"
 
         implicitHeight: 34
         implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + 24)
@@ -113,16 +118,27 @@ ApplicationWindow {
         color: btn.isPrimary
                ? theme.accent
                : (btn.isDanger
-                  ? (btnMouse.containsMouse ? "#32161f" : "#261319")
-                  : (btn.isSuccess
-                     ? (btnMouse.containsMouse ? "#1c3829" : "#162920")
-                     : (btnMouse.containsMouse ? theme.lighterBackground : win.surfaceCard)))
+                  ? (btnMouse.containsMouse
+                     ? Qt.rgba(win.redColor.r, win.redColor.g, win.redColor.b, 0.22)
+                     : Qt.rgba(win.redColor.r, win.redColor.g, win.redColor.b, 0.12))
+                  : (btn.isAccent
+                     ? (btnMouse.containsMouse
+                        ? Qt.rgba(win.accentColor.r, win.accentColor.g, win.accentColor.b, 0.22)
+                        : Qt.rgba(win.accentColor.r, win.accentColor.g, win.accentColor.b, 0.12))
+                     : (btn.isSuccess
+                        ? (btnMouse.containsMouse
+                           ? Qt.rgba(win.greenColor.r, win.greenColor.g, win.greenColor.b, 0.22)
+                           : Qt.rgba(win.greenColor.r, win.greenColor.g, win.greenColor.b, 0.12))
+                        : (btnMouse.containsMouse ? theme.lighterBackground : win.surfaceCard))))
+
         border.width: btn.isPrimary ? 0 : 1
         border.color: btn.isDanger
                       ? theme.red
-                      : (btn.isSuccess
-                         ? theme.green
-                         : (btnMouse.containsMouse ? theme.muted : win.borderSubtle))
+                      : (btn.isAccent
+                         ? theme.accent
+                         : (btn.isSuccess
+                            ? theme.green
+                            : (btnMouse.containsMouse ? theme.muted : win.borderSubtle)))
 
         RowLayout {
             id: btnRow
@@ -135,7 +151,9 @@ ApplicationWindow {
                        ? theme.accentForeground
                        : (btn.isDanger
                           ? theme.red
-                          : (btn.isSuccess ? theme.green : theme.foreground))
+                          : (btn.isAccent
+                             ? theme.accent
+                             : (btn.isSuccess ? theme.green : theme.foreground)))
                 font.family: win.sansFont
                 font.pixelSize: 12
                 font.weight: btn.isPrimary ? Font.Medium : Font.Normal
@@ -148,9 +166,21 @@ ApplicationWindow {
                 radius: 2
                 color: btn.isPrimary
                        ? Qt.rgba(0, 0, 0, 0.18)
-                       : (btn.isDanger ? "#180a0e" : (btn.isSuccess ? "#0c1810" : win.surfaceInput))
+                       : (btn.isDanger
+                          ? Qt.rgba(win.redColor.r, win.redColor.g, win.redColor.b, 0.18)
+                          : (btn.isAccent
+                             ? Qt.rgba(win.accentColor.r, win.accentColor.g, win.accentColor.b, 0.18)
+                             : (btn.isSuccess
+                                ? Qt.rgba(win.greenColor.r, win.greenColor.g, win.greenColor.b, 0.18)
+                                : win.surfaceInput)))
                 border.width: btn.isPrimary ? 0 : 1
-                border.color: btn.isDanger ? "#4a1c26" : (btn.isSuccess ? "#1b4028" : win.borderSubtle)
+                border.color: btn.isDanger
+                              ? Qt.rgba(win.redColor.r, win.redColor.g, win.redColor.b, 0.35)
+                              : (btn.isAccent
+                                 ? Qt.rgba(win.accentColor.r, win.accentColor.g, win.accentColor.b, 0.35)
+                                 : (btn.isSuccess
+                                    ? Qt.rgba(win.greenColor.r, win.greenColor.g, win.greenColor.b, 0.35)
+                                    : win.borderSubtle))
 
                 Text {
                     id: hintText
@@ -158,7 +188,11 @@ ApplicationWindow {
                     text: btn.shortcutHint
                     color: btn.isPrimary
                            ? theme.accentForeground
-                           : (btn.isDanger ? theme.red : (btn.isSuccess ? theme.green : theme.muted))
+                           : (btn.isDanger
+                              ? theme.red
+                              : (btn.isAccent
+                                 ? theme.accent
+                                 : (btn.isSuccess ? theme.green : theme.muted)))
                     font.family: win.monoFont
                     font.pixelSize: 10
                 }
@@ -906,7 +940,7 @@ ApplicationWindow {
                                 ActionButton {
                                     label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
                                     shortcutHint: "S"
-                                    variant: (backend.selectedEnvironment.running || false) ? "danger" : "success"
+                                    variant: (backend.selectedEnvironment.running || false) ? "danger" : "accent"
                                     minWidth: 110
                                     disabled: backend.busy
                                     Layout.alignment: Qt.AlignVCenter
