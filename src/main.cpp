@@ -81,6 +81,8 @@ int main(int argc, char *argv[]) {
     if (!grabPath.isEmpty()) {
         auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (win) {
+            if (qEnvironmentVariableIntValue("AIBOX_PREVIEW_CREATE") == 1)
+                win->setProperty("createVisible", true);
             QTimer::singleShot(350, win, [win, grabPath]() {
                 const QImage img = win->grabWindow();
                 img.save(grabPath);

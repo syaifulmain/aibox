@@ -14,6 +14,10 @@ class Backend : public QObject {
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedIndexChanged)
     Q_PROPERTY(QVariantMap selectedEnvironment READ selectedEnvironment NOTIFY selectedIndexChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(int taskProgress READ taskProgress NOTIFY taskProgressChanged)
+    Q_PROPERTY(QString taskStage READ taskStage NOTIFY taskProgressChanged)
+    Q_PROPERTY(QString taskLog READ taskLog NOTIFY taskProgressChanged)
+    Q_PROPERTY(QString pendingEnvName READ pendingEnvName NOTIFY busyChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString downloadingOsId READ downloadingOsId NOTIFY osCatalogChanged)
@@ -30,6 +34,10 @@ public:
     void setSelectedIndex(int index);
     QVariantMap selectedEnvironment() const;
     bool busy() const { return m_busy; }
+    int taskProgress() const { return m_taskProgress; }
+    QString taskStage() const { return m_taskStage; }
+    QString taskLog() const { return m_taskLog; }
+    QString pendingEnvName() const { return m_pendingEnvName; }
     QString statusMessage() const { return m_statusMessage; }
     QString errorMessage() const { return m_errorMessage; }
     QString downloadingOsId() const { return m_downloadingOsId; }
@@ -38,6 +46,7 @@ public:
     Q_INVOKABLE void primaryAction();
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void clearError();
+    Q_INVOKABLE void cancelTask();
 
     Q_INVOKABLE void createEnvironment(const QString &name, const QString &osId, const QString &preset,
                                        const QString &diskGiB, const QString &ramGiB, int cpuCores);
@@ -64,6 +73,7 @@ signals:
     void osCatalogChanged();
     void selectedIndexChanged();
     void busyChanged();
+    void taskProgressChanged();
     void statusMessageChanged();
     void errorMessageChanged();
     void environmentCreated(const QString &name);
@@ -71,7 +81,12 @@ signals:
 private:
     void setBusy(bool busy, const QString &status = {});
     void setError(const QString &error);
+    void handleProcessOutput(const QByteArray &chunk);
     void runShellTask(const QString &description, const QString &script, const QString &createdEnvName = {});
+    void checkBackgroundTask();
+    void attachExistingTask();
+    qint64 readTaskPid() const;
+    void clearTaskFiles();
     void loadDemoData();
 
     int m_count = 0;
@@ -79,12 +94,20 @@ private:
     QVariantList m_osCatalog;
     int m_selectedIndex = 0;
     bool m_busy = false;
+    int m_taskProgress = 0;
+    QString m_taskStage;
+    QString m_taskLog;
+    qint64 m_logOffset = 0;
+    int m_lastExitCode = -1;
+    bool m_hasExitCode = false;
+    QString m_pendingEnvName;
     QString m_statusMessage;
     QString m_errorMessage;
     QString m_downloadingOsId;
     QString m_workspaceBase;
-    QProcess *m_taskProcess = nullptr;
+    QString m_stateDir;
     QProcess *m_refreshProcess = nullptr;
     QTimer m_pollTimer;
+    QTimer m_taskWatchTimer;
     bool m_demoMode = false;
 };

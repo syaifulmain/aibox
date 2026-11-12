@@ -7,8 +7,8 @@ ApplicationWindow {
     id: win
     width: 1080
     height: 720
-    minimumWidth: 820
-    minimumHeight: 540
+    minimumWidth: 860
+    minimumHeight: 560
     visible: true
     title: qsTr("AIBox")
     color: theme.background
@@ -16,6 +16,13 @@ ApplicationWindow {
     Material.theme: Material.Dark
     Material.accent: theme.accent
     Material.roundedScale: theme.radius
+
+    readonly property string sansFont: "Adwaita Sans"
+    readonly property string monoFont: "JetBrainsMono Nerd Font"
+    readonly property color borderSubtle: "#232738"
+    readonly property color surfaceCard: "#12131c"
+    readonly property color surfaceInput: "#0b0c12"
+    readonly property color surfaceSelected: "#192136"
 
     property int activeTab: 0
     property bool helpVisible: false
@@ -31,11 +38,116 @@ ApplicationWindow {
     property string newEnvRam: "6GiB"
     property int newEnvCpu: 4
 
-    // Form state for Snapshot & Headless command
-    property string customSnapshotName: ""
-    property string headlessCmd: ""
-
     readonly property bool anyModalOpen: helpVisible || createVisible || wipeVisible
+
+    // Reusable clean flat input box (replaces Material TextField completely)
+    component FlatInput: Rectangle {
+        id: root
+        property alias text: textInput.text
+        property string placeholder: ""
+        property bool readOnly: false
+        signal accepted()
+
+        implicitHeight: 36
+        radius: Math.min(4, theme.radius)
+        color: win.surfaceInput
+        border.width: 1
+        border.color: textInput.activeFocus ? theme.accent : win.borderSubtle
+
+        Text {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
+            visible: textInput.text.length === 0
+            text: root.placeholder
+            color: theme.muted
+            font.family: win.sansFont
+            font.pixelSize: 12
+            elide: Text.ElideRight
+        }
+
+        TextInput {
+            id: textInput
+            anchors.fill: parent
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            verticalAlignment: TextInput.AlignVCenter
+            color: theme.foreground
+            selectionColor: theme.accent
+            selectedTextColor: theme.accentForeground
+            selectByMouse: true
+            clip: true
+            readOnly: root.readOnly
+            font.family: win.sansFont
+            font.pixelSize: 13
+            onAccepted: root.accepted()
+        }
+    }
+
+    // Reusable sleek action button
+    component ActionButton: Rectangle {
+        id: btn
+        property string label: ""
+        property string shortcutHint: ""
+        property bool primary: false
+        property bool danger: false
+        property bool disabled: false
+        signal clicked()
+
+        implicitHeight: 34
+        implicitWidth: btnRow.implicitWidth + 24
+        radius: Math.min(4, theme.radius)
+        opacity: btn.disabled ? 0.4 : (btnMouse.containsMouse ? 0.9 : 1.0)
+        color: btn.primary
+               ? theme.accent
+               : (btn.danger ? "#261319" : (btnMouse.containsMouse ? theme.lighterBackground : win.surfaceCard))
+        border.width: btn.primary ? 0 : 1
+        border.color: btn.danger ? theme.red : (btnMouse.containsMouse ? theme.muted : win.borderSubtle)
+
+        RowLayout {
+            id: btnRow
+            anchors.centerIn: parent
+            spacing: 8
+
+            Text {
+                text: btn.label
+                color: btn.primary ? theme.accentForeground : (btn.danger ? theme.red : theme.foreground)
+                font.family: win.sansFont
+                font.pixelSize: 12
+                font.weight: btn.primary ? Font.Medium : Font.Normal
+            }
+
+            Rectangle {
+                visible: btn.shortcutHint.length > 0
+                height: 18
+                width: hintText.implicitWidth + 10
+                radius: 2
+                color: btn.primary ? Qt.rgba(0, 0, 0, 0.18) : win.surfaceInput
+                border.width: btn.primary ? 0 : 1
+                border.color: win.borderSubtle
+
+                Text {
+                    id: hintText
+                    anchors.centerIn: parent
+                    text: btn.shortcutHint
+                    color: btn.primary ? theme.accentForeground : theme.muted
+                    font.family: win.monoFont
+                    font.pixelSize: 10
+                }
+            }
+        }
+
+        MouseArea {
+            id: btnMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: !btn.disabled
+            cursorShape: btn.disabled ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+            onClicked: btn.clicked()
+        }
+    }
 
     Shortcut {
         sequence: "?"
@@ -46,16 +158,21 @@ ApplicationWindow {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (win.helpVisible) win.helpVisible = false
-            else if (win.createVisible) win.createVisible = false
-            else if (win.wipeVisible) win.wipeVisible = false
-            else backend.clearError()
+            if (win.helpVisible) {
+                win.helpVisible = false
+            } else if (win.createVisible) {
+                win.createVisible = false
+            } else if (win.wipeVisible) {
+                win.wipeVisible = false
+            } else {
+                backend.clearError()
+            }
         }
     }
     Shortcut {
         sequence: "Q"
         context: Qt.ApplicationShortcut
-        enabled: !win.anyModalOpen
+        enabled: !win.anyModalOpen && !backend.busy
         onActivated: Qt.quit()
     }
     Shortcut {
@@ -64,6 +181,7 @@ ApplicationWindow {
         enabled: !win.anyModalOpen && !backend.busy
         onActivated: {
             win.newEnvName = ""
+            backend.clearError()
             win.createVisible = true
         }
     }
@@ -88,13 +206,13 @@ ApplicationWindow {
     Shortcut {
         sequence: "Space"
         context: Qt.ApplicationShortcut
-        enabled: !win.anyModalOpen && win.activeTab === 0
+        enabled: !win.anyModalOpen && win.activeTab === 0 && !backend.busy
         onActivated: backend.primaryAction()
     }
     Shortcut {
         sequence: "Return"
         context: Qt.ApplicationShortcut
-        enabled: !win.anyModalOpen && win.activeTab === 0 && backend.environments.length > 0
+        enabled: !win.anyModalOpen && win.activeTab === 0 && !backend.busy && backend.environments.length > 0
         onActivated: backend.enterEnvironment(backend.selectedEnvironment.name || "")
     }
     Shortcut {
@@ -113,7 +231,7 @@ ApplicationWindow {
         sequence: "P"
         context: Qt.ApplicationShortcut
         enabled: !win.anyModalOpen && win.activeTab === 0 && !backend.busy && backend.environments.length > 0
-        onActivated: backend.createSnapshot(backend.selectedEnvironment.name || "", win.customSnapshotName)
+        onActivated: backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
     }
     Shortcut {
         sequence: "C"
@@ -151,8 +269,13 @@ ApplicationWindow {
         }
     }
 
-    // Right-to-left languages mirror the window; the Translator sets the
-    // application's layout direction.
+    Component.onCompleted: {
+        if (backend.busy && backend.pendingEnvName.length > 0) {
+            win.newEnvName = backend.pendingEnvName
+            win.createVisible = true
+        }
+    }
+
     Item {
         anchors.fill: parent
         LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
@@ -167,7 +290,7 @@ ApplicationWindow {
             // ==================================================================
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 60
+                Layout.preferredHeight: 54
                 color: theme.darkBackground
 
                 RowLayout {
@@ -176,86 +299,97 @@ ApplicationWindow {
                     anchors.rightMargin: 20
                     spacing: 16
 
-                    // App title & badge
+                    // Minimalist App Brand
                     RowLayout {
                         spacing: 10
                         Rectangle {
-                            width: 34
-                            height: 34
-                            radius: Math.min(6, theme.radius)
-                            color: theme.accent
+                            width: 28
+                            height: 28
+                            radius: Math.min(4, theme.radius)
+                            color: win.surfaceSelected
+                            border.width: 1
+                            border.color: theme.accent
                             Text {
                                 anchors.centerIn: parent
-                                text: "AI"
-                                color: theme.accentForeground
-                                font.pixelSize: 14
-                                font.bold: true
+                                text: ">_"
+                                color: theme.accent
+                                font.family: win.monoFont
+                                font.pixelSize: 12
                             }
                         }
-                        ColumnLayout {
-                            spacing: 1
-                            Text {
-                                text: qsTr("AIBox")
-                                color: theme.foreground
-                                font.pixelSize: 16
-                                font.bold: true
-                            }
-                            Text {
-                                text: qsTr("Isolated Linux OS Manager")
-                                color: theme.muted
-                                font.pixelSize: 11
-                            }
+                        Text {
+                            text: qsTr("AIBox")
+                            color: theme.foreground
+                            font.family: win.sansFont
+                            font.pixelSize: 15
+                            font.weight: Font.Medium
+                        }
+                        Text {
+                            text: "·"
+                            color: theme.muted
+                            font.pixelSize: 14
+                        }
+                        Text {
+                            text: qsTr("Isolated Linux OS Manager")
+                            color: theme.muted
+                            font.family: win.sansFont
+                            font.pixelSize: 12
                         }
                     }
 
-                    // Navigation Tabs
-                    RowLayout {
-                        Layout.leftMargin: 16
-                        spacing: 8
+                    // Segmented Tab Switcher
+                    Rectangle {
+                        Layout.leftMargin: 12
+                        height: 32
+                        width: segRow.implicitWidth + 6
+                        radius: Math.min(4, theme.radius)
+                        color: win.surfaceInput
+                        border.width: 1
+                        border.color: win.borderSubtle
 
-                        Repeater {
-                            model: [
-                                { label: qsTr("%n Environments", "", backend.environments.length), key: "1", tab: 0 },
-                                { label: qsTr("OS Images & Downloads"), key: "2", tab: 1 }
-                            ]
-                            delegate: Rectangle {
-                                required property var modelData
-                                height: 36
-                                width: tabRow.implicitWidth + 24
-                                radius: theme.radius
-                                color: win.activeTab === modelData.tab ? theme.lighterBackground : "transparent"
-                                border.width: win.activeTab === modelData.tab ? 1 : 0
-                                border.color: theme.accent
+                        RowLayout {
+                            id: segRow
+                            anchors.centerIn: parent
+                            spacing: 4
 
-                                RowLayout {
-                                    id: tabRow
-                                    anchors.centerIn: parent
-                                    spacing: 8
-                                    Text {
-                                        text: modelData.label
-                                        color: win.activeTab === modelData.tab ? theme.foreground : theme.muted
-                                        font.pixelSize: 13
-                                        font.bold: win.activeTab === modelData.tab
-                                    }
-                                    Rectangle {
-                                        width: 18
-                                        height: 18
-                                        radius: Math.min(4, theme.radius)
-                                        color: theme.darkBackground
-                                        border.width: 1
-                                        border.color: theme.muted
+                            Repeater {
+                                model: [
+                                    { label: qsTr("%n Environments", "", backend.environments.length), key: "1", tab: 0 },
+                                    { label: qsTr("OS Images & Downloads"), key: "2", tab: 1 }
+                                ]
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    height: 26
+                                    width: tabItemRow.implicitWidth + 18
+                                    radius: Math.min(3, theme.radius)
+                                    color: win.activeTab === modelData.tab ? win.surfaceSelected : "transparent"
+                                    border.width: win.activeTab === modelData.tab ? 1 : 0
+                                    border.color: theme.accent
+
+                                    RowLayout {
+                                        id: tabItemRow
+                                        anchors.centerIn: parent
+                                        spacing: 8
                                         Text {
-                                            anchors.centerIn: parent
+                                            text: modelData.label
+                                            color: win.activeTab === modelData.tab ? theme.foreground : theme.muted
+                                            font.family: win.sansFont
+                                            font.pixelSize: 12
+                                            font.weight: win.activeTab === modelData.tab ? Font.Medium : Font.Normal
+                                        }
+                                        Text {
                                             text: modelData.key
                                             color: theme.muted
+                                            font.family: win.monoFont
                                             font.pixelSize: 10
                                         }
                                     }
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: win.activeTab = modelData.tab
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: win.activeTab = modelData.tab
+                                    }
                                 }
                             }
                         }
@@ -263,71 +397,27 @@ ApplicationWindow {
 
                     Item { Layout.fillWidth: true }
 
-                    // Refresh button
-                    Rectangle {
-                        height: 36
-                        width: refreshLabel.implicitWidth + 24
-                        radius: theme.radius
-                        color: theme.lighterBackground
-                        opacity: backend.busy ? 0.5 : 1.0
-                        Text {
-                            id: refreshLabel
-                            anchors.centerIn: parent
-                            text: qsTr("Refresh (R)")
-                            color: theme.foreground
-                            font.pixelSize: 12
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !backend.busy
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: backend.refresh()
-                        }
+                    ActionButton {
+                        label: qsTr("Refresh")
+                        shortcutHint: "R"
+                        disabled: backend.busy
+                        onClicked: backend.refresh()
                     }
 
-                    // Help button
-                    Rectangle {
-                        width: 36
-                        height: 36
-                        radius: theme.radius
-                        color: win.helpVisible ? theme.accent : theme.lighterBackground
-                        Text {
-                            anchors.centerIn: parent
-                            text: "?"
-                            color: win.helpVisible ? theme.accentForeground : theme.foreground
-                            font.pixelSize: 14
-                            font.bold: true
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: win.helpVisible = !win.helpVisible
-                        }
+                    ActionButton {
+                        label: "?"
+                        onClicked: win.helpVisible = !win.helpVisible
                     }
 
-                    // Primary + New Environment Button
-                    Rectangle {
-                        height: 36
-                        width: newBtnLabel.implicitWidth + 28
-                        radius: theme.radius
-                        color: theme.accent
-                        opacity: backend.busy ? 0.5 : 1.0
-                        Text {
-                            id: newBtnLabel
-                            anchors.centerIn: parent
-                            text: qsTr("+ New Environment (N)")
-                            color: theme.accentForeground
-                            font.pixelSize: 13
-                            font.bold: true
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: !backend.busy
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                win.newEnvName = ""
-                                win.createVisible = true
-                            }
+                    ActionButton {
+                        label: qsTr("+ New Environment")
+                        shortcutHint: "N"
+                        primary: true
+                        disabled: backend.busy
+                        onClicked: {
+                            win.newEnvName = ""
+                            backend.clearError()
+                            win.createVisible = true
                         }
                     }
                 }
@@ -336,60 +426,99 @@ ApplicationWindow {
                     anchors.bottom: parent.bottom
                     width: parent.width
                     height: 1
-                    color: theme.lighterBackground
+                    color: win.borderSubtle
                 }
             }
 
             // ==================================================================
-            // STATUS / PROGRESS / ERROR BANNER
+            // LIVE TASK PROGRESS BAR / ERROR BANNER (WHEN BUSY OUTSIDE MODAL)
             // ==================================================================
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: visible ? 40 : 0
-                visible: backend.busy || backend.statusMessage.length > 0 || backend.errorMessage.length > 0
-                color: backend.errorMessage.length > 0 ? "#3a1820" : theme.lighterBackground
+                Layout.preferredHeight: visible ? (backend.busy ? 68 : 42) : 0
+                visible: (!win.createVisible && backend.busy) || backend.errorMessage.length > 0 || (!backend.busy && backend.statusMessage.length > 0)
+                color: backend.errorMessage.length > 0 ? "#241217" : win.surfaceCard
 
-                RowLayout {
+                ColumnLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 20
                     anchors.rightMargin: 20
-                    spacing: 12
+                    anchors.topMargin: 8
+                    anchors.bottomMargin: 8
+                    spacing: 6
 
-                    BusyIndicator {
-                        running: backend.busy
-                        visible: backend.busy
-                        Layout.preferredWidth: 22
-                        Layout.preferredHeight: 22
-                    }
-
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        text: backend.errorMessage.length > 0 ? backend.errorMessage : backend.statusMessage
-                        color: backend.errorMessage.length > 0 ? theme.red : theme.foreground
-                        font.pixelSize: 12
-                        font.bold: backend.errorMessage.length > 0
-                    }
+                        spacing: 12
 
-                    Rectangle {
-                        visible: backend.errorMessage.length > 0
-                        height: 24
-                        width: dismissText.implicitWidth + 16
-                        radius: Math.min(4, theme.radius)
-                        color: theme.darkBackground
                         Text {
-                            id: dismissText
-                            anchors.centerIn: parent
-                            text: qsTr("Dismiss")
-                            color: theme.foreground
+                            visible: backend.busy
+                            text: backend.taskProgress + "%"
+                            color: theme.accent
+                            font.family: win.monoFont
+                            font.pixelSize: 12
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: backend.errorMessage.length > 0
+                                  ? backend.errorMessage
+                                  : (backend.busy ? backend.taskStage : backend.statusMessage)
+                            color: backend.errorMessage.length > 0 ? theme.red : theme.foreground
+                            font.family: win.sansFont
+                            font.pixelSize: 12
+                        }
+
+                        Text {
+                            visible: backend.busy && backend.taskLog.length > 0
+                            Layout.maximumWidth: 340
+                            elide: Text.ElideLeft
+                            text: backend.taskLog
+                            color: theme.muted
+                            font.family: win.monoFont
                             font.pixelSize: 11
                         }
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
+
+                        ActionButton {
+                            visible: backend.busy
+                            implicitHeight: 26
+                            label: qsTr("Cancel")
+                            danger: true
+                            onClicked: backend.cancelTask()
+                        }
+
+                        ActionButton {
+                            visible: backend.errorMessage.length > 0
+                            implicitHeight: 26
+                            label: qsTr("Dismiss")
                             onClicked: backend.clearError()
                         }
                     }
+
+                    // Progress track when busy
+                    Rectangle {
+                        visible: backend.busy
+                        Layout.fillWidth: true
+                        height: 4
+                        radius: 2
+                        color: win.surfaceInput
+
+                        Rectangle {
+                            height: parent.height
+                            width: parent.width * (Math.max(4, backend.taskProgress) / 100.0)
+                            radius: 2
+                            color: theme.accent
+                            Behavior on width { NumberAnimation { duration: 150 } }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 1
+                    color: backend.errorMessage.length > 0 ? theme.red : win.borderSubtle
                 }
             }
 
@@ -406,7 +535,7 @@ ApplicationWindow {
                 RowLayout {
                     anchors.fill: parent
                     anchors.margins: 20
-                    spacing: 20
+                    spacing: 16
                     visible: win.activeTab === 0
 
                     // EMPTY STATE WHEN NO ENVIRONMENTS EXIST
@@ -414,30 +543,30 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: backend.environments.length === 0
-                        color: theme.darkBackground
+                        color: win.surfaceCard
                         radius: theme.radius
                         border.width: 1
-                        border.color: theme.lighterBackground
+                        border.color: win.borderSubtle
 
                         ColumnLayout {
                             anchors.centerIn: parent
-                            width: Math.min(parent.width - 60, 520)
-                            spacing: 14
+                            width: Math.min(parent.width - 80, 480)
+                            spacing: 12
 
                             Rectangle {
                                 Layout.alignment: Qt.AlignHCenter
-                                width: 56
-                                height: 56
-                                radius: theme.radius
-                                color: theme.lighterBackground
+                                width: 42
+                                height: 42
+                                radius: Math.min(6, theme.radius)
+                                color: win.surfaceInput
                                 border.width: 1
-                                border.color: theme.accent
+                                border.color: win.borderSubtle
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "OS"
+                                    text: ">_"
                                     color: theme.accent
-                                    font.pixelSize: 20
-                                    font.bold: true
+                                    font.family: win.monoFont
+                                    font.pixelSize: 16
                                 }
                             }
 
@@ -446,61 +575,43 @@ ApplicationWindow {
                                 horizontalAlignment: Text.AlignHCenter
                                 text: qsTr("No Isolated Environments Yet")
                                 color: theme.foreground
-                                font.pixelSize: 20
-                                font.bold: true
+                                font.family: win.sansFont
+                                font.pixelSize: 16
+                                font.weight: Font.Medium
                             }
 
                             Text {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
-                                text: qsTr("Create a fresh Linux OS environment for your next big AI, Desktop, or Mobile project. Give AI full root control inside, share files seamlessly via /workspace, and wipe it clean in 1 second when finished.")
+                                lineHeight: 1.35
+                                text: qsTr("Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via /workspace, and wipe it in 1 second when done.")
                                 color: theme.muted
-                                font.pixelSize: 13
+                                font.family: win.sansFont
+                                font.pixelSize: 12
                             }
 
                             RowLayout {
                                 Layout.alignment: Qt.AlignHCenter
                                 Layout.topMargin: 8
-                                spacing: 12
+                                spacing: 10
 
-                                Rectangle {
-                                    height: 40
-                                    width: emptyCreateText.implicitWidth + 32
-                                    radius: theme.radius
-                                    color: theme.accent
-                                    Text {
-                                        id: emptyCreateText
-                                        anchors.centerIn: parent
-                                        text: qsTr("+ Create First Environment (N)")
-                                        color: theme.accentForeground
-                                        font.pixelSize: 13
-                                        font.bold: true
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: win.createVisible = true
+                                ActionButton {
+                                    label: qsTr("+ Create First Environment")
+                                    shortcutHint: "N"
+                                    primary: true
+                                    disabled: backend.busy
+                                    onClicked: {
+                                        win.newEnvName = ""
+                                        backend.clearError()
+                                        win.createVisible = true
                                     }
                                 }
 
-                                Rectangle {
-                                    height: 40
-                                    width: emptyCatalogText.implicitWidth + 28
-                                    radius: theme.radius
-                                    color: theme.lighterBackground
-                                    Text {
-                                        id: emptyCatalogText
-                                        anchors.centerIn: parent
-                                        text: qsTr("Browse OS Images (2)")
-                                        color: theme.foreground
-                                        font.pixelSize: 13
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: win.activeTab = 1
-                                    }
+                                ActionButton {
+                                    label: qsTr("Browse OS Images")
+                                    shortcutHint: "2"
+                                    onClicked: win.activeTab = 1
                                 }
                             }
                         }
@@ -508,13 +619,13 @@ ApplicationWindow {
 
                     // LEFT PANE: ENVIRONMENT LIST
                     Rectangle {
-                        Layout.preferredWidth: 360
+                        Layout.preferredWidth: 330
                         Layout.fillHeight: true
                         visible: backend.environments.length > 0
-                        color: theme.darkBackground
+                        color: win.surfaceCard
                         radius: theme.radius
                         border.width: 1
-                        border.color: theme.lighterBackground
+                        border.color: win.borderSubtle
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -524,16 +635,18 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: qsTr("ENVIRONMENTS")
+                                    text: qsTr("Environments")
                                     color: theme.muted
+                                    font.family: win.sansFont
                                     font.pixelSize: 11
-                                    font.bold: true
+                                    font.weight: Font.Medium
                                 }
                                 Item { Layout.fillWidth: true }
                                 Text {
-                                    text: qsTr("↑/↓ to select • Space to enter")
+                                    text: qsTr("↑/↓ select · Space enter")
                                     color: theme.muted
-                                    font.pixelSize: 11
+                                    font.family: win.monoFont
+                                    font.pixelSize: 10
                                 }
                             }
 
@@ -542,35 +655,35 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 clip: true
-                                spacing: 8
+                                spacing: 6
                                 model: backend.environments
 
                                 delegate: Item {
                                     required property var modelData
                                     required property int index
                                     width: envListView.width
-                                    height: 86
+                                    height: 78
 
                                     Rectangle {
                                         anchors.fill: parent
-                                        radius: theme.radius
-                                        color: backend.selectedIndex === index ? theme.lighterBackground : theme.background
-                                        border.width: backend.selectedIndex === index ? 2 : 1
-                                        border.color: backend.selectedIndex === index ? theme.accent : theme.lighterBackground
+                                        radius: Math.min(4, theme.radius)
+                                        color: backend.selectedIndex === index ? win.surfaceSelected : win.surfaceInput
+                                        border.width: 1
+                                        border.color: backend.selectedIndex === index ? theme.accent : win.borderSubtle
 
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: 12
-                                            spacing: 6
+                                            spacing: 4
 
                                             RowLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 8
 
                                                 Rectangle {
-                                                    width: 10
-                                                    height: 10
-                                                    radius: 5
+                                                    width: 8
+                                                    height: 8
+                                                    radius: 4
                                                     color: modelData.running ? theme.green : theme.muted
                                                 }
 
@@ -579,22 +692,25 @@ ApplicationWindow {
                                                     elide: Text.ElideRight
                                                     text: modelData.name
                                                     color: theme.foreground
-                                                    font.pixelSize: 15
-                                                    font.bold: true
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 13
+                                                    font.weight: Font.Medium
                                                 }
 
                                                 Rectangle {
-                                                    height: 20
-                                                    width: statusBadgeText.implicitWidth + 12
-                                                    radius: Math.min(4, theme.radius)
-                                                    color: modelData.running ? "#1d3528" : theme.darkBackground
+                                                    height: 18
+                                                    width: statusBadgeText.implicitWidth + 10
+                                                    radius: 2
+                                                    color: modelData.running ? "#162920" : win.surfaceCard
+                                                    border.width: 1
+                                                    border.color: modelData.running ? "#284d3a" : win.borderSubtle
                                                     Text {
                                                         id: statusBadgeText
                                                         anchors.centerIn: parent
                                                         text: modelData.status
                                                         color: modelData.running ? theme.green : theme.muted
-                                                        font.pixelSize: 10
-                                                        font.bold: true
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 9
                                                     }
                                                 }
                                             }
@@ -602,29 +718,33 @@ ApplicationWindow {
                                             Text {
                                                 Layout.fillWidth: true
                                                 elide: Text.ElideRight
-                                                text: modelData.osName + " • " + modelData.preset
+                                                text: modelData.osName + " · " + modelData.preset
                                                 color: theme.muted
-                                                font.pixelSize: 12
+                                                font.family: win.sansFont
+                                                font.pixelSize: 11
                                             }
 
                                             RowLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 10
                                                 Text {
-                                                    text: qsTr("Disk: %1").arg(modelData.diskLimit)
+                                                    text: modelData.diskLimit + " disk"
                                                     color: theme.muted
-                                                    font.pixelSize: 11
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 10
                                                 }
                                                 Text {
-                                                    text: qsTr("RAM: %1 / %2").arg(modelData.memoryUsage).arg(modelData.memoryLimit)
+                                                    text: modelData.memoryUsage + " / " + modelData.memoryLimit
                                                     color: theme.muted
-                                                    font.pixelSize: 11
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 10
                                                 }
                                                 Item { Layout.fillWidth: true }
                                                 Text {
                                                     text: modelData.ipv4
                                                     color: theme.accent
-                                                    font.pixelSize: 11
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 10
                                                 }
                                             }
                                         }
@@ -647,17 +767,17 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: backend.environments.length > 0
-                        color: theme.darkBackground
+                        color: win.surfaceCard
                         radius: theme.radius
                         border.width: 1
-                        border.color: theme.lighterBackground
+                        border.color: win.borderSubtle
 
                         ColumnLayout {
                             anchors.fill: parent
                             anchors.margins: 20
                             spacing: 16
 
-                            // Environment Header & Primary Actions
+                            // Environment Header & Primary Action
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 12
@@ -671,149 +791,79 @@ ApplicationWindow {
                                         Text {
                                             text: backend.selectedEnvironment.name || ""
                                             color: theme.foreground
-                                            font.pixelSize: 22
-                                            font.bold: true
+                                            font.family: win.monoFont
+                                            font.pixelSize: 18
+                                            font.weight: Font.Medium
                                         }
                                         Rectangle {
-                                            height: 22
-                                            width: detailStatusText.implicitWidth + 14
-                                            radius: Math.min(4, theme.radius)
-                                            color: (backend.selectedEnvironment.running || false) ? "#1d3528" : theme.lighterBackground
+                                            height: 20
+                                            width: detailStatusText.implicitWidth + 12
+                                            radius: 3
+                                            color: (backend.selectedEnvironment.running || false) ? "#162920" : win.surfaceInput
+                                            border.width: 1
+                                            border.color: (backend.selectedEnvironment.running || false) ? "#284d3a" : win.borderSubtle
                                             Text {
                                                 id: detailStatusText
                                                 anchors.centerIn: parent
                                                 text: backend.selectedEnvironment.status || ""
                                                 color: (backend.selectedEnvironment.running || false) ? theme.green : theme.muted
-                                                font.pixelSize: 11
-                                                font.bold: true
+                                                font.family: win.monoFont
+                                                font.pixelSize: 10
                                             }
                                         }
                                     }
 
                                     Text {
-                                        text: (backend.selectedEnvironment.osName || "") + "  •  " + (backend.selectedEnvironment.preset || "")
+                                        text: (backend.selectedEnvironment.osName || "") + "  ·  " + (backend.selectedEnvironment.preset || "")
                                         color: theme.muted
-                                        font.pixelSize: 13
+                                        font.family: win.sansFont
+                                        font.pixelSize: 12
                                     }
                                 }
 
-                                // Enter Terminal Button
-                                Rectangle {
-                                    height: 38
-                                    width: enterBtnText.implicitWidth + 28
-                                    radius: theme.radius
-                                    color: theme.accent
-                                    Text {
-                                        id: enterBtnText
-                                        anchors.centerIn: parent
-                                        text: qsTr("Enter OS Terminal (Space)")
-                                        color: theme.accentForeground
-                                        font.pixelSize: 13
-                                        font.bold: true
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.enterEnvironment( backend.selectedEnvironment.name || "")
-                                    }
+                                ActionButton {
+                                    label: qsTr("Enter OS Terminal")
+                                    shortcutHint: "Space"
+                                    primary: true
+                                    disabled: backend.busy
+                                    onClicked: backend.enterEnvironment(backend.selectedEnvironment.name || "")
                                 }
                             }
 
                             // Secondary Action Bar
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 10
+                                spacing: 8
 
-                                // Open Shared Folder
-                                Rectangle {
-                                    height: 34
-                                    width: folderBtnText.implicitWidth + 24
-                                    radius: theme.radius
-                                    color: theme.lighterBackground
-                                    Text {
-                                        id: folderBtnText
-                                        anchors.centerIn: parent
-                                        text: qsTr("Open Shared Folder (F)")
-                                        color: theme.foreground
-                                        font.pixelSize: 12
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
-                                    }
+                                ActionButton {
+                                    label: qsTr("Open Shared Folder")
+                                    shortcutHint: "F"
+                                    onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
                                 }
 
-                                // Copy AI Command
-                                Rectangle {
-                                    height: 34
-                                    width: copyAiBtnText.implicitWidth + 24
-                                    radius: theme.radius
-                                    color: theme.lighterBackground
-                                    Text {
-                                        id: copyAiBtnText
-                                        anchors.centerIn: parent
-                                        text: qsTr("Copy AI Command (C)")
-                                        color: theme.foreground
-                                        font.pixelSize: 12
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.copyAiCommand(backend.selectedEnvironment.name || "")
-                                    }
+                                ActionButton {
+                                    label: qsTr("Copy AI Command")
+                                    shortcutHint: "C"
+                                    onClicked: backend.copyAiCommand(backend.selectedEnvironment.name || "")
                                 }
 
-                                // Start / Stop Toggle
-                                Rectangle {
-                                    height: 34
-                                    width: powerBtnText.implicitWidth + 24
-                                    radius: theme.radius
-                                    color: theme.lighterBackground
-                                    opacity: backend.busy ? 0.5 : 1.0
-                                    Text {
-                                        id: powerBtnText
-                                        anchors.centerIn: parent
-                                        text: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS (S)") : qsTr("Start OS (S)")
-                                        color: (backend.selectedEnvironment.running || false) ? theme.yellow : theme.green
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        enabled: !backend.busy
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: backend.toggleStartStop(backend.selectedEnvironment.name || "")
-                                    }
+                                ActionButton {
+                                    label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
+                                    shortcutHint: "S"
+                                    disabled: backend.busy
+                                    onClicked: backend.toggleStartStop(backend.selectedEnvironment.name || "")
                                 }
 
                                 Item { Layout.fillWidth: true }
 
-                                // Wipe Environment Button
-                                Rectangle {
-                                    height: 34
-                                    width: wipeBtnText.implicitWidth + 24
-                                    radius: theme.radius
-                                    color: "#3a1820"
-                                    border.width: 1
-                                    border.color: theme.red
-                                    opacity: backend.busy ? 0.5 : 1.0
-                                    Text {
-                                        id: wipeBtnText
-                                        anchors.centerIn: parent
-                                        text: qsTr("Wipe OS (Del)")
-                                        color: theme.red
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        enabled: !backend.busy
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            win.deleteWorkspaceOnWipe = false
-                                            win.wipeVisible = true
-                                        }
+                                ActionButton {
+                                    label: qsTr("Wipe OS")
+                                    shortcutHint: "Del"
+                                    danger: true
+                                    disabled: backend.busy
+                                    onClicked: {
+                                        win.deleteWorkspaceOnWipe = false
+                                        win.wipeVisible = true
                                     }
                                 }
                             }
@@ -827,37 +877,37 @@ ApplicationWindow {
 
                                 Repeater {
                                     model: [
-                                        { title: qsTr("DISK QUOTA"), val: backend.selectedEnvironment.diskLimit || "—" },
-                                        { title: qsTr("MEMORY USAGE"), val: (backend.selectedEnvironment.memoryUsage || "0 MB") + " / " + (backend.selectedEnvironment.memoryLimit || "—") },
-                                        { title: qsTr("CPU ALLOCATION"), val: backend.selectedEnvironment.cpuLimit || "—" },
-                                        { title: qsTr("IPV4 ADDRESS"), val: backend.selectedEnvironment.ipv4 || "—" }
+                                        { title: qsTr("Disk Quota"), val: backend.selectedEnvironment.diskLimit || "—" },
+                                        { title: qsTr("Memory Usage"), val: (backend.selectedEnvironment.memoryUsage || "0 MB") + " / " + (backend.selectedEnvironment.memoryLimit || "—") },
+                                        { title: qsTr("CPU Allocation"), val: backend.selectedEnvironment.cpuLimit || "—" },
+                                        { title: qsTr("IPv4 Address"), val: backend.selectedEnvironment.ipv4 || "—" }
                                     ]
                                     delegate: Rectangle {
                                         required property var modelData
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 62
-                                        radius: theme.radius
-                                        color: theme.background
+                                        Layout.preferredHeight: 58
+                                        radius: Math.min(4, theme.radius)
+                                        color: win.surfaceInput
                                         border.width: 1
-                                        border.color: theme.lighterBackground
+                                        border.color: win.borderSubtle
 
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: 10
-                                            spacing: 4
+                                            spacing: 3
                                             Text {
                                                 text: modelData.title
                                                 color: theme.muted
-                                                font.pixelSize: 10
-                                                font.bold: true
+                                                font.family: win.sansFont
+                                                font.pixelSize: 11
                                             }
                                             Text {
                                                 Layout.fillWidth: true
                                                 elide: Text.ElideRight
                                                 text: modelData.val
                                                 color: theme.foreground
-                                                font.pixelSize: 14
-                                                font.bold: true
+                                                font.family: win.monoFont
+                                                font.pixelSize: 13
                                             }
                                         }
                                     }
@@ -867,11 +917,11 @@ ApplicationWindow {
                             // Shared Folder Info Box
                             Rectangle {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 46
-                                radius: theme.radius
-                                color: theme.background
+                                Layout.preferredHeight: 40
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceInput
                                 border.width: 1
-                                border.color: theme.lighterBackground
+                                border.color: win.borderSubtle
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -880,16 +930,17 @@ ApplicationWindow {
                                     spacing: 10
 
                                     Text {
-                                        text: qsTr("SHARED WORKSPACE:")
+                                        text: qsTr("Shared Workspace")
                                         color: theme.muted
+                                        font.family: win.sansFont
                                         font.pixelSize: 11
-                                        font.bold: true
                                     }
                                     Text {
                                         Layout.fillWidth: true
                                         elide: Text.ElideMiddle
-                                        text: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  /workspace (inside OS)"
+                                        text: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  /workspace"
                                         color: theme.accent
+                                        font.family: win.monoFont
                                         font.pixelSize: 12
                                     }
                                 }
@@ -899,67 +950,74 @@ ApplicationWindow {
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-                                radius: theme.radius
-                                color: theme.background
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceInput
                                 border.width: 1
-                                border.color: theme.lighterBackground
+                                border.color: win.borderSubtle
 
                                 ColumnLayout {
                                     anchors.fill: parent
-                                    anchors.margins: 12
+                                    anchors.margins: 14
                                     spacing: 10
 
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 10
 
-                                        Text {
+                                        ColumnLayout {
                                             Layout.fillWidth: true
-                                            elide: Text.ElideRight
-                                            text: qsTr("INSTANT BTRFS SNAPSHOTS (TIME MACHINE)")
-                                            color: theme.muted
-                                            font.pixelSize: 11
-                                            font.bold: true
-                                        }
-
-                                        TextField {
-                                            id: snapNameInput
-                                            Layout.preferredWidth: 165
-                                            placeholderText: qsTr("Snapshot label (optional)")
-                                            font.pixelSize: 12
-                                            onTextChanged: win.customSnapshotName = text
-                                        }
-
-                                        Rectangle {
-                                            height: 32
-                                            width: snapCreateLabel.implicitWidth + 20
-                                            radius: Math.min(4, theme.radius)
-                                            color: theme.accent
-                                            opacity: backend.busy ? 0.5 : 1.0
+                                            spacing: 2
                                             Text {
-                                                id: snapCreateLabel
-                                                anchors.centerIn: parent
-                                                text: qsTr("+ Save Snapshot (P)")
-                                                color: theme.accentForeground
+                                                text: qsTr("Btrfs Snapshots (Instant Rollback)")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
                                                 font.pixelSize: 12
-                                                font.bold: true
+                                                font.weight: Font.Medium
                                             }
-                                            MouseArea {
-                                                anchors.fill: parent
-                                                enabled: !backend.busy
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
+                                            Text {
+                                                text: qsTr("Save OS state in 1 second before major AI changes")
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        FlatInput {
+                                            id: snapNameInput
+                                            Layout.preferredWidth: 180
+                                            implicitHeight: 32
+                                            placeholder: qsTr("Snapshot label (optional)")
+                                            onAccepted: {
+                                                if (!backend.busy) {
                                                     backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
                                                     snapNameInput.text = ""
                                                 }
                                             }
                                         }
+
+                                        ActionButton {
+                                            implicitHeight: 32
+                                            label: qsTr("+ Save Snapshot")
+                                            shortcutHint: "P"
+                                            disabled: backend.busy
+                                            onClicked: {
+                                                backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
+                                                snapNameInput.text = ""
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 1
+                                        color: win.borderSubtle
                                     }
 
                                     Text {
                                         visible: !backend.selectedEnvironment.snapshots || backend.selectedEnvironment.snapshots.length === 0
-                                        text: qsTr("No snapshots yet. Save a snapshot in 1 second before letting AI perform major system changes.")
+                                        text: qsTr("No snapshots saved for this environment yet.")
                                         color: theme.muted
+                                        font.family: win.sansFont
                                         font.pixelSize: 12
                                     }
 
@@ -974,66 +1032,48 @@ ApplicationWindow {
                                         delegate: Item {
                                             required property string modelData
                                             width: snapListView.width
-                                            height: 38
+                                            height: 36
 
                                             Rectangle {
                                                 anchors.fill: parent
-                                                radius: Math.min(4, theme.radius)
-                                                color: theme.darkBackground
+                                                radius: Math.min(3, theme.radius)
+                                                color: win.surfaceCard
+                                                border.width: 1
+                                                border.color: win.borderSubtle
 
                                                 RowLayout {
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 12
-                                                    anchors.rightMargin: 12
+                                                    anchors.rightMargin: 10
                                                     spacing: 10
 
                                                     Text {
+                                                        text: "●"
+                                                        color: theme.accent
+                                                        font.pixelSize: 10
+                                                    }
+
+                                                    Text {
                                                         Layout.fillWidth: true
-                                                        text: "📸  " + modelData
+                                                        text: modelData
                                                         color: theme.foreground
-                                                        font.pixelSize: 13
-                                                        font.bold: true
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 12
                                                     }
 
-                                                    Rectangle {
-                                                        height: 26
-                                                        width: restoreSnapText.implicitWidth + 16
-                                                        radius: Math.min(4, theme.radius)
-                                                        color: theme.lighterBackground
-                                                        Text {
-                                                            id: restoreSnapText
-                                                            anchors.centerIn: parent
-                                                            text: qsTr("Restore")
-                                                            color: theme.green
-                                                            font.pixelSize: 11
-                                                            font.bold: true
-                                                        }
-                                                        MouseArea {
-                                                            anchors.fill: parent
-                                                            enabled: !backend.busy
-                                                            cursorShape: Qt.PointingHandCursor
-                                                            onClicked: backend.restoreSnapshot(backend.selectedEnvironment.name || "", modelData)
-                                                        }
+                                                    ActionButton {
+                                                        implicitHeight: 24
+                                                        label: qsTr("Restore")
+                                                        disabled: backend.busy
+                                                        onClicked: backend.restoreSnapshot(backend.selectedEnvironment.name || "", modelData)
                                                     }
 
-                                                    Rectangle {
-                                                        height: 26
-                                                        width: delSnapText.implicitWidth + 16
-                                                        radius: Math.min(4, theme.radius)
-                                                        color: theme.lighterBackground
-                                                        Text {
-                                                            id: delSnapText
-                                                            anchors.centerIn: parent
-                                                            text: qsTr("Delete")
-                                                            color: theme.red
-                                                            font.pixelSize: 11
-                                                        }
-                                                        MouseArea {
-                                                            anchors.fill: parent
-                                                            enabled: !backend.busy
-                                                            cursorShape: Qt.PointingHandCursor
-                                                            onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
-                                                        }
+                                                    ActionButton {
+                                                        implicitHeight: 24
+                                                        label: qsTr("Delete")
+                                                        danger: true
+                                                        disabled: backend.busy
+                                                        onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
                                                     }
                                                 }
                                             }
@@ -1045,11 +1085,11 @@ ApplicationWindow {
                             // HEADLESS GUI TEST RUNNER
                             Rectangle {
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: 62
-                                radius: theme.radius
-                                color: theme.background
+                                Layout.preferredHeight: 54
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceInput
                                 border.width: 1
-                                border.color: theme.lighterBackground
+                                border.color: win.borderSubtle
 
                                 RowLayout {
                                     anchors.fill: parent
@@ -1057,38 +1097,31 @@ ApplicationWindow {
                                     anchors.rightMargin: 12
                                     spacing: 10
 
-                                    TextField {
-                                        id: headlessInput
-                                        Layout.fillWidth: true
-                                        placeholderText: qsTr("Headless GUI test command (e.g. flutter test, npm test, pytest)")
+                                    Text {
+                                        text: qsTr("Virtual Display:")
+                                        color: theme.muted
+                                        font.family: win.sansFont
                                         font.pixelSize: 12
                                     }
 
-                                    Rectangle {
-                                        height: 34
-                                        width: runHeadlessText.implicitWidth + 20
-                                        radius: Math.min(4, theme.radius)
-                                        color: theme.lighterBackground
-                                        border.width: 1
-                                        border.color: theme.accent
-                                        opacity: backend.busy ? 0.5 : 1.0
-                                        Text {
-                                            id: runHeadlessText
-                                            anchors.centerIn: parent
-                                            text: qsTr("Run in Virtual Display")
-                                            color: theme.accent
-                                            font.pixelSize: 12
-                                            font.bold: true
+                                    FlatInput {
+                                        id: headlessInput
+                                        Layout.fillWidth: true
+                                        implicitHeight: 32
+                                        placeholder: qsTr("Command for 1920x1080 Xvfb screen (e.g. flutter test, npm test, pytest)")
+                                        onAccepted: {
+                                            if (!backend.busy && headlessInput.text.length > 0)
+                                                backend.runHeadlessCommand(backend.selectedEnvironment.name || "", headlessInput.text)
                                         }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: !backend.busy
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                if (headlessInput.text.length > 0) {
-                                                    backend.runHeadlessCommand(backend.selectedEnvironment.name || "", headlessInput.text)
-                                                }
-                                            }
+                                    }
+
+                                    ActionButton {
+                                        implicitHeight: 32
+                                        label: qsTr("Run Headless")
+                                        disabled: backend.busy
+                                        onClicked: {
+                                            if (headlessInput.text.length > 0)
+                                                backend.runHeadlessCommand(backend.selectedEnvironment.name || "", headlessInput.text)
                                         }
                                     }
                                 }
@@ -1113,12 +1146,14 @@ ApplicationWindow {
                             Text {
                                 text: qsTr("Linux OS Image Catalog")
                                 color: theme.foreground
-                                font.pixelSize: 18
-                                font.bold: true
+                                font.family: win.sansFont
+                                font.pixelSize: 16
+                                font.weight: Font.Medium
                             }
                             Text {
-                                text: qsTr("Tap 'Download' to pre-cache an OS image locally so new environments launch in under 1 second, or tap 'Use OS' to start a project immediately.")
+                                text: qsTr("Pre-download OS images to local storage so new environments launch in under 1 second, or click 'Use This OS' to start immediately.")
                                 color: theme.muted
+                                font.family: win.sansFont
                                 font.pixelSize: 12
                             }
                         }
@@ -1129,81 +1164,86 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        spacing: 10
+                        spacing: 8
                         model: backend.osCatalog
 
                         delegate: Item {
                             required property var modelData
                             width: osListView.width
-                            height: 82
+                            height: 74
 
                             Rectangle {
                                 anchors.fill: parent
-                                radius: theme.radius
-                                color: theme.darkBackground
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceCard
                                 border.width: 1
-                                border.color: modelData.downloaded ? theme.green : theme.lighterBackground
+                                border.color: modelData.downloaded ? "#284d3a" : win.borderSubtle
 
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 18
-                                    anchors.rightMargin: 18
-                                    spacing: 16
+                                    anchors.leftMargin: 16
+                                    anchors.rightMargin: 16
+                                    spacing: 14
 
-                                    // OS Status Indicator Icon
                                     Rectangle {
-                                        width: 44
-                                        height: 44
-                                        radius: theme.radius
-                                        color: modelData.downloaded ? "#1d3528" : theme.lighterBackground
+                                        width: 36
+                                        height: 36
+                                        radius: Math.min(4, theme.radius)
+                                        color: modelData.downloaded ? "#162920" : win.surfaceInput
+                                        border.width: 1
+                                        border.color: modelData.downloaded ? "#284d3a" : win.borderSubtle
                                         Text {
                                             anchors.centerIn: parent
-                                            text: modelData.downloaded ? "✓" : "⬇"
+                                            text: modelData.downloaded ? "✓" : "↓"
                                             color: modelData.downloaded ? theme.green : theme.accent
-                                            font.pixelSize: 18
-                                            font.bold: true
+                                            font.family: win.monoFont
+                                            font.pixelSize: 14
                                         }
                                     }
 
-                                    // OS Info
                                     ColumnLayout {
                                         Layout.fillWidth: true
-                                        spacing: 4
+                                        spacing: 3
 
                                         RowLayout {
-                                            spacing: 10
+                                            spacing: 8
                                             Text {
                                                 text: modelData.name
                                                 color: theme.foreground
-                                                font.pixelSize: 15
-                                                font.bold: true
+                                                font.family: win.sansFont
+                                                font.pixelSize: 14
+                                                font.weight: Font.Medium
                                             }
                                             Rectangle {
-                                                height: 20
-                                                width: osBadgeText.implicitWidth + 12
-                                                radius: Math.min(4, theme.radius)
-                                                color: theme.lighterBackground
+                                                height: 18
+                                                width: osBadgeText.implicitWidth + 10
+                                                radius: 2
+                                                color: win.surfaceInput
+                                                border.width: 1
+                                                border.color: win.borderSubtle
                                                 Text {
                                                     id: osBadgeText
                                                     anchors.centerIn: parent
                                                     text: modelData.badge
                                                     color: theme.accent
+                                                    font.family: win.monoFont
                                                     font.pixelSize: 10
-                                                    font.bold: true
                                                 }
                                             }
                                             Rectangle {
-                                                height: 20
-                                                width: cacheStateText.implicitWidth + 12
-                                                radius: Math.min(4, theme.radius)
-                                                color: modelData.downloaded ? "#1d3528" : theme.background
+                                                height: 18
+                                                width: cacheStateText.implicitWidth + 10
+                                                radius: 2
+                                                color: modelData.downloaded ? "#162920" : win.surfaceInput
+                                                border.width: 1
+                                                border.color: modelData.downloaded ? "#284d3a" : win.borderSubtle
                                                 Text {
                                                     id: cacheStateText
                                                     anchors.centerIn: parent
                                                     text: modelData.downloading ? qsTr("Downloading...") : modelData.sizeText
                                                     color: modelData.downloaded ? theme.green : theme.muted
+                                                    font.family: win.monoFont
                                                     font.pixelSize: 10
-                                                    font.bold: modelData.downloaded
                                                 }
                                             }
                                         }
@@ -1213,67 +1253,33 @@ ApplicationWindow {
                                             elide: Text.ElideRight
                                             text: modelData.description
                                             color: theme.muted
+                                            font.family: win.sansFont
                                             font.pixelSize: 12
                                         }
                                     }
 
-                                    // Download or Remove Cache button
-                                    Rectangle {
-                                        height: 36
-                                        width: dlBtnText.implicitWidth + 24
-                                        radius: theme.radius
-                                        color: modelData.downloaded ? theme.background : theme.lighterBackground
-                                        border.width: 1
-                                        border.color: modelData.downloaded ? theme.muted : theme.accent
-                                        opacity: backend.busy ? 0.5 : 1.0
-
-                                        Text {
-                                            id: dlBtnText
-                                            anchors.centerIn: parent
-                                            text: modelData.downloading
-                                                  ? qsTr("Downloading...")
-                                                  : (modelData.downloaded ? qsTr("Remove Cache") : qsTr("Download OS"))
-                                            color: modelData.downloaded ? theme.muted : theme.accent
-                                            font.pixelSize: 12
-                                            font.bold: !modelData.downloaded
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: !backend.busy
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                if (modelData.downloaded)
-                                                    backend.removeOsImage(modelData.id)
-                                                else
-                                                    backend.downloadOsImage(modelData.id)
-                                            }
+                                    ActionButton {
+                                        label: modelData.downloading
+                                               ? qsTr("Downloading...")
+                                               : (modelData.downloaded ? qsTr("Remove Cache") : qsTr("Download OS"))
+                                        disabled: backend.busy
+                                        onClicked: {
+                                            if (modelData.downloaded)
+                                                backend.removeOsImage(modelData.id)
+                                            else
+                                                backend.downloadOsImage(modelData.id)
                                         }
                                     }
 
-                                    // Use OS to Create Environment button
-                                    Rectangle {
-                                        height: 36
-                                        width: useOsBtnText.implicitWidth + 24
-                                        radius: theme.radius
-                                        color: theme.accent
-                                        opacity: backend.busy ? 0.5 : 1.0
-                                        Text {
-                                            id: useOsBtnText
-                                            anchors.centerIn: parent
-                                            text: qsTr("Use This OS")
-                                            color: theme.accentForeground
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: !backend.busy
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                win.newEnvOsId = modelData.id
-                                                win.newEnvName = ""
-                                                win.createVisible = true
-                                            }
+                                    ActionButton {
+                                        label: qsTr("Use This OS")
+                                        primary: true
+                                        disabled: backend.busy
+                                        onClicked: {
+                                            win.newEnvOsId = modelData.id
+                                            win.newEnvName = ""
+                                            backend.clearError()
+                                            win.createVisible = true
                                         }
                                     }
                                 }
@@ -1285,26 +1291,29 @@ ApplicationWindow {
         }
 
         // ======================================================================
-        // MODAL 1: CREATE NEW ENVIRONMENT DIALOG
+        // MODAL 1: CREATE NEW ENVIRONMENT DIALOG (WITH LIVE PROGRESS & CANCEL)
         // ======================================================================
         Rectangle {
             anchors.fill: parent
             visible: win.createVisible
-            color: "#b0000000"
+            color: "#b806070a"
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: win.createVisible = false
+                onClicked: {
+                    if (!backend.busy)
+                        win.createVisible = false
+                }
             }
 
             Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 60, 680)
                 height: createCol.implicitHeight + 48
-                radius: theme.radius
-                color: theme.darkBackground
-                border.width: 2
-                border.color: theme.accent
+                radius: Math.min(6, theme.radius)
+                color: win.surfaceCard
+                border.width: 1
+                border.color: win.borderSubtle
 
                 MouseArea { anchors.fill: parent }
 
@@ -1314,304 +1323,495 @@ ApplicationWindow {
                     anchors.margins: 24
                     spacing: 16
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text {
-                            text: qsTr("Create Isolated Linux Environment")
-                            color: theme.foreground
-                            font.pixelSize: 18
-                            font.bold: true
-                        }
-                        Item { Layout.fillWidth: true }
-                        Text {
-                            text: "Esc"
-                            color: theme.muted
-                            font.pixelSize: 12
-                        }
-                    }
-
-                    TextField {
-                        id: createNameField
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Project / Environment Name (e.g. pos-desktop, flutter-app)")
-                        font.pixelSize: 14
-                        text: win.newEnvName
-                        onTextChanged: win.newEnvName = text
-                    }
-
-                    // 1. Preset Selection
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Text {
-                            text: qsTr("1. ENVIRONMENT CAPABILITY PRESET")
-                            color: theme.muted
-                            font.pixelSize: 11
-                            font.bold: true
-                        }
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 8
-                            Repeater {
-                                model: [
-                                    { id: "full", label: qsTr("Desktop & Mobile (GPU + KVM + GUI)") },
-                                    { id: "standard", label: qsTr("Standard AI / Web (Docker)") },
-                                    { id: "vm", label: qsTr("Full KVM Virtual Machine") }
-                                ]
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    height: 36
-                                    radius: theme.radius
-                                    color: win.newEnvPreset === modelData.id ? theme.accent : theme.background
-                                    border.width: 1
-                                    border.color: win.newEnvPreset === modelData.id ? theme.accent : theme.lighterBackground
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: modelData.label
-                                        color: win.newEnvPreset === modelData.id ? theme.accentForeground : theme.foreground
-                                        font.pixelSize: 12
-                                        font.bold: win.newEnvPreset === modelData.id
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: win.newEnvPreset = modelData.id
-                                    }
+                            ColumnLayout {
+                                spacing: 2
+                                Text {
+                                    text: backend.busy
+                                          ? qsTr("Creating Environment '%1'...").arg(backend.pendingEnvName.length > 0 ? backend.pendingEnvName : win.newEnvName)
+                                          : qsTr("Create Isolated Linux Environment")
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 16
+                                    font.weight: Font.Medium
+                                }
+                                Text {
+                                    text: backend.busy
+                                          ? qsTr("Runs in background — safe to close window or press Esc to minimize.")
+                                          : qsTr("Configure OS distribution, hardware limits, and shared folder.")
+                                    color: theme.muted
+                                    font.family: win.sansFont
+                                    font.pixelSize: 12
                                 }
                             }
-                        }
-                    }
-
-                    // 2. OS Selection Grid
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Text {
-                            text: qsTr("2. OPERATING SYSTEM (DISTRO)")
-                            color: theme.muted
-                            font.pixelSize: 11
-                            font.bold: true
-                        }
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 4
-                            columnSpacing: 8
-                            rowSpacing: 8
-                            Repeater {
-                                model: backend.osCatalog
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    height: 44
-                                    radius: theme.radius
-                                    color: win.newEnvOsId === modelData.id ? theme.accent : theme.background
-                                    border.width: 1
-                                    border.color: win.newEnvOsId === modelData.id ? theme.accent : theme.lighterBackground
-
-                                    ColumnLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 1
-                                        Text {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: modelData.id
-                                            color: win.newEnvOsId === modelData.id ? theme.accentForeground : theme.foreground
-                                            font.pixelSize: 12
-                                            font.bold: true
-                                        }
-                                        Text {
-                                            Layout.alignment: Qt.AlignHCenter
-                                            text: modelData.downloaded ? qsTr("✓ Cached") : modelData.badge
-                                            color: win.newEnvOsId === modelData.id ? theme.accentForeground : (modelData.downloaded ? theme.green : theme.muted)
-                                            font.pixelSize: 10
-                                        }
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: win.newEnvOsId = modelData.id
-                                    }
+                            Item { Layout.fillWidth: true }
+                            Rectangle {
+                                height: 22
+                                width: 34
+                                radius: 3
+                                color: win.surfaceInput
+                                border.width: 1
+                                border.color: win.borderSubtle
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Esc"
+                                    color: theme.muted
+                                    font.family: win.monoFont
+                                    font.pixelSize: 10
                                 }
-                            }
-                        }
-                    }
-
-                    // 3. Disk Size, RAM, and CPU selectors
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-
-                        // Disk Size
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Text {
-                                text: qsTr("3. MAX DISK SIZE")
-                                color: theme.muted
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                            RowLayout {
-                                spacing: 6
-                                Repeater {
-                                    model: ["20GiB", "35GiB", "60GiB", "100GiB"]
-                                    delegate: Rectangle {
-                                        required property string modelData
-                                        height: 32
-                                        width: 52
-                                        radius: Math.min(4, theme.radius)
-                                        color: win.newEnvDisk === modelData ? theme.accent : theme.background
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: modelData
-                                            color: win.newEnvDisk === modelData ? theme.accentForeground : theme.foreground
-                                            font.pixelSize: 11
-                                            font.bold: win.newEnvDisk === modelData
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: win.newEnvDisk = modelData
-                                        }
-                                    }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: win.createVisible = false
                                 }
                             }
                         }
 
-                        // RAM Limit
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Text {
-                                text: qsTr("4. RAM LIMIT")
-                                color: theme.muted
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                            RowLayout {
-                                spacing: 6
-                                Repeater {
-                                    model: ["4GiB", "6GiB", "8GiB", "12GiB"]
-                                    delegate: Rectangle {
-                                        required property string modelData
-                                        height: 32
-                                        width: 48
-                                        radius: Math.min(4, theme.radius)
-                                        color: win.newEnvRam === modelData ? theme.accent : theme.background
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: modelData
-                                            color: win.newEnvRam === modelData ? theme.accentForeground : theme.foreground
-                                            font.pixelSize: 11
-                                            font.bold: win.newEnvRam === modelData
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: win.newEnvRam = modelData
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // CPU Cores
-                        ColumnLayout {
-                            spacing: 6
-                            Text {
-                                text: qsTr("5. CPU CORES")
-                                color: theme.muted
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                            RowLayout {
-                                spacing: 6
-                                Repeater {
-                                    model: [2, 4, 6, 8]
-                                    delegate: Rectangle {
-                                        required property int modelData
-                                        height: 32
-                                        width: 36
-                                        radius: Math.min(4, theme.radius)
-                                        color: win.newEnvCpu === modelData ? theme.accent : theme.background
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: modelData
-                                            color: win.newEnvCpu === modelData ? theme.accentForeground : theme.foreground
-                                            font.pixelSize: 11
-                                            font.bold: win.newEnvCpu === modelData
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: win.newEnvCpu = modelData
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Shared folder preview
                     Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: win.borderSubtle
+                    }
+
+                    // Error box inside modal if validation fails
+                    Rectangle {
+                        visible: backend.errorMessage.length > 0 && !backend.busy
                         Layout.fillWidth: true
                         height: 36
                         radius: Math.min(4, theme.radius)
-                        color: theme.background
-                        Text {
-                            anchors.centerIn: parent
-                            text: qsTr("Shared Folder: %1/%2  ⟷  /workspace").arg(backend.workspaceBase).arg(win.newEnvName.length > 0 ? win.newEnvName : "<project-name>")
-                            color: theme.muted
-                            font.pixelSize: 12
+                        color: "#261319"
+                        border.width: 1
+                        border.color: theme.red
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: backend.errorMessage
+                                color: theme.red
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                            }
                         }
                     }
 
-                    // Dialog Buttons
-                    RowLayout {
+                    // ----------------------------------------------------------
+                    // VIEW A: CREATION FORM (SHOWN WHEN NOT BUSY)
+                    // ----------------------------------------------------------
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 12
-                        Item { Layout.fillWidth: true }
+                        visible: !backend.busy
+                        spacing: 16
 
-                        Rectangle {
-                            height: 38
-                            width: cancelCreateText.implicitWidth + 28
-                            radius: theme.radius
-                            color: theme.lighterBackground
-                            Text {
-                                id: cancelCreateText
-                                anchors.centerIn: parent
-                                text: qsTr("Cancel")
-                                color: theme.foreground
-                                font.pixelSize: 13
+                        // Project Name Field (Clean FlatInput, NO floating label!)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: qsTr("Project / Environment Name")
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: qsTr("Shared at: %1/%2").arg(backend.workspaceBase).arg(win.newEnvName.length > 0 ? win.newEnvName : "<name>")
+                                    color: theme.muted
+                                    font.family: win.monoFont
+                                    font.pixelSize: 11
+                                }
                             }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: win.createVisible = false
+
+                            FlatInput {
+                                id: createNameField
+                                Layout.fillWidth: true
+                                implicitHeight: 38
+                                placeholder: qsTr("e.g. pos-desktop, flutter-mobile, web-api")
+                                text: win.newEnvName
+                                onTextChanged: win.newEnvName = text
                             }
                         }
 
-                        Rectangle {
-                            height: 38
-                            width: confirmCreateText.implicitWidth + 32
-                            radius: theme.radius
-                            color: theme.accent
+                        // 1. Capability Preset
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
                             Text {
-                                id: confirmCreateText
-                                anchors.centerIn: parent
-                                text: qsTr("Create Environment")
-                                color: theme.accentForeground
-                                font.pixelSize: 13
-                                font.bold: true
+                                text: qsTr("Environment Capability Preset")
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                                font.weight: Font.Medium
                             }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                Repeater {
+                                    model: [
+                                        { id: "full", title: qsTr("Desktop & Mobile"), sub: qsTr("GPU + KVM + GUI Bridge") },
+                                        { id: "standard", title: qsTr("Standard AI / Web"), sub: qsTr("Docker + Isolated OS") },
+                                        { id: "vm", title: qsTr("Virtual Machine"), sub: qsTr("Full KVM Kernel (--vm)") }
+                                    ]
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        readonly property bool selected: win.newEnvPreset === modelData.id
+                                        Layout.fillWidth: true
+                                        height: 50
+                                        radius: Math.min(4, theme.radius)
+                                        color: selected ? win.surfaceSelected : win.surfaceInput
+                                        border.width: 1
+                                        border.color: selected ? theme.accent : win.borderSubtle
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            anchors.topMargin: 7
+                                            anchors.bottomMargin: 7
+                                            spacing: 2
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 6
+                                                Rectangle {
+                                                    width: 6
+                                                    height: 6
+                                                    radius: 3
+                                                    color: parent.parent.parent.selected ? theme.accent : theme.muted
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    elide: Text.ElideRight
+                                                    text: modelData.title
+                                                    color: parent.parent.parent.selected ? theme.foreground : theme.muted
+                                                    font.family: win.sansFont
+                                                    font.pixelSize: 12
+                                                    font.weight: parent.parent.parent.selected ? Font.Medium : Font.Normal
+                                                }
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                elide: Text.ElideRight
+                                                text: modelData.sub
+                                                color: theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 10
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: win.newEnvPreset = modelData.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Operating System (Distro)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Text {
+                                text: qsTr("Linux Distribution")
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                                font.weight: Font.Medium
+                            }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 4
+                                columnSpacing: 8
+                                rowSpacing: 8
+                                Repeater {
+                                    model: backend.osCatalog
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        readonly property bool selected: win.newEnvOsId === modelData.id
+                                        Layout.fillWidth: true
+                                        height: 46
+                                        radius: Math.min(4, theme.radius)
+                                        color: selected ? win.surfaceSelected : win.surfaceInput
+                                        border.width: 1
+                                        border.color: selected ? theme.accent : win.borderSubtle
+
+                                        ColumnLayout {
+                                            anchors.centerIn: parent
+                                            spacing: 2
+                                            Text {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: modelData.id
+                                                color: selected ? theme.foreground : theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 12
+                                            }
+                                            Text {
+                                                Layout.alignment: Qt.AlignHCenter
+                                                text: modelData.downloaded ? qsTr("✓ Cached") : modelData.badge
+                                                color: modelData.downloaded ? theme.green : theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                            }
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: win.newEnvOsId = modelData.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Disk, RAM, and CPU Quotas
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 16
+
+                            // Disk Size
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    text: qsTr("Disk Quota")
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Repeater {
+                                        model: ["20GiB", "35GiB", "60GiB", "100GiB"]
+                                        delegate: Rectangle {
+                                            required property string modelData
+                                            readonly property bool selected: win.newEnvDisk === modelData
+                                            height: 32
+                                            width: 54
+                                            radius: Math.min(4, theme.radius)
+                                            color: selected ? win.surfaceSelected : win.surfaceInput
+                                            border.width: 1
+                                            border.color: selected ? theme.accent : win.borderSubtle
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData
+                                                color: selected ? theme.accent : theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 11
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: win.newEnvDisk = modelData
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // RAM Limit
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    text: qsTr("RAM Limit")
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Repeater {
+                                        model: ["4GiB", "6GiB", "8GiB", "12GiB"]
+                                        delegate: Rectangle {
+                                            required property string modelData
+                                            readonly property bool selected: win.newEnvRam === modelData
+                                            height: 32
+                                            width: 48
+                                            radius: Math.min(4, theme.radius)
+                                            color: selected ? win.surfaceSelected : win.surfaceInput
+                                            border.width: 1
+                                            border.color: selected ? theme.accent : win.borderSubtle
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData
+                                                color: selected ? theme.accent : theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 11
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: win.newEnvRam = modelData
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // CPU Cores
+                            ColumnLayout {
+                                spacing: 6
+                                Text {
+                                    text: qsTr("CPU Cores")
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 12
+                                    font.weight: Font.Medium
+                                }
+                                RowLayout {
+                                    spacing: 6
+                                    Repeater {
+                                        model: [2, 4, 6, 8]
+                                        delegate: Rectangle {
+                                            required property int modelData
+                                            readonly property bool selected: win.newEnvCpu === modelData
+                                            height: 32
+                                            width: 36
+                                            radius: Math.min(4, theme.radius)
+                                            color: selected ? win.surfaceSelected : win.surfaceInput
+                                            border.width: 1
+                                            border.color: selected ? theme.accent : win.borderSubtle
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData
+                                                color: selected ? theme.accent : theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 11
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: win.newEnvCpu = modelData
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Dialog Footer Buttons
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 4
+                            spacing: 10
+                            Item { Layout.fillWidth: true }
+
+                            ActionButton {
+                                label: qsTr("Cancel")
+                                onClicked: win.createVisible = false
+                            }
+
+                            ActionButton {
+                                label: qsTr("Create Environment")
+                                primary: true
+                                disabled: backend.busy || win.newEnvName.trim().length === 0
                                 onClicked: {
                                     backend.createEnvironment(win.newEnvName, win.newEnvOsId, win.newEnvPreset,
                                                               win.newEnvDisk, win.newEnvRam, win.newEnvCpu)
-                                    win.createVisible = false
                                 }
+                            }
+                        }
+                    }
+
+                    // ----------------------------------------------------------
+                    // VIEW B: LIVE PROGRESS & CANCELLATION PANEL (WHEN BUSY)
+                    // ----------------------------------------------------------
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: backend.busy
+                        spacing: 14
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideRight
+                                text: backend.taskStage
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 13
+                            }
+                            Text {
+                                text: backend.taskProgress + "%"
+                                color: theme.accent
+                                font.family: win.monoFont
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        // Smooth Progress Bar
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 8
+                            radius: 4
+                            color: win.surfaceInput
+                            border.width: 1
+                            border.color: win.borderSubtle
+
+                            Rectangle {
+                                height: parent.height
+                                width: parent.width * (Math.max(4, backend.taskProgress) / 100.0)
+                                radius: 4
+                                color: theme.accent
+                                Behavior on width { NumberAnimation { duration: 150 } }
+                            }
+                        }
+
+                        // Live Terminal Log Output Box
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 44
+                            radius: Math.min(4, theme.radius)
+                            color: win.surfaceInput
+                            border.width: 1
+                            border.color: win.borderSubtle
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 8
+                                Text {
+                                    text: "$"
+                                    color: theme.accent
+                                    font.family: win.monoFont
+                                    font.pixelSize: 11
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    elide: Text.ElideLeft
+                                    text: backend.taskLog
+                                    color: theme.muted
+                                    font.family: win.monoFont
+                                    font.pixelSize: 11
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: qsTr("Creation is locked while an operation is running.")
+                                color: theme.muted
+                                font.family: win.sansFont
+                                font.pixelSize: 11
+                            }
+                            Item { Layout.fillWidth: true }
+                            ActionButton {
+                                label: qsTr("Cancel Creation")
+                                danger: true
+                                onClicked: backend.cancelTask()
                             }
                         }
                     }
@@ -1625,7 +1825,7 @@ ApplicationWindow {
         Rectangle {
             anchors.fill: parent
             visible: win.wipeVisible
-            color: "#b0000000"
+            color: "#b806070a"
 
             MouseArea {
                 anchors.fill: parent
@@ -1634,11 +1834,11 @@ ApplicationWindow {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - 60, 480)
+                width: Math.min(parent.width - 60, 460)
                 height: wipeCol.implicitHeight + 48
-                radius: theme.radius
-                color: theme.darkBackground
-                border.width: 2
+                radius: Math.min(6, theme.radius)
+                color: win.surfaceCard
+                border.width: 1
                 border.color: theme.red
 
                 MouseArea { anchors.fill: parent }
@@ -1647,74 +1847,92 @@ ApplicationWindow {
                     id: wipeCol
                     anchors.fill: parent
                     anchors.margins: 24
-                    spacing: 16
+                    spacing: 14
 
                     Text {
                         text: qsTr("Wipe Environment '%1'?").arg(backend.selectedEnvironment.name || "")
                         color: theme.foreground
-                        font.pixelSize: 18
-                        font.bold: true
+                        font.family: win.sansFont
+                        font.pixelSize: 16
+                        font.weight: Font.Medium
                     }
 
                     Text {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
+                        lineHeight: 1.35
                         text: qsTr("This will permanently destroy the entire Linux OS container, installed packages, databases, and snapshots inside '%1' in 1 second. Your host OS remains untouched.").arg(backend.selectedEnvironment.name || "")
                         color: theme.muted
-                        font.pixelSize: 13
+                        font.family: win.sansFont
+                        font.pixelSize: 12
                     }
 
-                    CheckBox {
-                        id: wipeFilesCheck
-                        checked: win.deleteWorkspaceOnWipe
-                        onCheckedChanged: win.deleteWorkspaceOnWipe = checked
-                        text: qsTr("Also delete shared project files in %1").arg(backend.selectedEnvironment.workspacePath || "")
+                    // Custom clean checkbox row
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 38
+                        radius: Math.min(4, theme.radius)
+                        color: win.surfaceInput
+                        border.width: 1
+                        border.color: win.deleteWorkspaceOnWipe ? theme.red : win.borderSubtle
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 10
+
+                            Rectangle {
+                                width: 16
+                                height: 16
+                                radius: 3
+                                color: win.deleteWorkspaceOnWipe ? theme.red : "transparent"
+                                border.width: 1
+                                border.color: win.deleteWorkspaceOnWipe ? theme.red : theme.muted
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: win.deleteWorkspaceOnWipe
+                                    text: "✓"
+                                    color: "black"
+                                    font.family: win.monoFont
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                elide: Text.ElideMiddle
+                                text: qsTr("Also delete shared project files in %1").arg(backend.selectedEnvironment.workspacePath || "")
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: win.deleteWorkspaceOnWipe = !win.deleteWorkspaceOnWipe
+                        }
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 12
+                        Layout.topMargin: 4
+                        spacing: 10
                         Item { Layout.fillWidth: true }
 
-                        Rectangle {
-                            height: 36
-                            width: cancelWipeText.implicitWidth + 24
-                            radius: theme.radius
-                            color: theme.lighterBackground
-                            Text {
-                                id: cancelWipeText
-                                anchors.centerIn: parent
-                                text: qsTr("Cancel")
-                                color: theme.foreground
-                                font.pixelSize: 13
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: win.wipeVisible = false
-                            }
+                        ActionButton {
+                            label: qsTr("Cancel")
+                            onClicked: win.wipeVisible = false
                         }
 
-                        Rectangle {
-                            height: 36
-                            width: confirmWipeText.implicitWidth + 28
-                            radius: theme.radius
-                            color: theme.red
-                            Text {
-                                id: confirmWipeText
-                                anchors.centerIn: parent
-                                text: qsTr("Wipe Environment Now")
-                                color: "black"
-                                font.pixelSize: 13
-                                font.bold: true
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    backend.wipeEnvironment(backend.selectedEnvironment.name || "", win.deleteWorkspaceOnWipe)
-                                    win.wipeVisible = false
-                                }
+                        ActionButton {
+                            label: qsTr("Wipe Environment Now")
+                            danger: true
+                            onClicked: {
+                                backend.wipeEnvironment(backend.selectedEnvironment.name || "", win.deleteWorkspaceOnWipe)
+                                win.wipeVisible = false
                             }
                         }
                     }
@@ -1728,7 +1946,7 @@ ApplicationWindow {
         Rectangle {
             anchors.fill: parent
             visible: win.helpVisible
-            color: "#b0000000"
+            color: "#b806070a"
 
             MouseArea {
                 anchors.fill: parent
@@ -1737,12 +1955,12 @@ ApplicationWindow {
 
             Rectangle {
                 anchors.centerIn: parent
-                width: 460
+                width: 440
                 height: helpCol.implicitHeight + 48
-                radius: theme.radius
-                color: theme.darkBackground
-                border.width: 2
-                border.color: theme.accent
+                radius: Math.min(6, theme.radius)
+                color: win.surfaceCard
+                border.width: 1
+                border.color: win.borderSubtle
 
                 MouseArea { anchors.fill: parent }
 
@@ -1750,13 +1968,20 @@ ApplicationWindow {
                     id: helpCol
                     anchors.fill: parent
                     anchors.margins: 24
-                    spacing: 12
+                    spacing: 10
 
                     Text {
                         text: qsTr("Keyboard Shortcuts")
                         color: theme.foreground
-                        font.pixelSize: 18
-                        font.bold: true
+                        font.family: win.sansFont
+                        font.pixelSize: 15
+                        font.weight: Font.Medium
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: win.borderSubtle
                     }
 
                     Repeater {
@@ -1776,24 +2001,28 @@ ApplicationWindow {
                         delegate: RowLayout {
                             required property var modelData
                             Layout.fillWidth: true
+                            spacing: 12
                             Rectangle {
-                                width: 110
-                                height: 26
-                                radius: Math.min(4, theme.radius)
-                                color: theme.lighterBackground
+                                width: 104
+                                height: 24
+                                radius: 3
+                                color: win.surfaceInput
+                                border.width: 1
+                                border.color: win.borderSubtle
                                 Text {
                                     anchors.centerIn: parent
                                     text: modelData.k
                                     color: theme.accent
-                                    font.pixelSize: 12
-                                    font.bold: true
+                                    font.family: win.monoFont
+                                    font.pixelSize: 11
                                 }
                             }
                             Text {
                                 Layout.fillWidth: true
                                 text: modelData.d
-                                color: theme.foreground
-                                font.pixelSize: 13
+                                color: theme.muted
+                                font.family: win.sansFont
+                                font.pixelSize: 12
                             }
                         }
                     }
