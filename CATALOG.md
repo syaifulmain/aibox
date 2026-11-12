@@ -47,13 +47,18 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [bin/setup-system](file:///home/saep/Work/aibox/bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
 | [bin/build](file:///home/saep/Work/aibox/bin/build) | Script | Compiles the application into `build/aibox`. |
 | [bin/test](file:///home/saep/Work/aibox/bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
-| [bin/install](file:///home/saep/Work/aibox/bin/install) | Script | Standard installation entry point; builds the application and installs the Arch Linux package via `makepkg -fsi`. |
-| [bin/uninstall](file:///home/saep/Work/aibox/bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus and all containers). |
+| [bin/install](file:///home/saep/Work/aibox/bin/install) | Script | Standard installation entry point; builds the application and installs the Arch Linux package via `makepkg -fsic --noconfirm`. |
+| [bin/uninstall](file:///home/saep/Work/aibox/bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus, UFW rules, and all containers). |
 | [AGENTS.md](file:///home/saep/Work/aibox/AGENTS.md) | Agent Policy | Mandatory instructions and workflow rules for AI agents (enforces automatic build, test, and system update). |
 
 ---
 
 ## 3. Changelog
+
+### Iteration 10 — Repository Maintenance & Clean Setup/Installation
+* **Repository Cleanup**: Removed unused root screenshot files (`config.png`, `first-run.png`), legacy `~/.local/bin/ai-box` helper script, and stale translation keys from `src/i18n/da.json` while adding the missing `%n OS entries` plural form to `src/i18n/en.json`.
+* **Single-Pass Clean Installer (`bin/install` & `pkgbuild/PKGBUILD`)**: Removed the duplicate `./bin/build` invocation before `makepkg` in `bin/install`, added `-c` (`--clean`) to automatically clean up `pkgbuild/pkg/` and `pkgbuild/src/` after installation, and declared explicit runtime/build dependencies (`acl`, `util-linux`, `qt6-base`) in `PKGBUILD`.
+* **Idempotent Host Setup & Uninstaller (`bin/setup-system` & `bin/uninstall`)**: Ensured all `incus` initialization commands in `bin/setup-system` run via `sudo` so first-time setup succeeds before user group re-login, and updated `bin/uninstall --full` to also clean up `incusbr0` UFW firewall rules.
 
 ### Iteration 9 — Project-Local Environment & Data Defaults
 * **Unified Installer**: Use `./bin/install` as the standard operation to build and install the Arch package.

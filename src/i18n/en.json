@@ -2,5 +2,9 @@
   "%n Environments": {
     "one": "%n Environment",
     "other": "%n Environments"
+  },
+  "%n OS entries": {
+    "one": "%n OS entry",
+    "other": "%n OS entries"
   }
 }
