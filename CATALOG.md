@@ -47,10 +47,16 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [bin/test](file:///home/saep/Work/aibox/bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
 | [bin/install](file:///home/saep/Work/aibox/bin/install) | Script | Builds and installs the Arch Linux package via `makepkg -fsi`. |
 | [bin/uninstall](file:///home/saep/Work/aibox/bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus and all containers). |
+| [AGENTS.md](file:///home/saep/Work/aibox/AGENTS.md) | Agent Policy | Mandatory instructions and workflow rules for AI agents (enforces automatic build, test, and system update). |
 
 ---
 
 ## 3. Changelog
+
+### Iteration 6 — Mandatory System Update Rule for AI Agents & Clean Package Rebuild
+* **Agent Guidelines & Permanent Rules ([AGENTS.md](file:///home/saep/Work/aibox/AGENTS.md))**: Added workspace rules and global rules enforcing that any AI agent adding a feature, modifying the UI, or fixing bugs must build (`./bin/build`), test (`./bin/test`), build the Arch package (`makepkg -f`), and update the system (`./bin/install`) so the device is always up to date.
+* **Symlink Interoperability**: Created `GEMINI.md` and `CLAUDE.md` symlinks pointing to `AGENTS.md` for cross-tool compatibility.
+* **Full Rebuild & Test Verification**: Clean recompiled `build/aibox`, verified all 13 offscreen Qt tests passed, and prepared the Arch Linux package in `pkgbuild/`.
 
 ### Iteration 5 — Visual Polish, Status Alignment, Dynamic OS Theme Accent for Start OS, & Uniform Button Metrics
 * **Inspector Title & Status Alignment**: Fixed layout calculation issue where the status badge squished and overlapped long environment titles. Given explicit preferred dimensions (`Layout.preferredWidth`, `Layout.preferredHeight: 22`), 12px horizontal separation, and an active status dot indicator.
