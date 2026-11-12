@@ -11,39 +11,14 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
 #include <csignal>
 #include <unistd.h>
 
 namespace {
-
-struct OsEntry {
-    const char *id;
-    const char *alias;
-    const char *name;
-    const char *badge;
-    const char *description;
-};
-
-constexpr OsEntry kOsEntries[] = {
-    {"ubuntu-24.04", "ubuntu/24.04", "Ubuntu 24.04 LTS (Noble)", "Recommended",
-     "Best compatibility for AI tools, Desktop (Electron/Qt/Flutter), and Android SDK."},
-    {"ubuntu-22.04", "ubuntu/22.04", "Ubuntu 22.04 LTS (Jammy)", "LTS",
-     "Proven long-term support release for legacy C++, Python, and mobile toolchains."},
-    {"debian-12", "debian/12", "Debian 12 (Bookworm)", "Lightweight",
-     "Rock-solid stability with low RAM overhead (~60 MB idle). Ideal for backend & databases."},
-    {"archlinux", "archlinux", "Arch Linux", "Rolling",
-     "Bleeding-edge packages matching Omarchy. Great for native C++, Rust, and Qt6 builds."},
-    {"fedora-41", "fedora/41", "Fedora 41", "Modern",
-     "Up-to-date workstation & server stack with modern GCC, Podman/Docker, and Wayland."},
-    {"alpine-3.21", "alpine/3.21", "Alpine Linux 3.21", "Ultra-Light",
-     "Featherweight (~5 MB) musl/BusyBox system. Boots in 0.5s for rapid CLI/microservice tests."},
-    {"kali", "kali", "Kali Linux Rolling", "Security",
-     "Pre-configured distribution for security auditing and penetration testing projects."},
-    {"rockylinux-9", "rockylinux/9", "Rocky Linux 9", "Enterprise",
-     "100% bug-for-bug RHEL 9 compatible environment for production server testing."}
-};
 
 QString formatBytes(qint64 bytes) {
     if (bytes <= 0)
@@ -54,22 +29,58 @@ QString formatBytes(qint64 bytes) {
     return QStringLiteral("%1 MB").arg(mb, 0, 'f', 0);
 }
 
-QString findOsAlias(const QString &osId) {
-    for (const auto &entry : kOsEntries) {
-        if (osId == QLatin1String(entry.id))
-            return QString::fromLatin1(entry.alias);
+QStringList validatedSizeOptions(const QStringList &values) {
+    static const QRegularExpression sizeRe(QStringLiteral("^\\d+(?:\\.\\d+)?(?:GiB|MiB|TiB|GB|MB|TB)$"),
+                                           QRegularExpression::CaseInsensitiveOption);
+    QStringList result;
+    for (const auto &raw : values) {
+        const QString value = raw.trimmed();
+        if (value.isEmpty() || !sizeRe.match(value).hasMatch())
+            continue;
+        if (!result.contains(value, Qt::CaseInsensitive))
+            result.append(value);
     }
-    return QStringLiteral("ubuntu/24.04");
+    return result;
+}
+
+QVariantList validatedCpuOptions(const QVariantList &values) {
+    QVariantList result;
+    QSet<int> seen;
+    for (const auto &raw : values) {
+        bool ok = false;
+        const int cores = raw.toInt(&ok);
+        if (!ok || cores < 1 || cores > 1024 || seen.contains(cores))
+            continue;
+        seen.insert(cores);
+        result.append(cores);
+    }
+    return result;
 }
 
 } // namespace
 
 Backend::Backend(const QString &workspaceDir, QObject *parent)
     : QObject(parent),
-      m_workspaceBase(workspaceDir.isEmpty() ? QDir::homePath() + "/ai-workspaces" : workspaceDir),
-      m_stateDir(workspaceDir.isEmpty() ? QDir::homePath() + "/.cache/aibox" : workspaceDir + "/.state"),
+      m_workspaceBase(workspaceDir.isEmpty() ? defaultWorkspacePath() : QDir::cleanPath(workspaceDir)),
+      m_osStoragePath(workspaceDir.isEmpty() ? defaultOsStoragePathValue() : workspaceDir + "/os-images"),
+      m_stateDir(workspaceDir.isEmpty() ? QDir::currentPath() + "/.aibox/state" : workspaceDir + "/.state"),
+      m_configPath(workspaceDir.isEmpty()
+                       ? QDir::currentPath() + "/.aibox/config.json"
+                       : workspaceDir + "/.state/config.json"),
       m_demoMode(qEnvironmentVariableIntValue("AIBOX_DEMO_MODE") == 1) {
-    m_osCatalog = buildOsCatalog({});
+    m_osEntries = defaultOsEntries();
+    m_presets = defaultPresets();
+    m_diskOptions = defaultDiskOptions();
+    m_ramOptions = defaultRamOptions();
+    m_cpuOptions = defaultCpuOptions();
+    m_defaultPresetId = QStringLiteral("full");
+    m_defaultOsId = QStringLiteral("ubuntu-24.04");
+    m_defaultDisk = QStringLiteral("35GiB");
+    m_defaultRam = QStringLiteral("6GiB");
+    m_defaultCpu = 4;
+
+    loadConfig();
+    rebuildOsCatalog();
 
     if (m_demoMode) {
         loadDemoData();
@@ -77,6 +88,7 @@ Backend::Backend(const QString &workspaceDir, QObject *parent)
     }
 
     QDir().mkpath(m_workspaceBase);
+    QDir().mkpath(m_osStoragePath);
     QDir().mkpath(m_stateDir);
 
     m_taskWatchTimer.setInterval(250);
@@ -105,6 +117,585 @@ Backend::~Backend() {
         m_refreshProcess->waitForFinished(500);
     }
 }
+
+QString Backend::defaultWorkspacePath() {
+    return QDir::currentPath() + "/.aibox/workspaces";
+}
+
+QString Backend::defaultOsStoragePathValue() {
+    return QDir::currentPath() + "/.aibox/os-images";
+}
+
+QVariantList Backend::defaultOsEntries() {
+    auto entry = [](const char *id, const char *alias, const char *name, const char *badge, const char *description) {
+        QVariantMap map;
+        map["id"] = QString::fromLatin1(id);
+        map["alias"] = QString::fromLatin1(alias);
+        map["name"] = QString::fromLatin1(name);
+        map["badge"] = QString::fromLatin1(badge);
+        map["description"] = QString::fromLatin1(description);
+        return map;
+    };
+
+    return {
+        entry("ubuntu-24.04", "ubuntu/24.04", "Ubuntu 24.04 LTS (Noble)", "Recommended",
+              "Best compatibility for AI tools, Desktop (Electron/Qt/Flutter), and Android SDK."),
+        entry("ubuntu-22.04", "ubuntu/22.04", "Ubuntu 22.04 LTS (Jammy)", "LTS",
+              "Proven long-term support release for legacy C++, Python, and mobile toolchains."),
+        entry("debian-12", "debian/12", "Debian 12 (Bookworm)", "Lightweight",
+              "Rock-solid stability with low RAM overhead (~60 MB idle). Ideal for backend & databases."),
+        entry("archlinux", "archlinux", "Arch Linux", "Rolling",
+              "Bleeding-edge packages matching Omarchy. Great for native C++, Rust, and Qt6 builds."),
+        entry("fedora-41", "fedora/41", "Fedora 41", "Modern",
+              "Up-to-date workstation & server stack with modern GCC, Podman/Docker, and Wayland."),
+        entry("alpine-3.21", "alpine/3.21", "Alpine Linux 3.21", "Ultra-Light",
+              "Featherweight (~5 MB) musl/BusyBox system. Boots in 0.5s for rapid CLI/microservice tests."),
+        entry("kali", "kali", "Kali Linux Rolling", "Security",
+              "Pre-configured distribution for security auditing and penetration testing projects."),
+        entry("rockylinux-9", "rockylinux/9", "Rocky Linux 9", "Enterprise",
+              "100% bug-for-bug RHEL 9 compatible environment for production server testing.")
+    };
+}
+
+QVariantList Backend::defaultPresets() {
+    auto preset = [](const char *id, const char *title, const char *sub, const char *flags, bool x11) {
+        QVariantMap map;
+        map["id"] = QString::fromLatin1(id);
+        map["title"] = QString::fromLatin1(title);
+        map["sub"] = QString::fromLatin1(sub);
+        map["flags"] = QString::fromLatin1(flags);
+        map["x11"] = x11;
+        return map;
+    };
+
+    return {
+        preset("full", "Desktop & Mobile", "GPU + KVM + GUI Bridge", "-p default -p ai-gui", true),
+        preset("standard", "Standard AI / Web", "Docker + Isolated OS", "-p default -c security.nesting=true", false),
+        preset("vm", "Virtual Machine", "Full KVM Kernel (--vm)", "--vm -p default", false)
+    };
+}
+
+QStringList Backend::defaultDiskOptions() {
+    return {QStringLiteral("20GiB"), QStringLiteral("35GiB"), QStringLiteral("60GiB"), QStringLiteral("100GiB")};
+}
+
+QStringList Backend::defaultRamOptions() {
+    return {QStringLiteral("4GiB"), QStringLiteral("6GiB"), QStringLiteral("8GiB"), QStringLiteral("12GiB")};
+}
+
+QVariantList Backend::defaultCpuOptions() {
+    return {2, 4, 6, 8};
+}
+
+QString Backend::normalizedPath(const QString &raw, const QString &fallback) const {
+    QString path = raw.trimmed();
+    if (path.isEmpty())
+        path = fallback;
+    if (path == QLatin1String("~"))
+        path = QDir::homePath();
+    else if (path.startsWith(QLatin1String("~/")))
+        path = QDir::homePath() + path.mid(1);
+    if (!QDir::isAbsolutePath(path))
+        path = QDir::homePath() + "/" + path;
+    return QDir::cleanPath(path);
+}
+
+QString Backend::workspacePathFor(const QString &name) const {
+    for (const auto &value : m_environments) {
+        const QVariantMap env = value.toMap();
+        if (env.value("name").toString() == name) {
+            const QString path = env.value("workspacePath").toString();
+            if (!path.isEmpty())
+                return path;
+        }
+    }
+    return m_workspaceBase + "/" + name;
+}
+
+QString Backend::cacheBasePath(const QString &osId) const {
+    QString safe = osId;
+    safe.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
+    return m_osStoragePath + "/" + safe;
+}
+
+QVariantMap Backend::presetById(const QString &id) const {
+    for (const auto &value : m_presets) {
+        const QVariantMap preset = value.toMap();
+        if (preset.value("id").toString() == id)
+            return preset;
+    }
+    return {};
+}
+
+QVariantMap Backend::osEntryById(const QString &id) const {
+    for (const auto &value : m_osEntries) {
+        const QVariantMap entry = value.toMap();
+        if (entry.value("id").toString() == id)
+            return entry;
+    }
+    return {};
+}
+
+void Backend::normalizeDefaults() {
+    QStringList presetIds;
+    for (const auto &value : m_presets)
+        presetIds.append(value.toMap().value("id").toString());
+    if (!presetIds.contains(m_defaultPresetId))
+        m_defaultPresetId = presetIds.value(0, QStringLiteral("standard"));
+
+    if (!m_diskOptions.contains(m_defaultDisk))
+        m_defaultDisk = m_diskOptions.value(0, QStringLiteral("35GiB"));
+    if (!m_ramOptions.contains(m_defaultRam))
+        m_defaultRam = m_ramOptions.value(0, QStringLiteral("6GiB"));
+
+    bool cpuFound = false;
+    for (const auto &value : m_cpuOptions) {
+        if (value.toInt() == m_defaultCpu) {
+            cpuFound = true;
+            break;
+        }
+    }
+    if (!cpuFound)
+        m_defaultCpu = m_cpuOptions.value(0, 4).toInt();
+
+    QStringList osIds;
+    for (const auto &value : m_osEntries)
+        osIds.append(value.toMap().value("id").toString());
+    if (!osIds.contains(m_defaultOsId))
+        m_defaultOsId = osIds.value(0, QStringLiteral("ubuntu-24.04"));
+}
+
+void Backend::loadConfig() {
+    QFile file(m_configPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        m_firstRun = true;
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        m_firstRun = true;
+        return;
+    }
+
+    const QJsonObject obj = doc.object();
+    m_firstRun = !obj.value("firstRunCompleted").toBool(false);
+
+    const QString workspace = obj.value("workspaceBase").toString().trimmed();
+    if (!workspace.isEmpty())
+        m_workspaceBase = normalizedPath(workspace, defaultWorkspacePath());
+
+    const QString osStorage = obj.value("osStoragePath").toString().trimmed();
+    if (!osStorage.isEmpty())
+        m_osStoragePath = normalizedPath(osStorage, defaultOsStoragePathValue());
+
+    QVariantList entries;
+    QSet<QString> seenIds;
+    for (const auto &value : obj.value("osCatalog").toArray()) {
+        const QVariantMap source = value.toObject().toVariantMap();
+        const QString id = source.value("id").toString().trimmed().toLower();
+        if (id.isEmpty() || seenIds.contains(id))
+            continue;
+        seenIds.insert(id);
+
+        QVariantMap entry;
+        entry["id"] = id;
+        const QString alias = source.value("alias").toString().trimmed();
+        entry["alias"] = alias.isEmpty() ? id : alias;
+        const QString name = source.value("name").toString().trimmed();
+        entry["name"] = name.isEmpty() ? id : name;
+        const QString badge = source.value("badge").toString().trimmed();
+        entry["badge"] = badge.isEmpty() ? QStringLiteral("Custom") : badge;
+        entry["description"] = source.value("description").toString().trimmed();
+        entries.append(entry);
+    }
+    if (!entries.isEmpty())
+        m_osEntries = entries;
+
+    const QVariantList defaults = defaultPresets();
+    QVariantList presets;
+    for (const auto &value : obj.value("presets").toArray()) {
+        const QVariantMap source = value.toObject().toVariantMap();
+        const QString id = source.value("id").toString().trimmed();
+        const QString title = source.value("title").toString().trimmed();
+        if (id.isEmpty() || title.isEmpty())
+            continue;
+
+        QVariantMap fallback;
+        for (const auto &candidate : defaults) {
+            if (candidate.toMap().value("id").toString() == id) {
+                fallback = candidate.toMap();
+                break;
+            }
+        }
+
+        QVariantMap preset;
+        preset["id"] = id;
+        preset["title"] = title;
+        preset["sub"] = source.value("sub").toString().trimmed();
+        preset["flags"] = source.value("flags").toString().trimmed().isEmpty()
+                              ? fallback.value("flags", QStringLiteral("-p default")).toString()
+                              : source.value("flags").toString().trimmed();
+        preset["x11"] = source.contains("x11") ? source.value("x11").toBool()
+                                               : fallback.value("x11", false).toBool();
+        presets.append(preset);
+    }
+    if (!presets.isEmpty())
+        m_presets = presets;
+
+    auto jsonStrings = [](const QJsonArray &array) {
+        QStringList values;
+        for (const auto &value : array) {
+            if (value.isString())
+                values.append(value.toString());
+            else if (value.isDouble())
+                values.append(QString::number(value.toInt()));
+        }
+        return values;
+    };
+
+    const QStringList disk = validatedSizeOptions(jsonStrings(obj.value("diskOptions").toArray()));
+    if (!disk.isEmpty())
+        m_diskOptions = disk;
+    const QStringList ram = validatedSizeOptions(jsonStrings(obj.value("ramOptions").toArray()));
+    if (!ram.isEmpty())
+        m_ramOptions = ram;
+
+    QVariantList cpuValues;
+    for (const auto &value : obj.value("cpuOptions").toArray()) {
+        if (value.isDouble())
+            cpuValues.append(value.toInt());
+        else if (value.isString())
+            cpuValues.append(value.toString().toInt());
+    }
+    const QVariantList cpus = validatedCpuOptions(cpuValues);
+    if (!cpus.isEmpty())
+        m_cpuOptions = cpus;
+
+    const QString defaultPreset = obj.value("defaultPresetId").toString().trimmed();
+    if (!defaultPreset.isEmpty())
+        m_defaultPresetId = defaultPreset;
+    const QString defaultOs = obj.value("defaultOsId").toString().trimmed();
+    if (!defaultOs.isEmpty())
+        m_defaultOsId = defaultOs;
+    const QString defaultDiskValue = obj.value("defaultDisk").toString().trimmed();
+    if (!defaultDiskValue.isEmpty())
+        m_defaultDisk = defaultDiskValue;
+    const QString defaultRamValue = obj.value("defaultRam").toString().trimmed();
+    if (!defaultRamValue.isEmpty())
+        m_defaultRam = defaultRamValue;
+
+    const QJsonValue defaultCpu = obj.value("defaultCpu");
+    if (defaultCpu.isDouble()) {
+        const int cores = defaultCpu.toInt();
+        if (cores > 0 && cores <= 1024)
+            m_defaultCpu = cores;
+    }
+
+    normalizeDefaults();
+}
+
+bool Backend::saveConfig() const {
+    const QString directory = QFileInfo(m_configPath).absolutePath();
+    if (!QDir().mkpath(directory))
+        return false;
+
+    QJsonObject obj;
+    obj["version"] = 1;
+    obj["firstRunCompleted"] = !m_firstRun;
+    obj["workspaceBase"] = m_workspaceBase;
+    obj["osStoragePath"] = m_osStoragePath;
+    obj["osCatalog"] = QJsonArray::fromVariantList(m_osEntries);
+    obj["presets"] = QJsonArray::fromVariantList(m_presets);
+    obj["diskOptions"] = QJsonArray::fromStringList(m_diskOptions);
+    obj["ramOptions"] = QJsonArray::fromStringList(m_ramOptions);
+    obj["cpuOptions"] = QJsonArray::fromVariantList(m_cpuOptions);
+    obj["defaultPresetId"] = m_defaultPresetId;
+    obj["defaultOsId"] = m_defaultOsId;
+    obj["defaultDisk"] = m_defaultDisk;
+    obj["defaultRam"] = m_defaultRam;
+    obj["defaultCpu"] = m_defaultCpu;
+
+    QSaveFile file(m_configPath);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    return file.commit();
+}
+
+void Backend::rebuildOsCatalog() {
+    const QVariantList catalog = catalogForEntries(m_osEntries, m_lastImagesJson, m_downloadingOsId, m_osStoragePath);
+    normalizeDefaults();
+    if (catalog != m_osCatalog) {
+        m_osCatalog = catalog;
+        emit osCatalogChanged();
+    }
+}
+
+QString Backend::completeFirstRun(const QString &workspacePath) {
+    const QString workspace = normalizedPath(workspacePath, m_workspaceBase);
+    if (!QDir().mkpath(workspace))
+        return tr("Could not create the workspace directory: %1").arg(workspace);
+    const QFileInfo info(workspace);
+    if (!info.isDir() || !info.isWritable())
+        return tr("The workspace directory is not writable: %1").arg(workspace);
+
+    const bool workspaceChanged = workspace != m_workspaceBase;
+    m_workspaceBase = workspace;
+    m_firstRun = false;
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    emit firstRunChanged();
+    if (workspaceChanged)
+        emit workspaceBaseChanged();
+    return {};
+}
+
+QString Backend::saveSettings(const QString &workspacePath, const QString &osStoragePath) {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    const QString workspace = normalizedPath(workspacePath, defaultWorkspacePath());
+    const QString osStorage = normalizedPath(osStoragePath, defaultOsStoragePathValue());
+
+    if (!QDir().mkpath(workspace))
+        return tr("Could not create the workspace directory: %1").arg(workspace);
+    if (!QFileInfo(workspace).isWritable())
+        return tr("The workspace directory is not writable: %1").arg(workspace);
+    if (!QDir().mkpath(osStorage))
+        return tr("Could not create the OS storage directory: %1").arg(osStorage);
+    if (!QFileInfo(osStorage).isWritable())
+        return tr("The OS storage directory is not writable: %1").arg(osStorage);
+
+    const bool workspaceChanged = workspace != m_workspaceBase;
+    const bool storageChanged = osStorage != m_osStoragePath;
+    const bool wasFirstRun = m_firstRun;
+    m_workspaceBase = workspace;
+    m_osStoragePath = osStorage;
+    m_firstRun = false;
+
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    if (workspaceChanged)
+        emit workspaceBaseChanged();
+    if (storageChanged)
+        emit osStoragePathChanged();
+    if (wasFirstRun)
+        emit firstRunChanged();
+    if (storageChanged)
+        rebuildOsCatalog();
+
+    m_statusMessage = tr("Configuration saved.");
+    emit statusMessageChanged();
+    return {};
+}
+
+QString Backend::saveOsEntry(const QString &originalId, const QString &id, const QString &alias,
+                             const QString &name, const QString &badge, const QString &description) {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    static const QRegularExpression idRe(QStringLiteral("^[a-z0-9][a-z0-9._-]{0,63}$"));
+    static const QRegularExpression aliasRe(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"));
+
+    const QString newId = id.trimmed().toLower();
+    if (!idRe.match(newId).hasMatch())
+        return tr("OS ID must use lowercase letters, numbers, dots, dashes, or underscores.");
+
+    QString newAlias = alias.trimmed();
+    if (newAlias.isEmpty())
+        newAlias = newId;
+    if (!aliasRe.match(newAlias).hasMatch())
+        return tr("Image alias must use letters, numbers, dots, slashes, dashes, or underscores.");
+
+    const QString newName = name.trimmed().isEmpty() ? newAlias : name.trimmed();
+    const QString newBadge = badge.trimmed().isEmpty() ? tr("Custom") : badge.trimmed();
+    const QString newDescription = description.trimmed();
+
+    int foundIndex = -1;
+    for (int i = 0; i < m_osEntries.size(); ++i) {
+        const QString entryId = m_osEntries.at(i).toMap().value("id").toString();
+        if (!originalId.isEmpty() && entryId == originalId)
+            foundIndex = i;
+        if (entryId == newId && entryId != originalId)
+            return tr("An OS entry with the ID '%1' already exists.").arg(newId);
+    }
+    if (!originalId.isEmpty() && foundIndex < 0)
+        return tr("The OS entry '%1' no longer exists.").arg(originalId);
+
+    QVariantMap entry;
+    entry["id"] = newId;
+    entry["alias"] = newAlias;
+    entry["name"] = newName;
+    entry["badge"] = newBadge;
+    entry["description"] = newDescription;
+
+    if (foundIndex >= 0)
+        m_osEntries[foundIndex] = entry;
+    else
+        m_osEntries.append(entry);
+
+    if (m_defaultOsId == originalId)
+        m_defaultOsId = newId;
+
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    rebuildOsCatalog();
+    m_statusMessage = tr("OS entry '%1' saved.").arg(newName);
+    emit statusMessageChanged();
+    return {};
+}
+
+QString Backend::removeOsEntry(const QString &id) {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    if (m_osEntries.size() <= 1)
+        return tr("Keep at least one OS entry in the catalog.");
+
+    const QString target = id.trimmed();
+    int foundIndex = -1;
+    for (int i = 0; i < m_osEntries.size(); ++i) {
+        if (m_osEntries.at(i).toMap().value("id").toString() == target) {
+            foundIndex = i;
+            break;
+        }
+    }
+    if (foundIndex < 0)
+        return tr("The OS entry '%1' was not found.").arg(target);
+
+    m_osEntries.removeAt(foundIndex);
+    normalizeDefaults();
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    rebuildOsCatalog();
+    m_statusMessage = tr("OS entry removed from the catalog.");
+    emit statusMessageChanged();
+    return {};
+}
+
+QString Backend::resetOsCatalog() {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    m_osEntries = defaultOsEntries();
+    m_defaultOsId = QStringLiteral("ubuntu-24.04");
+    normalizeDefaults();
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+    rebuildOsCatalog();
+    return {};
+}
+
+QString Backend::saveCreateOptions(const QString &diskCsv, const QString &ramCsv, const QString &cpuCsv) {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    const QStringList rawDisk = parseCsv(diskCsv);
+    const QStringList disk = validatedSizeOptions(rawDisk);
+    if (disk.isEmpty())
+        return tr("Add at least one disk quota value, for example 35GiB.");
+    if (disk.size() != rawDisk.size())
+        return tr("Disk quota values must look like 35GiB, 60GiB, or 512MiB.");
+
+    const QStringList rawRam = parseCsv(ramCsv);
+    const QStringList ram = validatedSizeOptions(rawRam);
+    if (ram.isEmpty())
+        return tr("Add at least one RAM limit value, for example 6GiB.");
+    if (ram.size() != rawRam.size())
+        return tr("RAM limit values must look like 4GiB, 6GiB, or 512MiB.");
+
+    QVariantList cpuValues;
+    for (const auto &raw : parseCsv(cpuCsv)) {
+        bool ok = false;
+        const int cores = raw.toInt(&ok);
+        if (!ok || cores < 1 || cores > 1024)
+            return tr("CPU core values must be whole numbers between 1 and 1024.");
+        cpuValues.append(cores);
+    }
+    const QVariantList cpus = validatedCpuOptions(cpuValues);
+    if (cpus.isEmpty())
+        return tr("Add at least one CPU core value, for example 4.");
+
+    m_diskOptions = disk;
+    m_ramOptions = ram;
+    m_cpuOptions = cpus;
+    normalizeDefaults();
+
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    emit createOptionsChanged();
+    return {};
+}
+
+QString Backend::savePreset(const QString &id, const QString &title, const QString &subtitle) {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    const QString newTitle = title.trimmed();
+    if (newTitle.isEmpty())
+        return tr("The preset title cannot be empty.");
+
+    for (int i = 0; i < m_presets.size(); ++i) {
+        QVariantMap preset = m_presets.at(i).toMap();
+        if (preset.value("id").toString() != id)
+            continue;
+        preset["title"] = newTitle;
+        preset["sub"] = subtitle.trimmed();
+        m_presets[i] = preset;
+        if (!saveConfig())
+            return tr("Could not save the configuration file: %1").arg(m_configPath);
+        emit createOptionsChanged();
+        return {};
+    }
+    return tr("The preset '%1' no longer exists.").arg(id);
+}
+
+QString Backend::resetCreateOptions() {
+    if (m_busy)
+        return tr("Wait for the current operation to finish before changing the configuration.");
+    m_presets = defaultPresets();
+    m_diskOptions = defaultDiskOptions();
+    m_ramOptions = defaultRamOptions();
+    m_cpuOptions = defaultCpuOptions();
+    m_defaultPresetId = QStringLiteral("full");
+    m_defaultDisk = QStringLiteral("35GiB");
+    m_defaultRam = QStringLiteral("6GiB");
+    m_defaultCpu = 4;
+    normalizeDefaults();
+
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+    emit createOptionsChanged();
+    return {};
+}
+
+QUrl Backend::pathToUrl(const QString &path) const {
+    return QUrl::fromLocalFile(path);
+}
+
+QString Backend::localPath(const QUrl &url) const {
+    return url.toLocalFile();
+}
+
+QStringList Backend::parseCsv(const QString &text) {
+    static const QRegularExpression separator(QStringLiteral("[,;\\n]"));
+    QStringList values;
+    for (const QString &part : text.split(separator, Qt::SkipEmptyParts)) {
+        const QString value = part.trimmed();
+        if (!value.isEmpty())
+            values.append(value);
+    }
+    values.removeDuplicates();
+    return values;
+}
+
+QString Backend::shellQuote(const QString &value) {
+    QString escaped = value;
+    escaped.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
 
 void Backend::primaryAction() {
     ++m_count;
@@ -244,6 +835,12 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
                 snapshots.append(snapName);
         }
 
+        QString workspacePath = expandedDevices.value("workspace").toObject().value("source").toString();
+        if (workspacePath.isEmpty())
+            workspacePath = devices.value("workspace").toObject().value("source").toString();
+        if (workspacePath.isEmpty())
+            workspacePath = workspaceBase + "/" + name;
+
         QVariantMap item;
         item["name"] = name;
         item["status"] = status;
@@ -256,7 +853,7 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
         item["memoryUsage"] = memoryUsage;
         item["diskLimit"] = diskLimit;
         item["ipv4"] = ipv4;
-        item["workspacePath"] = workspaceBase + "/" + name;
+        item["workspacePath"] = workspacePath;
         item["snapshotCount"] = snapshots.size();
         item["snapshots"] = snapshots;
         result.append(item);
@@ -265,7 +862,8 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
     return result;
 }
 
-QVariantList Backend::buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId) {
+QVariantList Backend::catalogForEntries(const QVariantList &entries, const QByteArray &imagesJson,
+                                        const QString &downloadingId, const QString &storagePath) {
     QHash<QString, qint64> cachedAliases;
     const auto doc = QJsonDocument::fromJson(imagesJson);
     if (doc.isArray()) {
@@ -286,25 +884,48 @@ QVariantList Backend::buildOsCatalog(const QByteArray &imagesJson, const QString
     }
 
     QVariantList list;
-    for (const auto &entry : kOsEntries) {
-        const QString id = QString::fromLatin1(entry.id);
+    for (const auto &value : entries) {
+        const QVariantMap entry = value.toMap();
+        const QString id = entry.value("id").toString();
+        if (id.isEmpty())
+            continue;
+
         const QString localAlias = QStringLiteral("aibox-") + id;
-        const bool downloaded = cachedAliases.contains(localAlias);
-        const qint64 sizeBytes = cachedAliases.value(localAlias, 0);
+        const bool inIncus = cachedAliases.contains(localAlias);
+        qint64 sizeBytes = cachedAliases.value(localAlias, 0);
+
+        bool savedOnDisk = false;
+        if (!storagePath.isEmpty()) {
+            const QFileInfo metadata(storagePath + "/" + id);
+            const QFileInfo rootfs(storagePath + "/" + id + ".root");
+            savedOnDisk = metadata.isFile() && metadata.size() > 0 && rootfs.isFile() && rootfs.size() > 0;
+            if (!inIncus && savedOnDisk)
+                sizeBytes = metadata.size() + rootfs.size();
+        }
+
+        const bool downloaded = inIncus || savedOnDisk;
+        QString cacheText = QStringLiteral("Not Cached");
+        if (inIncus)
+            cacheText = QStringLiteral("Cached · %1").arg(formatBytes(sizeBytes));
+        else if (savedOnDisk)
+            cacheText = QStringLiteral("Saved · %1").arg(formatBytes(sizeBytes));
 
         QVariantMap item;
         item["id"] = id;
-        item["alias"] = QString::fromLatin1(entry.alias);
-        item["name"] = QString::fromLatin1(entry.name);
-        item["badge"] = QString::fromLatin1(entry.badge);
-        item["description"] = QString::fromLatin1(entry.description);
+        item["alias"] = entry.value("alias").toString();
+        item["name"] = entry.value("name").toString();
+        item["badge"] = entry.value("badge").toString();
+        item["description"] = entry.value("description").toString();
         item["downloaded"] = downloaded;
         item["downloading"] = (id == downloadingId);
-        item["sizeText"] = downloaded ? QStringLiteral("Cached · %1").arg(formatBytes(sizeBytes))
-                                      : QStringLiteral("Not Cached");
+        item["sizeText"] = cacheText;
         list.append(item);
     }
     return list;
+}
+
+QVariantList Backend::buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId) {
+    return catalogForEntries(defaultOsEntries(), imagesJson, downloadingId, {});
 }
 
 void Backend::refresh() {
@@ -322,6 +943,7 @@ void Backend::refresh() {
             const QList<QByteArray> parts = out.split('\0');
             const QByteArray listJson = parts.value(0);
             const QByteArray imgJson = parts.value(1);
+            m_lastImagesJson = imgJson;
 
             const QVariantList newEnvs = parseIncusListJson(listJson, m_workspaceBase);
             if (newEnvs != m_environments) {
@@ -334,11 +956,12 @@ void Backend::refresh() {
                 emit selectedIndexChanged();
             }
 
-            const QVariantList newCatalog = buildOsCatalog(imgJson, m_downloadingOsId);
+            const QVariantList newCatalog = catalogForEntries(m_osEntries, imgJson, m_downloadingOsId, m_osStoragePath);
             if (newCatalog != m_osCatalog) {
                 m_osCatalog = newCatalog;
                 emit osCatalogChanged();
             }
+            normalizeDefaults();
         });
     }
 
@@ -519,7 +1142,7 @@ void Backend::cancelTask() {
     setBusy(false, tr("Operation cancelled."));
 
     if (!cleanupName.isEmpty()) {
-        const QString wsPath = m_workspaceBase + "/" + cleanupName;
+        const QString wsPath = workspacePathFor(cleanupName);
         QProcess::startDetached(QStringLiteral("/bin/bash"),
                                 {QStringLiteral("-c"),
                                  QStringLiteral("incus delete '%1' --force >/dev/null 2>&1 || true; rmdir '%2' 2>/dev/null || true")
@@ -598,7 +1221,7 @@ exit $CODE
     m_taskWatchTimer.start();
 }
 
-void Backend::createEnvironment(const QString &rawName, const QString &osId, const QString &preset,
+void Backend::createEnvironment(const QString &rawName, const QString &osId, const QString &presetId,
                                 const QString &diskGiB, const QString &ramGiB, int cpuCores) {
     if (m_busy) {
         setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
@@ -618,22 +1241,56 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
         }
     }
 
-    const QString osAlias = findOsAlias(osId);
-    const QString localAlias = QStringLiteral("aibox-") + osId;
-    const QString hostWorkspace = m_workspaceBase + "/" + name;
+    static const QRegularExpression sizeRe(QStringLiteral("^\\d+(?:\\.\\d+)?(?:GiB|MiB|TiB|GB|MB|TB)$"),
+                                           QRegularExpression::CaseInsensitiveOption);
+    if (!sizeRe.match(diskGiB.trimmed()).hasMatch()) {
+        setError(tr("The disk quota is invalid. Use a value such as 35GiB."));
+        return;
+    }
+    if (!sizeRe.match(ramGiB.trimmed()).hasMatch()) {
+        setError(tr("The RAM limit is invalid. Use a value such as 6GiB."));
+        return;
+    }
 
-    QString profileFlags = QStringLiteral("-p default -p ai-gui");
-    if (preset == QLatin1String("standard"))
-        profileFlags = QStringLiteral("-p default -c security.nesting=true");
-    else if (preset == QLatin1String("vm"))
-        profileFlags = QStringLiteral("--vm -p default");
+    QVariantMap osEntry = osEntryById(osId);
+    if (osEntry.isEmpty())
+        osEntry = m_osEntries.value(0).toMap();
+    if (osEntry.isEmpty()) {
+        setError(tr("There is no OS in the catalog. Add one in Configuration first."));
+        return;
+    }
+
+    QVariantMap preset = presetById(presetId);
+    if (preset.isEmpty())
+        preset = presetById(m_defaultPresetId);
+    if (preset.isEmpty())
+        preset = m_presets.value(0).toMap();
+    if (preset.isEmpty()) {
+        setError(tr("There is no capability preset. Add one in Configuration first."));
+        return;
+    }
+
+    const QString entryId = osEntry.value("id").toString();
+    const QString osAlias = osEntry.value("alias").toString();
+    const QString localAlias = QStringLiteral("aibox-") + entryId;
+    const QString hostWorkspace = m_workspaceBase + "/" + name;
+    const QString cacheBase = cacheBasePath(entryId);
+    const QString profileFlags = preset.value("flags").toString();
+    const QString quotaArgs = QStringLiteral("-c limits.cpu=%1 -c limits.memory=%2 -d root,size=%3")
+                                  .arg(QString::number(qMax(1, cpuCores)), shellQuote(ramGiB), shellQuote(diskGiB));
+    const QString x11Flag = preset.value("x11").toBool() ? QStringLiteral("1") : QStringLiteral("0");
 
     const QString script = QStringLiteral(R"sh(
 set -euo pipefail
 NAME=%1
 LOCAL_ALIAS=%2
-REMOTE_IMAGE="images:%3"
+REMOTE_IMAGE=%3
 WORKSPACE=%4
+CACHE=%5
+CACHE_ROOT=%6
+PROFILE_FLAGS=%7
+QUOTA_ARGS=%8
+X11=%9
 
 echo "@@STAGE:8:Step 1/4 — Preparing shared workspace directory..."
 mkdir -p "$WORKSPACE"
@@ -644,6 +1301,10 @@ fi
 if incus image info "$LOCAL_ALIAS" >/dev/null 2>&1; then
     echo "@@STAGE:60:Step 2/4 — Using cached OS image ($LOCAL_ALIAS)..."
     SOURCE_IMAGE="$LOCAL_ALIAS"
+elif [ -s "$CACHE" ] && [ -s "$CACHE_ROOT" ]; then
+    echo "@@STAGE:30:Step 2/4 — Importing OS image from OS storage..."
+    incus image import "$CACHE" "$CACHE_ROOT" --alias "$LOCAL_ALIAS"
+    SOURCE_IMAGE="$LOCAL_ALIAS"
 else
     echo "@@STAGE:12:Step 2/4 — Downloading OS image ($REMOTE_IMAGE)..."
     script -q -e -c "incus image copy \"$REMOTE_IMAGE\" local: --alias \"$LOCAL_ALIAS\" --auto-update" /dev/null
@@ -651,7 +1312,7 @@ else
 fi
 
 echo "@@STAGE:72:Step 3/4 — Launching isolated OS container & applying quotas..."
-script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" %5 -c limits.cpu=%6 -c limits.memory=%7 -d root,size=%8" /dev/null
+script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" $PROFILE_FLAGS $QUOTA_ARGS" /dev/null
 
 echo "@@STAGE:86:Step 4/4 — Mounting /workspace & waiting for network IP..."
 sleep 1
@@ -660,7 +1321,7 @@ if ! incus config device add "$NAME" workspace disk source="$WORKSPACE" path=/wo
     incus config device add "$NAME" workspace disk source="$WORKSPACE" path=/workspace >/dev/null
 fi
 
-if [[ "%9" == "full" ]] && [[ -d /tmp/.X11-unix ]]; then
+if [[ "$X11" == "1" ]] && [[ -d /tmp/.X11-unix ]]; then
     if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
         xhost +local: >/dev/null 2>&1 || true
     fi
@@ -683,15 +1344,15 @@ for _ in 1 2 3 4 5; do
 done
 echo "@@STAGE:100:Environment ready!"
 )sh")
-                               .arg(QStringLiteral("'") + name + QStringLiteral("'"),
-                                    QStringLiteral("'") + localAlias + QStringLiteral("'"),
-                                    osAlias,
-                                    QStringLiteral("'") + hostWorkspace + QStringLiteral("'"),
+                               .arg(shellQuote(name),
+                                    shellQuote(localAlias),
+                                    shellQuote(QStringLiteral("images:") + osAlias),
+                                    shellQuote(hostWorkspace),
+                                    shellQuote(cacheBase),
+                                    shellQuote(cacheBase + ".root"),
                                     profileFlags,
-                                    QString::number(qMax(1, cpuCores)),
-                                    ramGiB,
-                                    diskGiB,
-                                    preset);
+                                    quotaArgs,
+                                    x11Flag);
 
     runShellTask(tr("Creating environment '%1'").arg(name), script, name);
 }
@@ -730,7 +1391,7 @@ fi
 void Backend::openWorkspaceFolder(const QString &name) {
     if (name.isEmpty())
         return;
-    const QString path = m_workspaceBase + "/" + name;
+    const QString path = workspacePathFor(name);
     QDir().mkpath(path);
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
@@ -784,10 +1445,10 @@ void Backend::deleteSnapshot(const QString &name, const QString &snapshotName) {
 void Backend::wipeEnvironment(const QString &name, bool deleteWorkspaceFiles) {
     if (name.isEmpty() || m_busy)
         return;
-    const QString hostWorkspace = m_workspaceBase + "/" + name;
+    const QString hostWorkspace = workspacePathFor(name);
     QString script = QStringLiteral("echo '@@STAGE:50:Wiping OS container...'; incus delete '%1' --force").arg(name);
     if (deleteWorkspaceFiles)
-        script += QStringLiteral(" && rm -rf '%1'").arg(hostWorkspace);
+        script += QStringLiteral(" && rm -rf %1").arg(shellQuote(hostWorkspace));
     script += QStringLiteral("; echo '@@STAGE:100:Wiped.'");
 
     runShellTask(tr("Wiping environment '%1'").arg(name), script);
@@ -847,17 +1508,49 @@ void Backend::copyAiCommand(const QString &name) {
 void Backend::downloadOsImage(const QString &osId) {
     if (osId.isEmpty() || m_busy)
         return;
-    const QString alias = findOsAlias(osId);
-    const QString localAlias = QStringLiteral("aibox-") + osId;
-    m_downloadingOsId = osId;
-    m_osCatalog = buildOsCatalog({}, m_downloadingOsId);
-    emit osCatalogChanged();
+    const QVariantMap entry = osEntryById(osId);
+    if (entry.isEmpty()) {
+        setError(tr("The OS entry '%1' is not in the catalog.").arg(osId));
+        return;
+    }
 
-    const QString script = QStringLiteral(
-        "set -euo pipefail\n"
-        "echo '@@STAGE:5:Downloading %1 from official image server...'\n"
-        "script -q -e -c \"incus image copy 'images:%1' local: --alias '%2' --auto-update\" /dev/null\n"
-        "echo '@@STAGE:100:Download complete!'\n").arg(alias, localAlias);
+    QDir().mkpath(m_osStoragePath);
+    const QString alias = entry.value("alias").toString();
+    const QString localAlias = QStringLiteral("aibox-") + osId;
+    const QString cacheBase = cacheBasePath(osId);
+    m_downloadingOsId = osId;
+    rebuildOsCatalog();
+
+    const QString script = QStringLiteral(R"sh(
+set -euo pipefail
+LOCAL_ALIAS=%1
+REMOTE_IMAGE=%2
+CACHE=%3
+CACHE_ROOT=%4
+
+mkdir -p "$(dirname "$CACHE")"
+if incus image info "$LOCAL_ALIAS" >/dev/null 2>&1; then
+    echo "@@STAGE:45:OS image is already in the local Incus store..."
+elif [ -s "$CACHE" ] && [ -s "$CACHE_ROOT" ]; then
+    echo "@@STAGE:35:Importing OS image from OS storage..."
+    incus image import "$CACHE" "$CACHE_ROOT" --alias "$LOCAL_ALIAS"
+else
+    echo "@@STAGE:5:Downloading %5 from the official image server..."
+    script -q -e -c "incus image copy \"$REMOTE_IMAGE\" local: --alias \"$LOCAL_ALIAS\" --auto-update" /dev/null
+fi
+
+if [ ! -s "$CACHE" ] || [ ! -s "$CACHE_ROOT" ]; then
+    echo "@@STAGE:85:Saving OS image to OS storage..."
+    rm -f "$CACHE" "$CACHE_ROOT"
+    incus image export "$LOCAL_ALIAS" "$CACHE" >/dev/null
+fi
+echo "@@STAGE:100:Download complete!"
+)sh")
+                           .arg(shellQuote(localAlias),
+                                shellQuote(QStringLiteral("images:") + alias),
+                                shellQuote(cacheBase),
+                                shellQuote(cacheBase + ".root"),
+                                osId);
     runShellTask(tr("Downloading OS image '%1'").arg(osId), script);
 }
 
@@ -865,8 +1558,14 @@ void Backend::removeOsImage(const QString &osId) {
     if (osId.isEmpty() || m_busy)
         return;
     const QString localAlias = QStringLiteral("aibox-") + osId;
+    const QString cacheBase = cacheBasePath(osId);
     runShellTask(tr("Removing cached OS image '%1'").arg(osId),
-                 QStringLiteral("echo '@@STAGE:50:Removing image cache...'; incus image delete '%1'; echo '@@STAGE:100:Removed.'").arg(localAlias));
+                 QStringLiteral("set -euo pipefail\n"
+                                "echo '@@STAGE:50:Removing image cache...'\n"
+                                "if incus image info %1 >/dev/null 2>&1; then incus image delete %1; fi\n"
+                                "rm -f %2 %3\n"
+                                "echo '@@STAGE:100:Removed.'")
+                     .arg(shellQuote(localAlias), shellQuote(cacheBase), shellQuote(cacheBase + ".root")));
 }
 
 void Backend::loadDemoData() {

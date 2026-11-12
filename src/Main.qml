@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 ApplicationWindow {
@@ -32,16 +33,132 @@ ApplicationWindow {
     property bool createVisible: false
     property bool wipeVisible: false
     property bool deleteWorkspaceOnWipe: false
+    property bool settingsVisible: false
+    property int settingsSection: 0
+    property string configNotice: ""
+    property bool configNoticeError: false
+    property bool osEditorVisible: false
+    property string osEditorOriginalId: ""
+    property string osEditorId: ""
+    property string osEditorAlias: ""
+    property string osEditorName: ""
+    property string osEditorBadge: ""
+    property string osEditorDescription: ""
+    property string osEditorError: ""
+    property string firstRunError: ""
 
     // Form state for New Environment dialog
     property string newEnvName: ""
-    property string newEnvOsId: "ubuntu-24.04"
-    property string newEnvPreset: "full"
-    property string newEnvDisk: "35GiB"
-    property string newEnvRam: "6GiB"
-    property int newEnvCpu: 4
+    property string newEnvOsId: backend.defaultOsId
+    property string newEnvPreset: backend.defaultPresetId
+    property string newEnvDisk: backend.defaultDisk
+    property string newEnvRam: backend.defaultRam
+    property int newEnvCpu: backend.defaultCpu
 
-    readonly property bool anyModalOpen: helpVisible || createVisible || wipeVisible
+    readonly property bool anyModalOpen: helpVisible || createVisible || wipeVisible || settingsVisible || backend.firstRun
+
+    function openCreateDialog(osId) {
+        win.newEnvName = ""
+        win.newEnvOsId = (osId && osId.length > 0) ? osId : backend.defaultOsId
+        win.newEnvPreset = backend.defaultPresetId
+        win.newEnvDisk = backend.defaultDisk
+        win.newEnvRam = backend.defaultRam
+        win.newEnvCpu = backend.defaultCpu
+        backend.clearError()
+        win.createVisible = true
+    }
+
+    function openSettings(section) {
+        win.settingsSection = section
+        win.configNotice = ""
+        win.settingsVisible = true
+    }
+
+    function showConfigNotice(message, isError) {
+        win.configNotice = message
+        win.configNoticeError = isError
+        configNoticeTimer.restart()
+    }
+
+    function saveGeneralSettings() {
+        const error = backend.saveSettings(workspacePathField.text, osStoragePathField.text)
+        if (error.length > 0) {
+            win.showConfigNotice(error, true)
+        } else {
+            workspacePathField.text = backend.workspaceBase
+            osStoragePathField.text = backend.osStoragePath
+            win.showConfigNotice(qsTr("Locations saved."), false)
+        }
+    }
+
+    function submitFirstRun() {
+        const error = backend.completeFirstRun("")
+        if (error.length > 0) {
+            win.firstRunError = error
+        } else {
+            win.firstRunError = ""
+            win.activeTab = 0
+        }
+    }
+
+    function beginAddOs() {
+        win.osEditorOriginalId = ""
+        win.osEditorId = ""
+        win.osEditorAlias = ""
+        win.osEditorName = ""
+        win.osEditorBadge = ""
+        win.osEditorDescription = ""
+        win.osEditorError = ""
+        osIdField.text = ""
+        osAliasField.text = ""
+        osNameField.text = ""
+        osBadgeField.text = ""
+        osDescriptionField.text = ""
+        win.osEditorVisible = true
+    }
+
+    function beginEditOs(entry) {
+        win.osEditorOriginalId = entry.id || ""
+        win.osEditorId = entry.id || ""
+        win.osEditorAlias = entry.alias || ""
+        win.osEditorName = entry.name || ""
+        win.osEditorBadge = entry.badge || ""
+        win.osEditorDescription = entry.description || ""
+        win.osEditorError = ""
+        osIdField.text = win.osEditorId
+        osAliasField.text = win.osEditorAlias
+        osNameField.text = win.osEditorName
+        osBadgeField.text = win.osEditorBadge
+        osDescriptionField.text = win.osEditorDescription
+        win.osEditorVisible = true
+    }
+
+    function submitOsEditor() {
+        const error = backend.saveOsEntry(win.osEditorOriginalId, osIdField.text, osAliasField.text,
+                                          osNameField.text, osBadgeField.text, osDescriptionField.text)
+        if (error.length > 0) {
+            win.osEditorError = error
+            return
+        }
+        win.osEditorVisible = false
+        win.showConfigNotice(qsTr("OS entry saved."), false)
+    }
+
+    function removeOsEntry(entry) {
+        const error = backend.removeOsEntry(entry.id || "")
+        if (error.length > 0)
+            win.showConfigNotice(error, true)
+        else
+            win.showConfigNotice(qsTr("OS entry removed from the catalog."), false)
+    }
+
+    function saveQuotaOptions() {
+        const error = backend.saveCreateOptions(diskOptionsField.text, ramOptionsField.text, cpuOptionsField.text)
+        if (error.length > 0)
+            win.showConfigNotice(error, true)
+        else
+            win.showConfigNotice(qsTr("Create options saved."), false)
+    }
 
     // Reusable clean flat input box (replaces Material TextField completely)
     component FlatInput: Rectangle {
@@ -89,6 +206,21 @@ ApplicationWindow {
         }
     }
 
+    // Monochrome sliders icon used by the Configuration button and panel.
+    component SlidersIcon: Item {
+        id: slidersIcon
+        property color color: theme.foreground
+        implicitWidth: 14
+        implicitHeight: 14
+
+        Rectangle { x: 0; y: 2; width: 14; height: 1; color: slidersIcon.color }
+        Rectangle { x: 2; y: 0; width: 3; height: 3; radius: 1.5; color: slidersIcon.color }
+        Rectangle { x: 0; y: 7; width: 14; height: 1; color: slidersIcon.color }
+        Rectangle { x: 9; y: 5; width: 3; height: 3; radius: 1.5; color: slidersIcon.color }
+        Rectangle { x: 0; y: 12; width: 14; height: 1; color: slidersIcon.color }
+        Rectangle { x: 5; y: 10; width: 3; height: 3; radius: 1.5; color: slidersIcon.color }
+    }
+
     // Reusable sleek action button
     component ActionButton: Rectangle {
         id: btn
@@ -100,13 +232,22 @@ ApplicationWindow {
         property bool success: false
         property bool accent: false
         property bool disabled: false
+        property bool slidersIcon: false
         property int minWidth: 0
+        readonly property bool hovered: btnMouse.containsMouse
         signal clicked()
 
         readonly property bool isPrimary: primary || variant === "primary"
         readonly property bool isDanger: danger || variant === "danger"
         readonly property bool isSuccess: success || variant === "success"
         readonly property bool isAccent: accent || variant === "accent" || variant === "theme"
+        readonly property color contentColor: btn.isPrimary
+                                              ? theme.accentForeground
+                                              : (btn.isDanger
+                                                 ? theme.red
+                                                 : (btn.isAccent
+                                                    ? theme.accent
+                                                    : (btn.isSuccess ? theme.green : theme.foreground)))
 
         implicitHeight: 34
         implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + 24)
@@ -145,15 +286,16 @@ ApplicationWindow {
             anchors.centerIn: parent
             spacing: 8
 
+            SlidersIcon {
+                visible: btn.slidersIcon
+                color: btn.contentColor
+                Layout.alignment: Qt.AlignVCenter
+            }
+
             Text {
+                visible: btn.label.length > 0
                 text: btn.label
-                color: btn.isPrimary
-                       ? theme.accentForeground
-                       : (btn.isDanger
-                          ? theme.red
-                          : (btn.isAccent
-                             ? theme.accent
-                             : (btn.isSuccess ? theme.green : theme.foreground)))
+                color: btn.contentColor
                 font.family: win.sansFont
                 font.pixelSize: 12
                 font.weight: btn.isPrimary ? Font.Medium : Font.Normal
@@ -218,8 +360,12 @@ ApplicationWindow {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
         onActivated: {
-            if (win.helpVisible) {
+            if (backend.firstRun) {
+                return
+            } else if (win.helpVisible) {
                 win.helpVisible = false
+            } else if (win.settingsVisible) {
+                win.settingsVisible = false
             } else if (win.createVisible) {
                 win.createVisible = false
             } else if (win.wipeVisible) {
@@ -227,6 +373,17 @@ ApplicationWindow {
             } else {
                 backend.clearError()
             }
+        }
+    }
+    Shortcut {
+        sequence: "3"
+        context: Qt.ApplicationShortcut
+        enabled: !backend.firstRun && !backend.busy && !win.createVisible && !win.wipeVisible && !win.helpVisible
+        onActivated: {
+            if (win.settingsVisible)
+                win.settingsVisible = false
+            else
+                win.openSettings(0)
         }
     }
     Shortcut {
@@ -239,11 +396,7 @@ ApplicationWindow {
         sequence: "N"
         context: Qt.ApplicationShortcut
         enabled: !win.anyModalOpen && !backend.busy
-        onActivated: {
-            win.newEnvName = ""
-            backend.clearError()
-            win.createVisible = true
-        }
+        onActivated: win.openCreateDialog("")
     }
     Shortcut {
         sequence: "1"
@@ -463,6 +616,16 @@ ApplicationWindow {
                         Layout.alignment: Qt.AlignVCenter
 
                         ActionButton {
+                            slidersIcon: true
+                            minWidth: 34
+                            disabled: backend.firstRun || backend.busy
+                            Layout.alignment: Qt.AlignVCenter
+                            onClicked: win.openSettings(0)
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Configuration (3)")
+                        }
+
+                        ActionButton {
                             label: qsTr("Refresh")
                             shortcutHint: "R"
                             minWidth: 96
@@ -485,11 +648,7 @@ ApplicationWindow {
                             minWidth: 165
                             disabled: backend.busy
                             Layout.alignment: Qt.AlignVCenter
-                            onClicked: {
-                                win.newEnvName = ""
-                                backend.clearError()
-                                win.createVisible = true
-                            }
+                            onClicked: win.openCreateDialog("")
                         }
                     }
                 }
@@ -673,11 +832,7 @@ ApplicationWindow {
                                     shortcutHint: "N"
                                     primary: true
                                     disabled: backend.busy
-                                    onClicked: {
-                                        win.newEnvName = ""
-                                        backend.clearError()
-                                        win.createVisible = true
-                                    }
+                                    onClicked: win.openCreateDialog("")
                                 }
 
                                 ActionButton {
@@ -1391,12 +1546,7 @@ ApplicationWindow {
                                         variant: "primary"
                                         minWidth: 125
                                         disabled: backend.busy
-                                        onClicked: {
-                                            win.newEnvOsId = modelData.id
-                                            win.newEnvName = ""
-                                            backend.clearError()
-                                            win.createVisible = true
-                                        }
+                                        onClicked: win.openCreateDialog(modelData.id)
                                     }
                                 }
                             }
@@ -1571,11 +1721,7 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 spacing: 8
                                 Repeater {
-                                    model: [
-                                        { id: "full", title: qsTr("Desktop & Mobile"), sub: qsTr("GPU + KVM + GUI Bridge") },
-                                        { id: "standard", title: qsTr("Standard AI / Web"), sub: qsTr("Docker + Isolated OS") },
-                                        { id: "vm", title: qsTr("Virtual Machine"), sub: qsTr("Full KVM Kernel (--vm)") }
-                                    ]
+                                    model: backend.presets
                                     delegate: Rectangle {
                                         required property var modelData
                                         readonly property bool selected: win.newEnvPreset === modelData.id
@@ -1707,7 +1853,7 @@ ApplicationWindow {
                                 RowLayout {
                                     spacing: 6
                                     Repeater {
-                                        model: ["20GiB", "35GiB", "60GiB", "100GiB"]
+                                        model: backend.diskOptions
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvDisk === modelData
@@ -1748,7 +1894,7 @@ ApplicationWindow {
                                 RowLayout {
                                     spacing: 6
                                     Repeater {
-                                        model: ["4GiB", "6GiB", "8GiB", "12GiB"]
+                                        model: backend.ramOptions
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvRam === modelData
@@ -1788,7 +1934,7 @@ ApplicationWindow {
                                 RowLayout {
                                     spacing: 6
                                     Repeater {
-                                        model: [2, 4, 6, 8]
+                                        model: backend.cpuOptions
                                         delegate: Rectangle {
                                             required property int modelData
                                             readonly property bool selected: win.newEnvCpu === modelData
@@ -2115,6 +2261,7 @@ ApplicationWindow {
                             { k: "C", d: qsTr("Copy AI agent execution command") },
                             { k: "Delete", d: qsTr("Wipe / destroy selected environment") },
                             { k: "1 / 2", d: qsTr("Switch between Environments and OS Catalog") },
+                            { k: "3", d: qsTr("Open the configuration menu") },
                             { k: "R", d: qsTr("Refresh status and disk usage") },
                             { k: "?", d: qsTr("Toggle this shortcuts overlay") },
                             { k: "Q", d: qsTr("Quit AIBox") }
@@ -2150,5 +2297,1038 @@ ApplicationWindow {
                 }
             }
         }
+
+        // ======================================================================
+        // MODAL 4: CONFIGURATION MENU (STORAGE, OS CATALOG, CREATE OPTIONS)
+        // ======================================================================
+        Rectangle {
+            id: settingsOverlay
+            anchors.fill: parent
+            visible: win.settingsVisible
+            color: "#c406070a"
+            z: 80
+
+            onVisibleChanged: {
+                if (!visible)
+                    return
+                win.configNotice = ""
+                win.osEditorVisible = false
+                win.osEditorError = ""
+                workspacePathField.text = backend.workspaceBase
+                osStoragePathField.text = backend.osStoragePath
+                diskOptionsField.text = backend.diskOptions.join(", ")
+                ramOptionsField.text = backend.ramOptions.join(", ")
+                cpuOptionsField.text = backend.cpuOptions.join(", ")
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: win.settingsVisible = false
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 56, 980)
+                height: Math.min(parent.height - 56, 650)
+                radius: Math.min(8, theme.radius)
+                color: win.surfaceCard
+                border.width: 1
+                border.color: win.borderSubtle
+                clip: true
+
+                MouseArea { anchors.fill: parent }
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 0
+
+                    // ------------------------------------------------------
+                    // CONFIGURATION SIDEBAR
+                    // ------------------------------------------------------
+                    Rectangle {
+                        Layout.preferredWidth: 232
+                        Layout.fillHeight: true
+                        color: "#0f1018"
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            spacing: 6
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+                                Rectangle {
+                                    width: 30
+                                    height: 30
+                                    radius: Math.min(5, theme.radius)
+                                    color: win.surfaceSelected
+                                    border.width: 1
+                                    border.color: theme.accent
+                                    SlidersIcon {
+                                        anchors.centerIn: parent
+                                        width: 16
+                                        height: 16
+                                        color: theme.accent
+                                    }
+                                }
+                                ColumnLayout {
+                                    spacing: 1
+                                    Text {
+                                        text: qsTr("Configuration")
+                                        color: theme.foreground
+                                        font.family: win.sansFont
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                    }
+                                    Text {
+                                        text: qsTr("AIBox settings")
+                                        color: theme.muted
+                                        font.family: win.sansFont
+                                        font.pixelSize: 10
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 8
+                                Layout.bottomMargin: 6
+                                height: 1
+                                color: win.borderSubtle
+                            }
+
+                            Repeater {
+                                model: [
+                                    { title: qsTr("Storage"), detail: qsTr("Workspace & OS images"), step: "01" },
+                                    { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove"), step: "02" },
+                                    { title: qsTr("Create Options"), detail: qsTr("Presets & quotas"), step: "03" }
+                                ]
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    height: 52
+                                    radius: Math.min(5, theme.radius)
+                                    color: win.settingsSection === index ? win.surfaceSelected : "transparent"
+                                    border.width: win.settingsSection === index ? 1 : 0
+                                    border.color: theme.accent
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 10
+                                        anchors.rightMargin: 10
+                                        spacing: 10
+
+                                        Text {
+                                            text: modelData.step
+                                            color: win.settingsSection === index ? theme.accent : theme.muted
+                                            font.family: win.monoFont
+                                            font.pixelSize: 10
+                                        }
+
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 1
+                                            Text {
+                                                text: modelData.title
+                                                color: win.settingsSection === index ? theme.foreground : theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 12
+                                                font.weight: win.settingsSection === index ? Font.Medium : Font.Normal
+                                            }
+                                            Text {
+                                                text: modelData.detail
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: win.settingsSection = index
+                                    }
+                                }
+                            }
+
+                            Item { Layout.fillHeight: true }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Config file")
+                                color: theme.muted
+                                font.family: win.sansFont
+                                font.pixelSize: 10
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: backend.configFilePath
+                                color: theme.muted
+                                font.family: win.monoFont
+                                font.pixelSize: 9
+                                elide: Text.ElideMiddle
+                            }
+
+                            ActionButton {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 8
+                                label: qsTr("Close")
+                                shortcutHint: "Esc"
+                                onClicked: win.settingsVisible = false
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 1
+                        Layout.fillHeight: true
+                        color: win.borderSubtle
+                    }
+
+                    // ------------------------------------------------------
+                    // CONFIGURATION CONTENT
+                    // ------------------------------------------------------
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.margins: 22
+                        spacing: 12
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    text: win.settingsSection === 0
+                                          ? qsTr("Storage & Locations")
+                                          : (win.settingsSection === 1 ? qsTr("Linux OS Catalog") : qsTr("Create Environment Options"))
+                                    color: theme.foreground
+                                    font.family: win.sansFont
+                                    font.pixelSize: 16
+                                    font.weight: Font.Medium
+                                }
+                                Text {
+                                    text: win.settingsSection === 0
+                                          ? qsTr("Choose where shared project files live and where offline OS image copies are saved.")
+                                          : (win.settingsSection === 1
+                                             ? qsTr("Add, edit, or remove the distributions shown in the environment creation dialog.")
+                                             : qsTr("Customize the preset cards, disk quota, RAM, and CPU choices shown in the creation dialog."))
+                                    color: theme.muted
+                                    font.family: win.sansFont
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            ActionButton {
+                                label: "✕"
+                                minWidth: 34
+                                Layout.alignment: Qt.AlignTop
+                                onClicked: win.settingsVisible = false
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: win.borderSubtle
+                        }
+
+                        Rectangle {
+                            visible: win.configNotice.length > 0
+                            Layout.fillWidth: true
+                            height: visible ? 34 : 0
+                            radius: Math.min(4, theme.radius)
+                            color: win.configNoticeError ? "#261319" : "#132019"
+                            border.width: 1
+                            border.color: win.configNoticeError ? theme.red : theme.green
+
+                            Text {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                                text: win.configNotice
+                                color: win.configNoticeError ? theme.red : theme.green
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                            }
+                        }
+
+                        ScrollView {
+                            id: configScroll
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                            ColumnLayout {
+                                width: configScroll.availableWidth
+                                spacing: 14
+
+                                // ==================================================
+                                // SECTION 0: STORAGE
+                                // ==================================================
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: win.settingsSection === 0
+                                    spacing: 12
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 136
+                                        radius: Math.min(6, theme.radius)
+                                        color: win.surfaceInput
+                                        border.width: 1
+                                        border.color: win.borderSubtle
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 7
+
+                                            Text {
+                                                text: qsTr("Workspace location")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("New environments share this host folder at /workspace. Existing environments keep their current shared folder.")
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                FlatInput {
+                                                    id: workspacePathField
+                                                    Layout.fillWidth: true
+                                                    placeholder: backend.defaultWorkspaceBase
+                                                }
+                                                ActionButton {
+                                                    label: qsTr("Browse...")
+                                                    minWidth: 90
+                                                    onClicked: workspaceFolderDialog.open()
+                                                }
+                                                ActionButton {
+                                                    label: qsTr("Default")
+                                                    minWidth: 82
+                                                    onClicked: workspacePathField.text = backend.defaultWorkspaceBase
+                                                }
+                                            }
+                                            Text {
+                                                text: qsTr("Default: %1").arg(backend.defaultWorkspaceBase)
+                                                color: theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 9
+                                                elide: Text.ElideMiddle
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 136
+                                        radius: Math.min(6, theme.radius)
+                                        color: win.surfaceInput
+                                        border.width: 1
+                                        border.color: win.borderSubtle
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 7
+
+                                            Text {
+                                                text: qsTr("OS image storage")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("Downloaded OS images are also exported here. If the local Incus image is gone, AIBox imports the copy from this folder instead of downloading again.")
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                                wrapMode: Text.WordWrap
+                                            }
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                FlatInput {
+                                                    id: osStoragePathField
+                                                    Layout.fillWidth: true
+                                                    placeholder: backend.defaultOsStoragePath
+                                                }
+                                                ActionButton {
+                                                    label: qsTr("Browse...")
+                                                    minWidth: 90
+                                                    onClicked: osStorageFolderDialog.open()
+                                                }
+                                                ActionButton {
+                                                    label: qsTr("Default")
+                                                    minWidth: 82
+                                                    onClicked: osStoragePathField.text = backend.defaultOsStoragePath
+                                                }
+                                            }
+                                            Text {
+                                                text: qsTr("Default: %1").arg(backend.defaultOsStoragePath)
+                                                color: theme.muted
+                                                font.family: win.monoFont
+                                                font.pixelSize: 9
+                                                elide: Text.ElideMiddle
+                                                Layout.fillWidth: true
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: 2
+                                        spacing: 10
+                                        Item { Layout.fillWidth: true }
+                                        ActionButton {
+                                            label: qsTr("Save Locations")
+                                            variant: "primary"
+                                            minWidth: 150
+                                            onClicked: win.saveGeneralSettings()
+                                        }
+                                    }
+                                }
+
+                                // ==================================================
+                                // SECTION 1: OS CATALOG
+                                // ==================================================
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: win.settingsSection === 1
+                                    spacing: 10
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: qsTr("%n OS entries", "", backend.osCatalog.length)
+                                            color: theme.muted
+                                            font.family: win.sansFont
+                                            font.pixelSize: 11
+                                        }
+                                        ActionButton {
+                                            label: qsTr("+ Add OS")
+                                            variant: "primary"
+                                            minWidth: 105
+                                            onClicked: win.beginAddOs()
+                                        }
+                                    }
+
+                                    // Inline editor for adding or editing an OS entry.
+                                    Rectangle {
+                                        visible: win.osEditorVisible
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: visible ? osEditorColumn.implicitHeight + 28 : 0
+                                        radius: Math.min(6, theme.radius)
+                                        color: win.surfaceInput
+                                        border.width: 1
+                                        border.color: theme.accent
+
+                                        ColumnLayout {
+                                            id: osEditorColumn
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 8
+
+                                            Text {
+                                                text: win.osEditorOriginalId.length > 0 ? qsTr("Edit OS entry") : qsTr("New OS entry")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
+                                                font.pixelSize: 13
+                                                font.weight: Font.Medium
+                                            }
+
+                                            GridLayout {
+                                                Layout.fillWidth: true
+                                                columns: 2
+                                                columnSpacing: 10
+                                                rowSpacing: 8
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+                                                    Text {
+                                                        text: qsTr("OS ID")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 10
+                                                    }
+                                                    FlatInput {
+                                                        id: osIdField
+                                                        Layout.fillWidth: true
+                                                        placeholder: qsTr("e.g. ubuntu-24.04")
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+                                                    Text {
+                                                        text: qsTr("Image alias")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 10
+                                                    }
+                                                    FlatInput {
+                                                        id: osAliasField
+                                                        Layout.fillWidth: true
+                                                        placeholder: qsTr("e.g. ubuntu/24.04")
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+                                                    Text {
+                                                        text: qsTr("Display name")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 10
+                                                    }
+                                                    FlatInput {
+                                                        id: osNameField
+                                                        Layout.fillWidth: true
+                                                        placeholder: qsTr("e.g. Ubuntu 24.04 LTS")
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 4
+                                                    Text {
+                                                        text: qsTr("Badge")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 10
+                                                    }
+                                                    FlatInput {
+                                                        id: osBadgeField
+                                                        Layout.fillWidth: true
+                                                        placeholder: qsTr("e.g. Recommended")
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    Layout.columnSpan: 2
+                                                    spacing: 4
+                                                    Text {
+                                                        text: qsTr("Description")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 10
+                                                    }
+                                                    FlatInput {
+                                                        id: osDescriptionField
+                                                        Layout.fillWidth: true
+                                                        placeholder: qsTr("Short description shown in the OS catalog")
+                                                    }
+                                                }
+                                            }
+
+                                            Text {
+                                                visible: win.osEditorError.length > 0
+                                                Layout.fillWidth: true
+                                                text: win.osEditorError
+                                                color: theme.red
+                                                font.family: win.sansFont
+                                                font.pixelSize: 11
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                Item { Layout.fillWidth: true }
+                                                ActionButton {
+                                                    label: qsTr("Cancel")
+                                                    minWidth: 88
+                                                    onClicked: win.osEditorVisible = false
+                                                }
+                                                ActionButton {
+                                                    label: qsTr("Save OS")
+                                                    variant: "primary"
+                                                    minWidth: 108
+                                                    onClicked: win.submitOsEditor()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Repeater {
+                                        model: backend.osCatalog
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            height: 64
+                                            radius: Math.min(5, theme.radius)
+                                            color: win.surfaceInput
+                                            border.width: 1
+                                            border.color: modelData.downloaded ? "#284d3a" : win.borderSubtle
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 12
+                                                anchors.rightMargin: 12
+                                                spacing: 10
+
+                                                Rectangle {
+                                                    width: 30
+                                                    height: 30
+                                                    radius: 3
+                                                    color: modelData.downloaded ? "#162920" : win.surfaceCard
+                                                    border.width: 1
+                                                    border.color: modelData.downloaded ? "#284d3a" : win.borderSubtle
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        text: modelData.downloaded ? "✓" : "↓"
+                                                        color: modelData.downloaded ? theme.green : theme.accent
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 12
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 1
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        elide: Text.ElideRight
+                                                        text: modelData.name
+                                                        color: theme.foreground
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 12
+                                                        font.weight: Font.Medium
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        elide: Text.ElideRight
+                                                        text: modelData.id + "  ·  " + modelData.alias
+                                                        color: theme.muted
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 9
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    height: 18
+                                                    width: osBadgeValue.implicitWidth + 12
+                                                    radius: 2
+                                                    color: win.surfaceCard
+                                                    border.width: 1
+                                                    border.color: win.borderSubtle
+                                                    Text {
+                                                        id: osBadgeValue
+                                                        anchors.centerIn: parent
+                                                        text: modelData.badge
+                                                        color: theme.accent
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 9
+                                                    }
+                                                }
+
+                                                Text {
+                                                    Layout.preferredWidth: 100
+                                                    horizontalAlignment: Text.AlignRight
+                                                    elide: Text.ElideRight
+                                                    text: modelData.sizeText
+                                                    color: modelData.downloaded ? theme.green : theme.muted
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 9
+                                                }
+
+                                                ActionButton {
+                                                    implicitHeight: 26
+                                                    label: qsTr("Edit")
+                                                    minWidth: 58
+                                                    onClicked: win.beginEditOs(modelData)
+                                                }
+                                                ActionButton {
+                                                    implicitHeight: 26
+                                                    label: qsTr("Remove")
+                                                    danger: true
+                                                    minWidth: 72
+                                                    onClicked: win.removeOsEntry(modelData)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+                                        Text {
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            text: qsTr("Removing an entry only removes it from the catalog. Cached image files are kept until you remove them in OS Images & Downloads.")
+                                            color: theme.muted
+                                            font.family: win.sansFont
+                                            font.pixelSize: 10
+                                        }
+                                        ActionButton {
+                                            label: qsTr("Restore Defaults")
+                                            minWidth: 135
+                                            onClicked: {
+                                                const error = backend.resetOsCatalog()
+                                                if (error.length > 0)
+                                                    win.showConfigNotice(error, true)
+                                                else
+                                                    win.showConfigNotice(qsTr("Default OS catalog restored."), false)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ==================================================
+                                // SECTION 2: CREATE OPTIONS
+                                // ==================================================
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: win.settingsSection === 2
+                                    spacing: 12
+
+                                    Text {
+                                        text: qsTr("Capability presets")
+                                        color: theme.foreground
+                                        font.family: win.sansFont
+                                        font.pixelSize: 12
+                                        font.weight: Font.Medium
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: qsTr("These cards appear above the distribution list. Their behavior stays the same; edit the title and subtitle.")
+                                        color: theme.muted
+                                        font.family: win.sansFont
+                                        font.pixelSize: 10
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Repeater {
+                                        model: backend.presets
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            height: 84
+                                            radius: Math.min(6, theme.radius)
+                                            color: win.surfaceInput
+                                            border.width: 1
+                                            border.color: win.borderSubtle
+
+                                            RowLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 12
+                                                spacing: 10
+
+                                                Text {
+                                                    Layout.preferredWidth: 58
+                                                    text: modelData.id
+                                                    color: theme.accent
+                                                    font.family: win.monoFont
+                                                    font.pixelSize: 9
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 3
+                                                    Text {
+                                                        text: qsTr("Title")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 9
+                                                    }
+                                                    FlatInput {
+                                                        id: presetTitleField
+                                                        Layout.fillWidth: true
+                                                        text: modelData.title
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 3
+                                                    Text {
+                                                        text: qsTr("Subtitle")
+                                                        color: theme.muted
+                                                        font.family: win.sansFont
+                                                        font.pixelSize: 9
+                                                    }
+                                                    FlatInput {
+                                                        id: presetSubField
+                                                        Layout.fillWidth: true
+                                                        text: modelData.sub
+                                                    }
+                                                }
+
+                                                ActionButton {
+                                                    Layout.alignment: Qt.AlignBottom
+                                                    label: qsTr("Save")
+                                                    minWidth: 66
+                                                    onClicked: {
+                                                        const error = backend.savePreset(modelData.id, presetTitleField.text, presetSubField.text)
+                                                        if (error.length > 0)
+                                                            win.showConfigNotice(error, true)
+                                                        else
+                                                            win.showConfigNotice(qsTr("Preset saved."), false)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 226
+                                        radius: Math.min(6, theme.radius)
+                                        color: win.surfaceInput
+                                        border.width: 1
+                                        border.color: win.borderSubtle
+
+                                        ColumnLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 6
+
+                                            Text {
+                                                text: qsTr("Quota and core choices")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: qsTr("Use comma-separated values. These become the selectable chips in the creation dialog.")
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                                wrapMode: Text.WordWrap
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+                                                Text {
+                                                    Layout.preferredWidth: 120
+                                                    text: qsTr("Disk quota")
+                                                    color: theme.foreground
+                                                    font.family: win.sansFont
+                                                    font.pixelSize: 11
+                                                }
+                                                FlatInput {
+                                                    id: diskOptionsField
+                                                    Layout.fillWidth: true
+                                                    placeholder: "20GiB, 35GiB, 60GiB, 100GiB"
+                                                }
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+                                                Text {
+                                                    Layout.preferredWidth: 120
+                                                    text: qsTr("RAM limit")
+                                                    color: theme.foreground
+                                                    font.family: win.sansFont
+                                                    font.pixelSize: 11
+                                                }
+                                                FlatInput {
+                                                    id: ramOptionsField
+                                                    Layout.fillWidth: true
+                                                    placeholder: "4GiB, 6GiB, 8GiB, 12GiB"
+                                                }
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+                                                Text {
+                                                    Layout.preferredWidth: 120
+                                                    text: qsTr("CPU cores")
+                                                    color: theme.foreground
+                                                    font.family: win.sansFont
+                                                    font.pixelSize: 11
+                                                }
+                                                FlatInput {
+                                                    id: cpuOptionsField
+                                                    Layout.fillWidth: true
+                                                    placeholder: "2, 4, 6, 8"
+                                                }
+                                            }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+                                                Item { Layout.fillWidth: true }
+                                                ActionButton {
+                                                    label: qsTr("Save Options")
+                                                    variant: "primary"
+                                                    minWidth: 130
+                                                    onClicked: win.saveQuotaOptions()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 10
+                                        Item { Layout.fillWidth: true }
+                                        ActionButton {
+                                            label: qsTr("Restore Create Defaults")
+                                            minWidth: 185
+                                            onClicked: {
+                                                const error = backend.resetCreateOptions()
+                                                if (error.length > 0) {
+                                                    win.showConfigNotice(error, true)
+                                                } else {
+                                                    diskOptionsField.text = backend.diskOptions.join(", ")
+                                                    ramOptionsField.text = backend.ramOptions.join(", ")
+                                                    cpuOptionsField.text = backend.cpuOptions.join(", ")
+                                                    win.showConfigNotice(qsTr("Create options restored."), false)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ======================================================================
+        // MODAL 5: FIRST-RUN WORKSPACE SETUP
+        // ======================================================================
+        Rectangle {
+            id: firstRunOverlay
+            anchors.fill: parent
+            visible: backend.firstRun
+            color: "#e006070a"
+            z: 100
+
+            MouseArea { anchors.fill: parent }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 80, 560)
+                height: firstRunColumn.implicitHeight + 56
+                radius: Math.min(8, theme.radius)
+                color: win.surfaceCard
+                border.width: 1
+                border.color: theme.accent
+
+                ColumnLayout {
+                    id: firstRunColumn
+                    anchors.fill: parent
+                    anchors.margins: 28
+                    spacing: 14
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Rectangle {
+                            width: 40
+                            height: 40
+                            radius: Math.min(6, theme.radius)
+                            color: win.surfaceSelected
+                            border.width: 1
+                            border.color: theme.accent
+                            Text {
+                                anchors.centerIn: parent
+                                text: ">_"
+                                color: theme.accent
+                                font.family: win.monoFont
+                                font.pixelSize: 14
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                text: qsTr("Welcome to AIBox")
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 18
+                                font.weight: Font.Medium
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: win.borderSubtle
+                    }
+
+                    Text {
+                        visible: win.firstRunError.length > 0
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: win.firstRunError
+                        color: theme.red
+                        font.family: win.sansFont
+                        font.pixelSize: 11
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 2
+                        Item { Layout.fillWidth: true }
+                        ActionButton {
+                            label: qsTr("Continue")
+                            variant: "primary"
+                            minWidth: 115
+                            onClicked: win.submitFirstRun()
+                        }
+                    }
+                }
+            }
+        }
+
+        FolderDialog {
+            id: workspaceFolderDialog
+            title: qsTr("Choose Workspace Location")
+            currentFolder: backend.pathToUrl(backend.workspaceBase)
+            onAccepted: workspacePathField.text = backend.localPath(selectedFolder)
+        }
+
+        FolderDialog {
+            id: osStorageFolderDialog
+            title: qsTr("Choose OS Image Storage Location")
+            currentFolder: backend.pathToUrl(backend.osStoragePath)
+            onAccepted: osStoragePathField.text = backend.localPath(selectedFolder)
+        }
+
+        Timer {
+            id: configNoticeTimer
+            interval: 5000
+            onTriggered: win.configNotice = ""
+        }
+
     }
 }

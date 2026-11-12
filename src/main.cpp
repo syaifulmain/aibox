@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("aibox");
-    app.setApplicationVersion("0.1.0");
+    app.setApplicationVersion("0.2.0");
 
     if (argc > 1) {
         const QString sub = QString::fromLocal8Bit(argv[1]);
@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             const auto envs = Backend::parseIncusListJson(proc.readAllStandardOutput(),
-                                                          QDir::homePath() + "/ai-workspaces");
+                                                          QDir::currentPath() + "/.aibox/workspaces");
             const auto doc = QJsonDocument::fromVariant(envs);
             std::fwrite(doc.toJson(QJsonDocument::Indented).constData(), 1,
                         doc.toJson(QJsonDocument::Indented).size(), stdout);
@@ -88,6 +88,12 @@ int main(int argc, char *argv[]) {
         if (win) {
             if (qEnvironmentVariableIntValue("AIBOX_PREVIEW_CREATE") == 1)
                 win->setProperty("createVisible", true);
+            if (qEnvironmentVariableIntValue("AIBOX_OPEN_SETTINGS") == 1) {
+                win->setProperty("settingsSection", qEnvironmentVariableIntValue("AIBOX_SETTINGS_SECTION"));
+                win->setProperty("settingsVisible", true);
+            }
+            if (qEnvironmentVariableIntValue("AIBOX_OPEN_OS_EDITOR") == 1)
+                win->setProperty("osEditorVisible", true);
             QTimer::singleShot(350, win, [win, grabPath]() {
                 const QImage img = win->grabWindow();
                 img.save(grabPath);
