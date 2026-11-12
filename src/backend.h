@@ -2,7 +2,9 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QStringList>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -21,7 +23,21 @@ class Backend : public QObject {
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(QString downloadingOsId READ downloadingOsId NOTIFY osCatalogChanged)
-    Q_PROPERTY(QString workspaceBase READ workspaceBase CONSTANT)
+    Q_PROPERTY(QString workspaceBase READ workspaceBase NOTIFY workspaceBaseChanged)
+    Q_PROPERTY(QString osStoragePath READ osStoragePath NOTIFY osStoragePathChanged)
+    Q_PROPERTY(QString defaultWorkspaceBase READ defaultWorkspaceBase CONSTANT)
+    Q_PROPERTY(QString defaultOsStoragePath READ defaultOsStoragePath CONSTANT)
+    Q_PROPERTY(QString configFilePath READ configFilePath CONSTANT)
+    Q_PROPERTY(bool firstRun READ firstRun NOTIFY firstRunChanged)
+    Q_PROPERTY(QVariantList presets READ presets NOTIFY createOptionsChanged)
+    Q_PROPERTY(QStringList diskOptions READ diskOptions NOTIFY createOptionsChanged)
+    Q_PROPERTY(QStringList ramOptions READ ramOptions NOTIFY createOptionsChanged)
+    Q_PROPERTY(QVariantList cpuOptions READ cpuOptions NOTIFY createOptionsChanged)
+    Q_PROPERTY(QString defaultPresetId READ defaultPresetId NOTIFY createOptionsChanged)
+    Q_PROPERTY(QString defaultOsId READ defaultOsId NOTIFY osCatalogChanged)
+    Q_PROPERTY(QString defaultDisk READ defaultDisk NOTIFY createOptionsChanged)
+    Q_PROPERTY(QString defaultRam READ defaultRam NOTIFY createOptionsChanged)
+    Q_PROPERTY(int defaultCpu READ defaultCpu NOTIFY createOptionsChanged)
 
 public:
     explicit Backend(const QString &workspaceDir = {}, QObject *parent = nullptr);
@@ -42,6 +58,21 @@ public:
     QString errorMessage() const { return m_errorMessage; }
     QString downloadingOsId() const { return m_downloadingOsId; }
     QString workspaceBase() const { return m_workspaceBase; }
+    QString osStoragePath() const { return m_osStoragePath; }
+    QString configFilePath() const { return m_configPath; }
+    bool firstRun() const { return m_firstRun; }
+    QVariantList presets() const { return m_presets; }
+    QStringList diskOptions() const { return m_diskOptions; }
+    QStringList ramOptions() const { return m_ramOptions; }
+    QVariantList cpuOptions() const { return m_cpuOptions; }
+    QString defaultPresetId() const { return m_defaultPresetId; }
+    QString defaultOsId() const { return m_defaultOsId; }
+    QString defaultDisk() const { return m_defaultDisk; }
+    QString defaultRam() const { return m_defaultRam; }
+    int defaultCpu() const { return m_defaultCpu; }
+
+    static QString defaultWorkspaceBase() { return defaultWorkspacePath(); }
+    static QString defaultOsStoragePath() { return defaultOsStoragePathValue(); }
 
     Q_INVOKABLE void primaryAction();
     Q_INVOKABLE void refresh();
@@ -63,6 +94,20 @@ public:
     Q_INVOKABLE void downloadOsImage(const QString &osId);
     Q_INVOKABLE void removeOsImage(const QString &osId);
 
+    // Configuration menu actions. Methods returning QString return an empty
+    // string on success, or a human-readable validation/IO error for the UI.
+    Q_INVOKABLE QString completeFirstRun(const QString &workspacePath);
+    Q_INVOKABLE QString saveSettings(const QString &workspacePath, const QString &osStoragePath);
+    Q_INVOKABLE QString saveOsEntry(const QString &originalId, const QString &id, const QString &alias,
+                                    const QString &name, const QString &badge, const QString &description);
+    Q_INVOKABLE QString removeOsEntry(const QString &id);
+    Q_INVOKABLE QString resetOsCatalog();
+    Q_INVOKABLE QString saveCreateOptions(const QString &diskCsv, const QString &ramCsv, const QString &cpuCsv);
+    Q_INVOKABLE QString savePreset(const QString &id, const QString &title, const QString &subtitle);
+    Q_INVOKABLE QString resetCreateOptions();
+    Q_INVOKABLE QUrl pathToUrl(const QString &path) const;
+    Q_INVOKABLE QString localPath(const QUrl &url) const;
+
     static QString sanitizeName(const QString &rawName);
     static QVariantList parseIncusListJson(const QByteArray &json, const QString &workspaceBase);
     static QVariantList buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId = {});
@@ -76,6 +121,10 @@ signals:
     void taskProgressChanged();
     void statusMessageChanged();
     void errorMessageChanged();
+    void workspaceBaseChanged();
+    void osStoragePathChanged();
+    void firstRunChanged();
+    void createOptionsChanged();
     void environmentCreated(const QString &name);
 
 private:
@@ -88,6 +137,28 @@ private:
     qint64 readTaskPid() const;
     void clearTaskFiles();
     void loadDemoData();
+
+    void loadConfig();
+    bool saveConfig() const;
+    void rebuildOsCatalog();
+    void normalizeDefaults();
+    QString normalizedPath(const QString &raw, const QString &fallback) const;
+    QString workspacePathFor(const QString &name) const;
+    QString cacheBasePath(const QString &osId) const;
+    QVariantMap presetById(const QString &id) const;
+    QVariantMap osEntryById(const QString &id) const;
+
+    static QString defaultWorkspacePath();
+    static QString defaultOsStoragePathValue();
+    static QVariantList defaultOsEntries();
+    static QVariantList defaultPresets();
+    static QStringList defaultDiskOptions();
+    static QStringList defaultRamOptions();
+    static QVariantList defaultCpuOptions();
+    static QVariantList catalogForEntries(const QVariantList &entries, const QByteArray &imagesJson,
+                                          const QString &downloadingId, const QString &storagePath);
+    static QStringList parseCsv(const QString &text);
+    static QString shellQuote(const QString &value);
 
     int m_count = 0;
     QVariantList m_environments;
@@ -105,7 +176,21 @@ private:
     QString m_errorMessage;
     QString m_downloadingOsId;
     QString m_workspaceBase;
+    QString m_osStoragePath;
     QString m_stateDir;
+    QString m_configPath;
+    bool m_firstRun = false;
+    QVariantList m_osEntries;
+    QVariantList m_presets;
+    QStringList m_diskOptions;
+    QStringList m_ramOptions;
+    QVariantList m_cpuOptions;
+    QString m_defaultPresetId;
+    QString m_defaultOsId;
+    QString m_defaultDisk;
+    QString m_defaultRam;
+    int m_defaultCpu = 4;
+    QByteArray m_lastImagesJson;
     QProcess *m_refreshProcess = nullptr;
     QTimer m_pollTimer;
     QTimer m_taskWatchTimer;

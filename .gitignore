@@ -2,3 +2,7 @@
 /pkgbuild/pkg/
 /pkgbuild/src/
 *.pkg.tar.*
+
+# Generated package output and project-local runtime data.
+/pkgbuild/pkgbuild/
+/.aibox/

@@ -1,5 +1,6 @@
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -11,6 +12,18 @@ class AiboxTests : public QObject {
     Q_OBJECT
 
 private slots:
+    void defaultsAreProjectLocal()
+    {
+        const QString projectDir = QDir::currentPath();
+        QCOMPARE(Backend::defaultWorkspaceBase(), projectDir + "/.aibox/workspaces");
+        QCOMPARE(Backend::defaultOsStoragePath(), projectDir + "/.aibox/os-images");
+
+        Backend backend;
+        QCOMPARE(backend.workspaceBase(), projectDir + "/.aibox/workspaces");
+        QCOMPARE(backend.osStoragePath(), projectDir + "/.aibox/os-images");
+        QVERIFY(backend.configFilePath().startsWith(projectDir + "/.aibox/"));
+    }
+
     void primaryActionCounts()
     {
         QTemporaryDir dir;
@@ -98,6 +111,156 @@ private slots:
         const QVariantMap first = catalog.first().toMap();
         QCOMPARE(first.value("id").toString(), QString("ubuntu-24.04"));
         QCOMPARE(first.value("downloaded").toBool(), true);
+    }
+
+    void parseIncusJsonUsesWorkspaceDeviceSource()
+    {
+        const QByteArray sampleJson = R"json([
+            {
+                "name": "custom-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "expanded_devices": {
+                    "workspace": { "type": "disk", "source": "/data/custom-box" }
+                }
+            }
+        ])json";
+
+        const QVariantList list = Backend::parseIncusListJson(sampleJson, "/tmp/default");
+        QCOMPARE(list.size(), 1);
+        QCOMPARE(list.first().toMap().value("workspacePath").toString(), QString("/data/custom-box"));
+    }
+
+    void firstRunCompletesAndPersists()
+    {
+        QTemporaryDir dir;
+        {
+            Backend backend(dir.path());
+            QVERIFY(backend.firstRun());
+            QCOMPARE(backend.workspaceBase(), QDir::cleanPath(dir.path()));
+
+            const QString workspace = dir.filePath("projects");
+            QCOMPARE(backend.completeFirstRun(workspace), QString());
+            QVERIFY(!backend.firstRun());
+            QCOMPARE(backend.workspaceBase(), workspace);
+            QVERIFY(QFileInfo(workspace).isDir());
+            QVERIFY(QFileInfo(backend.configFilePath()).isFile());
+            QFile config(backend.configFilePath());
+            QVERIFY(config.open(QIODevice::ReadOnly));
+            QVERIFY(config.readAll().contains("\"firstRunCompleted\": true"));
+        }
+
+        Backend reopened(dir.path());
+        QVERIFY(!reopened.firstRun());
+        QCOMPARE(reopened.workspaceBase(), dir.filePath("projects"));
+    }
+
+    void firstRunEmptyKeepsCurrentWorkspace()
+    {
+        QTemporaryDir dir;
+        Backend backend(dir.path());
+        QCOMPARE(backend.completeFirstRun(""), QString());
+        QCOMPARE(backend.workspaceBase(), QDir::cleanPath(dir.path()));
+        QVERIFY(!backend.firstRun());
+    }
+
+    void storageSettingsValidateAndPersist()
+    {
+        QTemporaryDir dir;
+        const QString workspace = dir.filePath("custom-workspace");
+        const QString osStorage = dir.filePath("custom-os-images");
+        {
+            Backend backend(dir.path());
+            QCOMPARE(backend.saveSettings(workspace, osStorage), QString());
+            QCOMPARE(backend.workspaceBase(), workspace);
+            QCOMPARE(backend.osStoragePath(), osStorage);
+            QVERIFY(QFileInfo(workspace).isDir());
+            QVERIFY(QFileInfo(osStorage).isDir());
+            QVERIFY(!backend.firstRun());
+        }
+
+        Backend reopened(dir.path());
+        QCOMPARE(reopened.workspaceBase(), workspace);
+        QCOMPARE(reopened.osStoragePath(), osStorage);
+        QVERIFY(!reopened.firstRun());
+    }
+
+    void osCatalogCanBeAddedEditedAndRemoved()
+    {
+        QTemporaryDir dir;
+        Backend backend(dir.path());
+        const int initialCount = backend.osCatalog().size();
+
+        QCOMPARE(backend.saveOsEntry("", "custom-os", "custom/os", "Custom OS", "Custom", "Test entry"), QString());
+        QCOMPARE(backend.osCatalog().size(), initialCount + 1);
+
+        auto findEntry = [&backend](const QString &id) {
+            for (const auto &value : backend.osCatalog()) {
+                const QVariantMap entry = value.toMap();
+                if (entry.value("id").toString() == id)
+                    return entry;
+            }
+            return QVariantMap{};
+        };
+
+        QVariantMap added = findEntry("custom-os");
+        QCOMPARE(added.value("alias").toString(), QString("custom/os"));
+        QCOMPARE(added.value("name").toString(), QString("Custom OS"));
+
+        QVERIFY(!backend.saveOsEntry("", "custom-os", "other/os", "Duplicate", "Custom", "").isEmpty());
+        QVERIFY(!backend.saveOsEntry("", "Bad ID", "other/os", "Invalid", "Custom", "").isEmpty());
+
+        QCOMPARE(backend.saveOsEntry("custom-os", "custom-os-2", "custom/os2", "Custom OS 2", "Custom", ""), QString());
+        QCOMPARE(findEntry("custom-os").value("id").toString(), QString());
+        QCOMPARE(findEntry("custom-os-2").value("name").toString(), QString("Custom OS 2"));
+
+        QCOMPARE(backend.removeOsEntry("custom-os-2"), QString());
+        QCOMPARE(backend.osCatalog().size(), initialCount);
+        QVERIFY(!backend.osCatalog().isEmpty());
+    }
+
+    void osStorageCacheMarksEntryDownloaded()
+    {
+        QTemporaryDir dir;
+        Backend backend(dir.path());
+        QDir().mkpath(backend.osStoragePath());
+
+        write(backend.osStoragePath() + "/cached-os", "metadata");
+        write(backend.osStoragePath() + "/cached-os.root", "rootfs");
+        QCOMPARE(backend.saveOsEntry("", "cached-os", "cached/os", "Cached OS", "Test", ""), QString());
+
+        QVariantMap entry;
+        for (const auto &value : backend.osCatalog()) {
+            if (value.toMap().value("id").toString() == "cached-os")
+                entry = value.toMap();
+        }
+        QCOMPARE(entry.value("downloaded").toBool(), true);
+        QVERIFY(entry.value("sizeText").toString().startsWith("Saved"));
+    }
+
+    void createOptionsAreEditableAndValidated()
+    {
+        QTemporaryDir dir;
+        Backend backend(dir.path());
+
+        QCOMPARE(backend.saveCreateOptions("10GiB, 40GiB", "2GiB, 8GiB", "1, 3, 5"), QString());
+        QCOMPARE(backend.diskOptions(), QStringList({"10GiB", "40GiB"}));
+        QCOMPARE(backend.ramOptions(), QStringList({"2GiB", "8GiB"}));
+        QCOMPARE(static_cast<int>(backend.cpuOptions().size()), 3);
+        QVERIFY(backend.diskOptions().contains(backend.defaultDisk()));
+        QVERIFY(backend.ramOptions().contains(backend.defaultRam()));
+
+        QVERIFY(!backend.saveCreateOptions("not-a-size", "6GiB", "4").isEmpty());
+        QVERIFY(!backend.saveCreateOptions("20GiB", "6GiB", "zero").isEmpty());
+        QVERIFY(!backend.saveCreateOptions("", "", "").isEmpty());
+
+        QCOMPARE(backend.savePreset("full", "Full Desktop", "GPU bridge"), QString());
+        QCOMPARE(backend.presets().first().toMap().value("title").toString(), QString("Full Desktop"));
+        QVERIFY(!backend.savePreset("missing", "Missing", "").isEmpty());
+
+        QCOMPARE(backend.resetCreateOptions(), QString());
+        QCOMPARE(backend.presets().first().toMap().value("title").toString(), QString("Desktop & Mobile"));
     }
 
     void themeFallsBack()
