@@ -52,11 +52,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
-### Iteration 5 — Visual Polish, Status Alignment, Green/Red Lifecycle Buttons, & Uniform Button Metrics
+### Iteration 5 — Visual Polish, Status Alignment, Dynamic OS Theme Accent for Start OS, & Uniform Button Metrics
 * **Inspector Title & Status Alignment**: Fixed layout calculation issue where the status badge squished and overlapped long environment titles. Given explicit preferred dimensions (`Layout.preferredWidth`, `Layout.preferredHeight: 22`), 12px horizontal separation, and an active status dot indicator.
-* **Start OS & Stop OS Color System**:
-  * **Start OS** now renders in prominent dark-green (`#162920` background, `theme.green` border, green text, and green shortcut badge) when the environment is stopped.
-  * **Stop OS** renders in prominent dark-red (`#261319` background, `theme.red` border, red text, and red shortcut badge) matching the **Wipe OS** button when the environment is running.
+* **Start OS & Stop OS Lifecycle Color System**:
+  * **Start OS** now dynamically renders using the current active Omarchy theme accent (`theme.accent`), matching the exact visual style of the **Wipe OS** button (subtle tinted background using `Qt.rgba()`, 1px theme accent border, theme accent text, and tinted shortcut badge) instead of a hardcoded static green. When the desktop theme changes via `omarchy theme`, the button color adapts live.
+  * **Stop OS** renders in prominent dark-red (`theme.red` tinted background and border, red text and shortcut badge) matching the **Wipe OS** button when the environment is running.
 * **Top-Right Primary Action**: Positioned the **Enter OS Terminal** button in the top-right corner of the inspector pane with a flex spacer (`Item { Layout.fillWidth: true }`).
 * **Strict Button Metrics & Spacing**:
   * Enforced a uniform height of `34px` across all action buttons, search/command inputs, and the segmented tab switcher.

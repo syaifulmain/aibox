@@ -116,7 +116,7 @@ void Theme::reload() {
     const auto red = readKey(tomlPath, "red", "#f7768e");
     const auto yellow = readKey(tomlPath, "yellow", "#e0af68");
 
-    if (accent != m_accent || bg != m_background || fg != m_foreground) {
+    if (accent != m_accent || bg != m_background || fg != m_foreground || red != m_red || green != m_green || muted != m_muted) {
         m_accent = accent;
         m_background = bg;
         m_darkBackground = darkBg;
