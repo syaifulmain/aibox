@@ -52,6 +52,17 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 5 — Visual Polish, Status Alignment, Green/Red Lifecycle Buttons, & Uniform Button Metrics
+* **Inspector Title & Status Alignment**: Fixed layout calculation issue where the status badge squished and overlapped long environment titles. Given explicit preferred dimensions (`Layout.preferredWidth`, `Layout.preferredHeight: 22`), 12px horizontal separation, and an active status dot indicator.
+* **Start OS & Stop OS Color System**:
+  * **Start OS** now renders in prominent dark-green (`#162920` background, `theme.green` border, green text, and green shortcut badge) when the environment is stopped.
+  * **Stop OS** renders in prominent dark-red (`#261319` background, `theme.red` border, red text, and red shortcut badge) matching the **Wipe OS** button when the environment is running.
+* **Top-Right Primary Action**: Positioned the **Enter OS Terminal** button in the top-right corner of the inspector pane with a flex spacer (`Item { Layout.fillWidth: true }`).
+* **Strict Button Metrics & Spacing**:
+  * Enforced a uniform height of `34px` across all action buttons, search/command inputs, and the segmented tab switcher.
+  * Enforced uniform `10px` spacing across button rows and toolbars.
+  * Added `minWidth` constraints across action button categories to eliminate visual jumping during state toggles.
+
 ### Iteration 4 — Full English Standardization
 * Standardized all project documentation ([README.md](file:///home/saep/Work/aibox/README.md), [CATALOG.md](file:///home/saep/Work/aibox/CATALOG.md)), helper scripts ([bin/setup-system](file:///home/saep/Work/aibox/bin/setup-system), [bin/uninstall](file:///home/saep/Work/aibox/bin/uninstall), [~/.local/bin/ai-box](file:///home/saep/.local/bin/ai-box)), desktop metadata, and UI catalogs to English.
 

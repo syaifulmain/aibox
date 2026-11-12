@@ -68,6 +68,11 @@ int main(int argc, char *argv[]) {
     Theme theme(themeDir);
     Backend backend;
 
+    const QString selectIdx = qEnvironmentVariable("AIBOX_SELECT_INDEX");
+    if (!selectIdx.isEmpty()) {
+        backend.setSelectedIndex(selectIdx.toInt());
+    }
+
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
