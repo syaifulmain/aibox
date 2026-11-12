@@ -2,16 +2,16 @@
 set -euo pipefail
 
 # ==============================================================================
-# AIBox System Setup — Menginstal & Mengonfigurasi Incus untuk Omarchy / Arch
-# Jalankan sekali pada mesin baru sebelum './bin/install'
+# AIBox System Setup — Installs & Configures Incus for Omarchy / Arch Linux
+# Run once on a new machine before running './bin/install'
 # ==============================================================================
 
 TARGET_USER="${SUDO_USER:-$USER}"
 
-echo "==> [1/6] Menginstal paket sistem (incus, dnsmasq, xorg-xhost, acl)..."
+echo "==> [1/6] Installing system packages (incus, dnsmasq, xorg-xhost, acl)..."
 sudo pacman -S --needed --noconfirm incus dnsmasq xorg-xhost acl qt6-base qt6-declarative qt6-wayland
 
-echo "==> [2/6] Mengonfigurasi /etc/subuid dan /etc/subgid..."
+echo "==> [2/6] Configuring /etc/subuid and /etc/subgid..."
 if ! grep -q "^root:" /etc/subuid 2>/dev/null; then
     echo "root:1000000:1000000000" | sudo tee -a /etc/subuid >/dev/null
 fi
@@ -19,10 +19,10 @@ if ! grep -q "^root:" /etc/subgid 2>/dev/null; then
     echo "root:1000000:1000000000" | sudo tee -a /etc/subgid >/dev/null
 fi
 
-echo "==> [3/6] Menambahkan user '$TARGET_USER' ke grup incus-admin, kvm, render, video..."
+echo "==> [3/6] Adding user '$TARGET_USER' to incus-admin, kvm, render, and video groups..."
 sudo usermod -aG incus-admin,kvm,render,video "$TARGET_USER"
 
-echo "==> [4/6] Menyalakan service Incus & mengatur izin socket..."
+echo "==> [4/6] Enabling Incus service & configuring socket ACL permissions..."
 sudo systemctl enable --now incus.socket incus.service
 sudo incus admin waitready --timeout=30
 
@@ -34,7 +34,7 @@ EOF
 sudo systemctl daemon-reload
 sudo setfacl -m "u:${TARGET_USER}:rw" /var/lib/incus/unix.socket
 
-echo "==> [5/6] Menginisialisasi Storage Pool Btrfs & Jaringan Bridge (incusbr0)..."
+echo "==> [5/6] Initializing Btrfs Storage Pool & Network Bridge (incusbr0)..."
 if ! incus storage show default >/dev/null 2>&1; then
     cat << 'EOF' | sudo incus admin init --preseed
 config: {}
@@ -43,13 +43,13 @@ networks:
     ipv4.address: auto
     ipv4.nat: "true"
     ipv6.address: none
-  description: "Jaringan Bridge untuk AIBox"
+  description: "Bridge network for AIBox"
   name: incusbr0
   type: bridge
   project: default
 storage_pools:
 - config: {}
-  description: "Btrfs Storage Pool dengan dukungan kuota disk & snapshot instan"
+  description: "Btrfs Storage Pool with disk quotas and instant snapshots"
   name: default
   driver: btrfs
 profiles:
@@ -81,11 +81,11 @@ incus profile device add ai-gui gpu gpu mode=0666
 incus profile device remove ai-gui kvm >/dev/null 2>&1 || true
 incus profile device add ai-gui kvm unix-char source=/dev/kvm path=/dev/kvm mode=0666
 
-echo "==> [6/6] Mengonfigurasi Firewall UFW untuk incusbr0..."
+echo "==> [6/6] Configuring UFW firewall rules for incusbr0..."
 if systemctl is-active --quiet ufw; then
     sudo ufw allow in on incusbr0 comment 'Incus Bridge Input' >/dev/null || true
     sudo ufw route allow in on incusbr0 comment 'Incus Bridge Route In' >/dev/null || true
     sudo ufw route allow out on incusbr0 comment 'Incus Bridge Route Out' >/dev/null || true
 fi
 
-echo "==> Setup sistem selesai! Sekarang jalankan './bin/install' untuk memasang aplikasi AIBox."
+echo "==> System setup complete! Now run './bin/install' to build and install the AIBox desktop app."
