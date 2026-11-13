@@ -111,6 +111,11 @@ public:
     static QString sanitizeName(const QString &rawName);
     static QVariantList parseIncusListJson(const QByteArray &json, const QString &workspaceBase);
     static QVariantList buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId = {});
+    // Shell bootstrap used by createEnvironment(); exposed for the test suite.
+    static QString createEnvironmentScript(const QString &name, const QString &localAlias, const QString &remoteImage,
+                                           const QString &workspace, const QString &cacheBase,
+                                           const QString &profileFlags, const QString &ramGiB,
+                                           const QString &diskGiB, int cpuCores, bool x11);
 
 signals:
     void countChanged();
@@ -159,6 +164,7 @@ private:
                                           const QString &downloadingId, const QString &storagePath);
     static QStringList parseCsv(const QString &text);
     static QString shellQuote(const QString &value);
+    static QString shellArrayWords(const QString &words);
 
     int m_count = 0;
     QVariantList m_environments;
