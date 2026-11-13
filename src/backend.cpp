@@ -696,6 +696,15 @@ QString Backend::shellQuote(const QString &value) {
     return QLatin1Char('\'') + escaped + QLatin1Char('\'');
 }
 
+QString Backend::shellArrayWords(const QString &words) {
+    const QStringList tokens = words.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    QStringList quoted;
+    quoted.reserve(tokens.size());
+    for (const QString &token : tokens)
+        quoted.append(shellQuote(token));
+    return quoted.join(QLatin1Char(' '));
+}
+
 
 void Backend::primaryAction() {
     ++m_count;
@@ -1275,12 +1284,29 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
     const QString localAlias = QStringLiteral("aibox-") + entryId;
     const QString hostWorkspace = m_workspaceBase + "/" + name;
     const QString cacheBase = cacheBasePath(entryId);
-    const QString profileFlags = preset.value("flags").toString();
-    const QString quotaArgs = QStringLiteral("-c limits.cpu=%1 -c limits.memory=%2 -d root,size=%3")
-                                  .arg(QString::number(qMax(1, cpuCores)), shellQuote(ramGiB), shellQuote(diskGiB));
-    const QString x11Flag = preset.value("x11").toBool() ? QStringLiteral("1") : QStringLiteral("0");
 
-    const QString script = QStringLiteral(R"sh(
+    const QString script = createEnvironmentScript(name,
+                                                   localAlias,
+                                                   QStringLiteral("images:") + osAlias,
+                                                   hostWorkspace,
+                                                   cacheBase,
+                                                   preset.value("flags").toString(),
+                                                   ramGiB,
+                                                   diskGiB,
+                                                   cpuCores,
+                                                   preset.value("x11").toBool());
+
+    runShellTask(tr("Creating environment '%1'").arg(name), script, name);
+}
+
+QString Backend::createEnvironmentScript(const QString &name, const QString &localAlias, const QString &remoteImage,
+                                         const QString &workspace, const QString &cacheBase,
+                                         const QString &profileFlags, const QString &ramGiB, const QString &diskGiB,
+                                         int cpuCores, bool x11) {
+    const QString quotaArgs = QStringLiteral("-c limits.cpu=%1 -c limits.memory=%2 -d root,size=%3")
+                                  .arg(QString::number(qMax(1, cpuCores)), ramGiB.trimmed(), diskGiB.trimmed());
+
+    return QStringLiteral(R"sh(
 set -euo pipefail
 NAME=%1
 LOCAL_ALIAS=%2
@@ -1288,14 +1314,15 @@ REMOTE_IMAGE=%3
 WORKSPACE=%4
 CACHE=%5
 CACHE_ROOT=%6
-PROFILE_FLAGS=%7
-QUOTA_ARGS=%8
+PROFILE_ARGS=(%7)
+QUOTA_ARGS=(%8)
 X11=%9
 
 echo "@@STAGE:8:Step 1/4 — Preparing shared workspace directory..."
 mkdir -p "$WORKSPACE"
 if command -v setfacl >/dev/null 2>&1; then
-    setfacl -R -m "u:${USER}:rwx" -d -m "u:${USER}:rwx" "$WORKSPACE" 2>/dev/null || true
+    ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
+    setfacl -R -m "u:${ACL_USER}:rwx" -d -m "u:${ACL_USER}:rwx" "$WORKSPACE" 2>/dev/null || true
 fi
 
 if incus image info "$LOCAL_ALIAS" >/dev/null 2>&1; then
@@ -1312,7 +1339,7 @@ else
 fi
 
 echo "@@STAGE:72:Step 3/4 — Launching isolated OS container & applying quotas..."
-script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" $PROFILE_FLAGS $QUOTA_ARGS" /dev/null
+script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" ${PROFILE_ARGS[*]} ${QUOTA_ARGS[*]}" /dev/null
 
 echo "@@STAGE:86:Step 4/4 — Mounting /workspace & waiting for network IP..."
 sleep 1
@@ -1346,15 +1373,13 @@ echo "@@STAGE:100:Environment ready!"
 )sh")
                                .arg(shellQuote(name),
                                     shellQuote(localAlias),
-                                    shellQuote(QStringLiteral("images:") + osAlias),
-                                    shellQuote(hostWorkspace),
+                                    shellQuote(remoteImage),
+                                    shellQuote(workspace),
                                     shellQuote(cacheBase),
                                     shellQuote(cacheBase + ".root"),
-                                    profileFlags,
-                                    quotaArgs,
-                                    x11Flag);
-
-    runShellTask(tr("Creating environment '%1'").arg(name), script, name);
+                                    shellArrayWords(profileFlags),
+                                    shellArrayWords(quotaArgs),
+                                    x11 ? QStringLiteral("1") : QStringLiteral("0"));
 }
 
 void Backend::enterEnvironment(const QString &name) {

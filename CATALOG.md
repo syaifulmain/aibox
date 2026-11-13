@@ -55,6 +55,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 11 — Create Environment Script Quoting Fix
+* **Preset & Quota Arguments (`src/backend.cpp`, `src/backend.h`)**: The generated `task.sh` used to assign the preset flags and quota arguments unquoted (`PROFILE_FLAGS=-p default -p ai-gui`), so bash tried to run `default` as a command and the creation aborted with `line 11: default: command not found`. The script now stores both as properly quoted bash arrays (`PROFILE_ARGS=(...)`, `QUOTA_ARGS=(...)`) that are expanded as `${PROFILE_ARGS[*]}` / `${QUOTA_ARGS[*]}` when calling `incus launch`, and the quota values are no longer double-quoted into the Incus argument. The script builder was extracted into the testable `Backend::createEnvironmentScript()` plus the `shellArrayWords()` helper.
+* **ACL user fallback**: `setfacl` now uses `${SUDO_USER:-${USER:-$(id -un)}}` so the workspace ACL step cannot fail under `set -u` when `$USER` is unset.
+* **Regression Test (`tests/aibox_tests.cpp`)**: New `createEnvironmentScriptPassesPresetFlagsAsArguments` test runs the generated script against stub `incus`/`script`/`sleep` binaries and asserts the launch arguments arrive as separate `-p default -p ai-gui -c limits.cpu=4 -c limits.memory=6GiB -d root,size=60GiB` tokens.
+
 ### Iteration 10 — Repository Maintenance & Clean Setup/Installation
 * **Repository Cleanup**: Removed unused root screenshot files (`config.png`, `first-run.png`), legacy `~/.local/bin/ai-box` helper script, and stale translation keys from `src/i18n/da.json` while adding the missing `%n OS entries` plural form to `src/i18n/en.json`.
 * **Single-Pass Clean Installer (`bin/install` & `pkgbuild/PKGBUILD`)**: Removed the duplicate `./bin/build` invocation before `makepkg` in `bin/install`, added `-c` (`--clean`) to automatically clean up `pkgbuild/pkg/` and `pkgbuild/src/` after installation, and declared explicit runtime/build dependencies (`acl`, `util-linux`, `qt6-base`) in `PKGBUILD`.

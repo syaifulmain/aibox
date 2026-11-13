@@ -1,6 +1,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -340,7 +342,61 @@ private slots:
         QCOMPARE(Translator::pluralCategory("ja", 1), QString("other"));
     }
 
+    void createEnvironmentScriptPassesPresetFlagsAsArguments()
+    {
+        QTemporaryDir dir;
+        const QString stubDir = dir.filePath("stubs");
+        QVERIFY(QDir().mkpath(stubDir));
+        const QString logPath = dir.filePath("incus.log");
+
+        writeExecutable(stubDir + "/incus",
+                        "#!/bin/sh\n"
+                        "echo \"$@\" >> \"$AIBOX_STUB_LOG\"\n"
+                        "if [ \"$1\" = image ] && [ \"$2\" = info ]; then exit 1; fi\n"
+                        "if [ \"$1\" = list ]; then echo \"10.0.0.5\"; fi\n"
+                        "exit 0\n");
+        // `script` runs its -c argument; replay it with bash so quoting is exercised.
+        writeExecutable(stubDir + "/script", "#!/bin/sh\nexec bash -c \"$4\"\n");
+        writeExecutable(stubDir + "/sleep", "#!/bin/sh\nexit 0\n");
+
+        const QString scriptPath = dir.filePath("task.sh");
+        write(scriptPath, Backend::createEnvironmentScript("mobile-porting",
+                                                          "aibox-archlinux",
+                                                          "images:archlinux",
+                                                          dir.filePath("workspace"),
+                                                          dir.filePath("os-images/aibox-archlinux"),
+                                                          "-p default -p ai-gui",
+                                                          "6GiB",
+                                                          "60GiB",
+                                                          4,
+                                                          true)
+                               .toUtf8());
+
+        QProcess process;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert("PATH", stubDir + ":" + env.value("PATH"));
+        env.insert("AIBOX_STUB_LOG", logPath);
+        env.remove("DISPLAY");
+        process.setProcessEnvironment(env);
+        process.start(QStringLiteral("/bin/bash"), {scriptPath});
+        QVERIFY(process.waitForFinished(30000));
+        QCOMPARE(process.exitCode(), 0);
+
+        QFile logFile(logPath);
+        QVERIFY(logFile.open(QIODevice::ReadOnly));
+        const QString log = QString::fromUtf8(logFile.readAll());
+        QVERIFY2(log.contains("launch aibox-archlinux mobile-porting -p default -p ai-gui "
+                              "-c limits.cpu=4 -c limits.memory=6GiB -d root,size=60GiB"),
+                 qPrintable(log));
+    }
+
 private:
+    static void writeExecutable(const QString &path, const QByteArray &contents)
+    {
+        write(path, contents);
+        QVERIFY(QFile::setPermissions(path, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+    }
+
     static void write(const QString &path, const QByteArray &contents)
     {
         QFile file(path);
