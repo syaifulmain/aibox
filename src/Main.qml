@@ -1398,7 +1398,7 @@ ApplicationWindow {
                                     required property var modelData
                                     required property int index
                                     width: envListView.width
-                                    height: 78
+                                    height: 64
 
                                     Rectangle {
                                         anchors.fill: parent
@@ -1410,7 +1410,7 @@ ApplicationWindow {
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: 12
-                                            spacing: 4
+                                            spacing: 8
 
                                             RowLayout {
                                                 Layout.fillWidth: true
@@ -1467,15 +1467,6 @@ ApplicationWindow {
                                                         font.pixelSize: 9
                                                     }
                                                 }
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                elide: Text.ElideRight
-                                                text: modelData.osName + " · " + modelData.preset
-                                                color: theme.muted
-                                                font.family: win.sansFont
-                                                font.pixelSize: 11
                                             }
 
                                             RowLayout {

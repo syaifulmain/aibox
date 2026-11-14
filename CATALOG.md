@@ -56,6 +56,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 31 — Compact Environment List Card
+- **Environment Sidebar (`src/Main.qml`)**:
+  - Removed the secondary description line (`<osName> · <preset>`) under the environment name; everything else (status dot, name, `TEMPLATE`/`RUNNING` badges, disk/memory quotas, and network/IP) is unchanged.
+  - Card height reduced from `78px` to `64px` and column spacing raised to `8px` so the title row and quota row stay balanced now that only two lines remain, showing more environments per screen.
+
 ### Iteration 30 — Split Locations & Storage Pool Settings
 - **Configuration Sidebar (`src/Main.qml`)**:
   - Split the former combined **Storage & Locations** page into two responsibility-focused pages: **01 Locations** (system root, workspace folder, OS image storage + `Save Locations`) and **02 Storage Pool** (Incus pool usage, allocated quotas, and loop-file growth).
