@@ -38,7 +38,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/backend.cpp](file:///home/user/Work/aibox/src/backend.cpp) | Source (C++) | Incus JSON parser (including per-environment workspace device paths), dynamic OS catalog, JSON configuration persistence and validation, OS image export/import cache, PTY progress stream parser (`script -q -e -c`), process-group cancellation (`cancelTask`), and background task persistence. |
 | [src/theme.h](file:///home/user/Work/aibox/src/theme.h) & [src/theme.cpp](file:///home/user/Work/aibox/src/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
 | [src/translator.h](file:///home/user/Work/aibox/src/translator.h) & [src/translator.cpp](file:///home/user/Work/aibox/src/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
-| [src/Main.qml](file:///home/user/Work/aibox/src/Main.qml) | Source (QML) | Main application window, custom `FlatInput`, `ActionButton`, and monochrome `SlidersIcon` components, first-run workspace dialog, modern Configuration menu (locations, storage pool, OS catalog CRUD, create options, safety), environment inspector, OS catalog, creation dialog, live progress bar, and keyboard shortcuts. |
+| [src/Main.qml](file:///home/user/Work/aibox/src/Main.qml) | Source (QML) | Main application window, custom `FlatInput`, `ChipInput` (Enter-to-add quota/core chips, max 4), `ActionButton`, and monochrome `SlidersIcon` components, first-run workspace dialog, modern Configuration menu (locations, storage pool, OS catalog CRUD, create options, safety), environment inspector, OS catalog, creation dialog, live progress bar, and keyboard shortcuts. |
 | [src/resources.qrc](file:///home/user/Work/aibox/src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
 | [src/i18n/en.json](file:///home/user/Work/aibox/src/i18n/en.json) & [da.json](file:///home/user/Work/aibox/src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [tests/aibox_tests.pro](file:///home/user/Work/aibox/tests/aibox_tests.pro) & [aibox_tests.cpp](file:///home/user/Work/aibox/tests/aibox_tests.cpp) | Unit Tests | 69 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, provisioning bundles), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), network monitoring parsers (gateway/ping/loss and counter rates), `Theme`, and `Translator`. |
@@ -55,6 +55,16 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Iteration 32 — Chip-Based Create Option Editor
+- **Create Options Editor (`src/Main.qml`)**:
+  - Replaced the three comma-separated text fields (disk quota, RAM limit, CPU cores) with a new `ChipInput` component: type a number and press `Enter` to store it as a removable chip, capped at **4 choices** per list.
+  - Units are appended automatically (`20` → `20GiB`); RAM and disk share the `GiB` suffix, while CPU cores stay plain numbers. Each chip renders the amount in mono text with a muted unit, and `×` removes it.
+  - Edits persist immediately through `backend.saveCreateOptions()` (chips are sorted numerically and duplicates, non-numeric input, zero, and over-limit values are rejected with the existing config notice). At least one choice per list is kept, and `Backspace` on an empty input removes the last chip.
+  - Added per-field placeholders (e.g. *Type a size, then Enter*) plus a `4 / 4` counter that turns into *Limit 4 — remove one first* on hover, and compacted the card so `Save Options` stays visible at the default window height.
+  - Added `diskChoiceDraft`, `ramChoiceDraft`, `cpuChoiceDraft`, `syncCreateChoiceDrafts()`, `sortedChoices()`, and `updateCreateChoices()` helpers; `Restore Create Defaults` now re-syncs the chip drafts.
+- **Localization (`src/i18n/da.json`)**:
+  - Added Danish entries for the new chip placeholders, limit counter, and validation notices.
 
 ### Iteration 31 — Compact Environment List Card
 - **Environment Sidebar (`src/Main.qml`)**:

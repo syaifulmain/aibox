@@ -66,6 +66,9 @@ ApplicationWindow {
     property string cloneNewName: ""
     property string netAllowlistDraft: ""
     property bool netAllowlistEditing: false
+    property var diskChoiceDraft: []
+    property var ramChoiceDraft: []
+    property var cpuChoiceDraft: []
     property bool autoSnapEnabledDraft: backend.autoSnapshotEnabled
     property bool watchdogEnabledDraft: backend.watchdogEnabled
     property bool watchdogAutoStopDraft: backend.watchdogAutoStop
@@ -427,12 +430,48 @@ ApplicationWindow {
             win.showConfigNotice(qsTr("OS entry removed from the catalog."), false)
     }
 
-    function saveQuotaOptions() {
-        const error = backend.saveCreateOptions(diskOptionsField.text, ramOptionsField.text, cpuOptionsField.text)
-        if (error.length > 0)
+    function syncCreateChoiceDrafts() {
+        win.diskChoiceDraft = (backend.diskOptions || []).slice()
+        win.ramChoiceDraft = (backend.ramOptions || []).slice()
+        const cpus = backend.cpuOptions || []
+        const cpu = []
+        for (let i = 0; i < cpus.length; ++i)
+            cpu.push(String(cpus[i]))
+        win.cpuChoiceDraft = cpu
+    }
+
+    function sortedChoices(list) {
+        return list.slice().sort(function (a, b) {
+            return parseInt(a, 10) - parseInt(b, 10)
+        })
+    }
+
+    // Chips persist instantly: every add/remove writes through the backend.
+    function updateCreateChoices(kind, nextValues) {
+        const next = win.sortedChoices(nextValues)
+        let disk = win.diskChoiceDraft
+        let ram = win.ramChoiceDraft
+        let cpu = win.cpuChoiceDraft
+        if (kind === "disk")
+            disk = next
+        else if (kind === "ram")
+            ram = next
+        else if (kind === "cpu")
+            cpu = next
+
+        const error = backend.saveCreateOptions(disk.join(", "), ram.join(", "), cpu.join(", "))
+        if (error.length > 0) {
             win.showConfigNotice(error, true)
-        else
-            win.showConfigNotice(qsTr("Create options saved."), false)
+            return
+        }
+        win.diskChoiceDraft = disk
+        win.ramChoiceDraft = ram
+        win.cpuChoiceDraft = cpu
+        win.showConfigNotice(qsTr("Create options saved."), false)
+    }
+
+    function saveQuotaOptions() {
+        win.updateCreateChoices("disk", win.diskChoiceDraft)
     }
 
     function runningEnvironmentCount() {
@@ -514,6 +553,176 @@ ApplicationWindow {
             font.family: win.sansFont
             font.pixelSize: 13
             onAccepted: root.accepted()
+        }
+    }
+
+    // Chip-style numeric editor: type a number and press Enter to store it.
+    // The unit ("" or "GiB") is appended automatically, and the list is capped.
+    component ChipInput: Rectangle {
+        id: chipRoot
+        property var values: []
+        property string unit: ""
+        property int maxChips: 4
+        property int maxValue: 1024
+        property string placeholder: ""
+        property string fullHint: ""
+        readonly property int count: values ? values.length : 0
+        readonly property bool atLimit: count >= maxChips
+        signal addRequested(string value)
+        signal removeRequested(int index)
+
+        implicitHeight: chipFlow.implicitHeight + 8
+        Layout.preferredHeight: implicitHeight
+        radius: Math.min(6, theme.radius)
+        color: win.surfaceInput
+        border.width: 1
+        border.color: chipInput.activeFocus ? theme.accent : win.borderSubtle
+
+        HoverHandler { id: chipHover }
+
+        function submit() {
+            const raw = chipInput.text.trim()
+            if (raw.length === 0)
+                return
+            const digits = raw.replace(/\s+/g, "")
+            if (!/^\d+$/.test(digits) || parseInt(digits, 10) < 1) {
+                win.showConfigNotice(qsTr("Enter a whole number greater than zero."), true)
+                return
+            }
+            if (parseInt(digits, 10) > chipRoot.maxValue) {
+                win.showConfigNotice(qsTr("The maximum value is %1.").arg(chipRoot.maxValue), true)
+                return
+            }
+            if (chipRoot.atLimit) {
+                win.showConfigNotice(qsTr("Limit is %1 choices. Remove one first.").arg(chipRoot.maxChips), true)
+                return
+            }
+            const value = digits + chipRoot.unit
+            for (let i = 0; i < chipRoot.count; ++i) {
+                if (String(chipRoot.values[i]).toLowerCase() === value.toLowerCase()) {
+                    win.showConfigNotice(qsTr("%1 is already in the list.").arg(value), true)
+                    chipInput.text = ""
+                    return
+                }
+            }
+            chipInput.text = ""
+            chipRoot.addRequested(value)
+        }
+
+        Flow {
+            id: chipFlow
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 4
+            spacing: 6
+
+            Repeater {
+                model: chipRoot.values
+                delegate: Rectangle {
+                    required property string modelData
+                    required property int index
+                    readonly property string suffix: chipRoot.unit
+                    readonly property bool removable: chipRoot.count > 1
+                    readonly property string amount: (chipRoot.unit.length > 0 && modelData.endsWith(chipRoot.unit))
+                                                      ? modelData.slice(0, modelData.length - chipRoot.unit.length)
+                                                      : modelData
+
+                    height: 24
+                    width: chipRow.implicitWidth + 16
+                    radius: Math.min(4, theme.radius)
+                    color: chipMouse.containsMouse && removable ? win.surfaceSelected : win.surfaceCard
+                    border.width: 1
+                    border.color: chipMouse.containsMouse && removable ? theme.accent : win.borderSubtle
+                    opacity: removable ? 1.0 : 0.65
+
+                    Row {
+                        id: chipRow
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        Text {
+                            text: "×"
+                            color: chipMouse.containsMouse && removable ? theme.accent : theme.muted
+                            font.family: win.monoFont
+                            font.pixelSize: 12
+                        }
+                        Text {
+                            text: amount
+                            color: theme.foreground
+                            font.family: win.monoFont
+                            font.pixelSize: 12
+                        }
+                        Text {
+                            visible: suffix.length > 0
+                            text: suffix
+                            color: theme.muted
+                            font.family: win.monoFont
+                            font.pixelSize: 9
+                        }
+                    }
+
+                    MouseArea {
+                        id: chipMouse
+                        anchors.fill: parent
+                        cursorShape: removable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: {
+                            if (!removable) {
+                                win.showConfigNotice(qsTr("Keep at least one choice."), true)
+                                return
+                            }
+                            chipRoot.removeRequested(index)
+                        }
+                    }
+                }
+            }
+
+            Item {
+                visible: !chipRoot.atLimit
+                height: 24
+                width: Math.min(Math.max(176, chipFlow.width - 220), Math.max(176, chipInput.implicitWidth + 4))
+
+                TextInput {
+                    id: chipInput
+                    anchors.fill: parent
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: theme.foreground
+                    selectionColor: theme.accent
+                    selectedTextColor: theme.accentForeground
+                    selectByMouse: true
+                    clip: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    font.family: win.monoFont
+                    font.pixelSize: 12
+                    validator: IntValidator { bottom: 1; top: chipRoot.maxValue }
+                    onAccepted: chipRoot.submit()
+                    Keys.onBackPressed: {
+                        if (text.length === 0 && chipRoot.count > 1)
+                            chipRoot.removeRequested(chipRoot.count - 1)
+                    }
+                }
+
+                Text {
+                    anchors.fill: parent
+                    verticalAlignment: Text.AlignVCenter
+                    visible: chipInput.text.length === 0
+                    text: chipRoot.placeholder
+                    color: theme.muted
+                    font.family: win.sansFont
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                }
+            }
+
+            Text {
+                visible: chipRoot.atLimit
+                height: 24
+                verticalAlignment: Text.AlignVCenter
+                text: chipHover.hovered ? chipRoot.fullHint : qsTr("%1 / %2").arg(chipRoot.count).arg(chipRoot.maxChips)
+                color: theme.muted
+                font.family: win.sansFont
+                font.pixelSize: 10
+            }
         }
     }
 
@@ -4734,9 +4943,7 @@ ApplicationWindow {
                 win.osEditorError = ""
                 workspacePathField.text = backend.workspaceBase
                 osStoragePathField.text = backend.osStoragePath
-                diskOptionsField.text = backend.diskOptions.join(", ")
-                ramOptionsField.text = backend.ramOptions.join(", ")
-                cpuOptionsField.text = backend.cpuOptions.join(", ")
+                win.syncCreateChoiceDrafts()
                 win.autoSnapEnabledDraft = backend.autoSnapshotEnabled
                 autoSnapKeepField.text = String(backend.autoSnapshotKeep)
                 win.watchdogEnabledDraft = backend.watchdogEnabled
@@ -5782,13 +5989,14 @@ ApplicationWindow {
 
                                     Rectangle {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: 226
+                                        Layout.preferredHeight: quotaCardCol.implicitHeight + 28
                                         radius: Math.min(6, theme.radius)
                                         color: win.surfaceInput
                                         border.width: 1
                                         border.color: win.borderSubtle
 
                                         ColumnLayout {
+                                            id: quotaCardCol
                                             anchors.fill: parent
                                             anchors.margins: 14
                                             spacing: 6
@@ -5802,7 +6010,7 @@ ApplicationWindow {
                                             }
                                             Text {
                                                 Layout.fillWidth: true
-                                                text: qsTr("Use comma-separated values. These become the selectable chips in the creation dialog.")
+                                                text: qsTr("Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically; press × on a chip to remove it.")
                                                 color: theme.muted
                                                 font.family: win.sansFont
                                                 font.pixelSize: 10
@@ -5814,15 +6022,28 @@ ApplicationWindow {
                                                 spacing: 10
                                                 Text {
                                                     Layout.preferredWidth: 120
+                                                    Layout.alignment: Qt.AlignVCenter
                                                     text: qsTr("Disk quota")
                                                     color: theme.foreground
                                                     font.family: win.sansFont
                                                     font.pixelSize: 11
                                                 }
-                                                FlatInput {
-                                                    id: diskOptionsField
+                                                ChipInput {
                                                     Layout.fillWidth: true
-                                                    placeholder: "20GiB, 35GiB, 60GiB, 100GiB"
+                                                    values: win.diskChoiceDraft
+                                                    unit: "GiB"
+                                                    maxChips: 4
+                                                    maxValue: 65536
+                                                    placeholder: qsTr("Type a size, then Enter")
+                                                    fullHint: qsTr("Limit 4 — remove one first")
+                                                    onAddRequested: function (value) {
+                                                        win.updateCreateChoices("disk", win.diskChoiceDraft.concat([value]))
+                                                    }
+                                                    onRemoveRequested: function (index) {
+                                                        const next = win.diskChoiceDraft.slice()
+                                                        next.splice(index, 1)
+                                                        win.updateCreateChoices("disk", next)
+                                                    }
                                                 }
                                             }
 
@@ -5831,15 +6052,28 @@ ApplicationWindow {
                                                 spacing: 10
                                                 Text {
                                                     Layout.preferredWidth: 120
+                                                    Layout.alignment: Qt.AlignVCenter
                                                     text: qsTr("RAM limit")
                                                     color: theme.foreground
                                                     font.family: win.sansFont
                                                     font.pixelSize: 11
                                                 }
-                                                FlatInput {
-                                                    id: ramOptionsField
+                                                ChipInput {
                                                     Layout.fillWidth: true
-                                                    placeholder: "4GiB, 6GiB, 8GiB, 12GiB"
+                                                    values: win.ramChoiceDraft
+                                                    unit: "GiB"
+                                                    maxChips: 4
+                                                    maxValue: 65536
+                                                    placeholder: qsTr("Type a size, then Enter")
+                                                    fullHint: qsTr("Limit 4 — remove one first")
+                                                    onAddRequested: function (value) {
+                                                        win.updateCreateChoices("ram", win.ramChoiceDraft.concat([value]))
+                                                    }
+                                                    onRemoveRequested: function (index) {
+                                                        const next = win.ramChoiceDraft.slice()
+                                                        next.splice(index, 1)
+                                                        win.updateCreateChoices("ram", next)
+                                                    }
                                                 }
                                             }
 
@@ -5848,15 +6082,27 @@ ApplicationWindow {
                                                 spacing: 10
                                                 Text {
                                                     Layout.preferredWidth: 120
+                                                    Layout.alignment: Qt.AlignVCenter
                                                     text: qsTr("CPU cores")
                                                     color: theme.foreground
                                                     font.family: win.sansFont
                                                     font.pixelSize: 11
                                                 }
-                                                FlatInput {
-                                                    id: cpuOptionsField
+                                                ChipInput {
                                                     Layout.fillWidth: true
-                                                    placeholder: "2, 4, 6, 8"
+                                                    values: win.cpuChoiceDraft
+                                                    maxChips: 4
+                                                    maxValue: 1024
+                                                    placeholder: qsTr("Type cores, then Enter")
+                                                    fullHint: qsTr("Limit 4 — remove one first")
+                                                    onAddRequested: function (value) {
+                                                        win.updateCreateChoices("cpu", win.cpuChoiceDraft.concat([value]))
+                                                    }
+                                                    onRemoveRequested: function (index) {
+                                                        const next = win.cpuChoiceDraft.slice()
+                                                        next.splice(index, 1)
+                                                        win.updateCreateChoices("cpu", next)
+                                                    }
                                                 }
                                             }
 
@@ -5886,9 +6132,7 @@ ApplicationWindow {
                                                 if (error.length > 0) {
                                                     win.showConfigNotice(error, true)
                                                 } else {
-                                                    diskOptionsField.text = backend.diskOptions.join(", ")
-                                                    ramOptionsField.text = backend.ramOptions.join(", ")
-                                                    cpuOptionsField.text = backend.cpuOptions.join(", ")
+                                                    win.syncCreateChoiceDrafts()
                                                     win.showConfigNotice(qsTr("Create options restored."), false)
                                                 }
                                             }
