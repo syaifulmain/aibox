@@ -279,6 +279,7 @@ ApplicationWindow {
 
     function openHistoryDialog() {
         win.historyTab = 0
+        backend.acknowledgeOperationHistory()
         backend.refreshRecordedSessions()
         const hist = backend.operationHistory
         if (hist.length > 0) {

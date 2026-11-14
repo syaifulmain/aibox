@@ -241,6 +241,7 @@ public:
     Q_INVOKABLE void deleteBackup(const QString &backupFile, const QString &workspaceArchiveFile = {});
     Q_INVOKABLE QString readOperationLog(const QString &id) const;
     Q_INVOKABLE void clearOperationHistory();
+    Q_INVOKABLE void acknowledgeOperationHistory();
     Q_INVOKABLE void runHeadlessCommand(const QString &name, const QString &command);
     Q_INVOKABLE void copyAiCommand(const QString &name);
     Q_INVOKABLE QString saveSecret(const QString &name, const QString &value);
@@ -615,6 +616,8 @@ private:
     void loadDemoData();
 
     QString historyDirPath() const;
+    QString historySeenMarkerPath() const;
+    void loadHistorySeenMarker();
     void loadOperationHistory();
     void recordOperationHistory(const QString &description, const QString &envName, const QString &status,
                                 int exitCode, const QString &startedAtIso, const QByteArray &logBytes,
@@ -719,6 +722,7 @@ private:
     QHash<QString, QStringList> m_wsSnapshotSizeKeyCache;
     QProcess *m_wsSnapshotSizeProcess = nullptr;
     QVariantList m_operationHistory;
+    QString m_historySeenId;
     int m_historyMaxEntries = 50;
     QVariantList m_egressLogs;
     QString m_egressLogsEnvName;

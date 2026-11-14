@@ -56,6 +56,15 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 29 — Viewed History Acknowledgement
+- **Unread-Only Badge (`src/backend.{h,cpp}`)**:
+  - Added `acknowledgeOperationHistory()` plus a persisted `history-seen` marker (`<stateDir>/history-seen`) that stores the newest viewed history id. `recentFailedHistoryCount` now counts only failed entries newer than that marker, so the red `History (N!)` badge clears once the viewer is opened instead of requiring `Clear History`.
+  - The marker is loaded on startup and after a settings/location change, survives restarts, is reset by `clearOperationHistory`, and new failures recorded afterwards raise the badge again.
+- **History Dialog (`src/Main.qml`)**:
+  - `openHistoryDialog()` now calls `backend.acknowledgeOperationHistory()`, so opening History via `H`/the toolbar clears the notification while all entries and logs stay intact.
+- **Tests**:
+  - Extended `operationHistoryTruncationAndPersistence` to assert the counter drops to 0 after acknowledgement, history size stays intact across a restart, and a newer failed entry raises the count again (69 passed, 0 failed).
+
 ### Iteration 28 — Live Network Monitor Card
 - **Network Metrics (`src/backend.{h,cpp}`)**:
   - `parseIncusListJson` now sums per-interface Incus `state.network.*.counters` (`bytes_received` / `bytes_sent`) and computes sampling-window rates from a `QHash<QString, QPair<qint64,qint64>>` snapshot, exposing `netRxBytes`, `netTxBytes`, `netRxRate`, `netTxRate`, `netRxRateText`, `netTxRateText`, `netRxTotalText`, and `netTxTotalText` per environment (zero extra processes).

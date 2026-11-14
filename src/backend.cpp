@@ -360,6 +360,7 @@ Backend::Backend(const QString &path, PathMode mode, QObject *parent)
     loadConfig();
     reloadSecrets();
     rebuildOsCatalog();
+    loadHistorySeenMarker();
     loadOperationHistory();
 
     if (m_demoMode) {
@@ -898,6 +899,7 @@ QString Backend::completeFirstRun(const QString &systemPath) {
     seedProvisionScripts();
     refreshBackups();
     rebuildOsCatalog();
+    loadHistorySeenMarker();
     loadOperationHistory();
     if (isGuiSession()) {
         refreshRecordedSessions();
@@ -2169,6 +2171,19 @@ QString Backend::historyDirPath() const {
     return m_stateDir + QStringLiteral("/history");
 }
 
+QString Backend::historySeenMarkerPath() const {
+    return m_stateDir + QStringLiteral("/history-seen");
+}
+
+void Backend::loadHistorySeenMarker() {
+    QFile f(historySeenMarkerPath());
+    if (!f.open(QIODevice::ReadOnly)) {
+        m_historySeenId.clear();
+        return;
+    }
+    m_historySeenId = QString::fromUtf8(f.readAll()).trimmed();
+}
+
 QByteArray Backend::truncateLogTail(const QByteArray &data, qint64 maxBytes) {
     if (maxBytes <= 0 || data.size() <= maxBytes)
         return data;
@@ -2182,8 +2197,13 @@ QByteArray Backend::truncateLogTail(const QByteArray &data, qint64 maxBytes) {
 int Backend::recentFailedHistoryCount() const {
     int count = 0;
     for (const auto &v : m_operationHistory) {
-        if (v.toMap().value("status").toString() == QLatin1String("failed"))
-            ++count;
+        const QVariantMap entry = v.toMap();
+        if (entry.value("status").toString() != QLatin1String("failed"))
+            continue;
+        if (!m_historySeenId.isEmpty()
+            && entry.value("id").toString() <= m_historySeenId)
+            continue;
+        ++count;
     }
     return count;
 }
@@ -2294,10 +2314,29 @@ void Backend::clearOperationHistory() {
         for (const QFileInfo &fi : dir.entryInfoList(QDir::Files))
             QFile::remove(fi.absoluteFilePath());
     }
+    QFile::remove(historySeenMarkerPath());
+    m_historySeenId.clear();
     if (!m_operationHistory.isEmpty()) {
         m_operationHistory.clear();
         emit operationHistoryChanged();
     }
+}
+
+void Backend::acknowledgeOperationHistory() {
+    if (m_operationHistory.isEmpty())
+        return;
+    const QString newestId = m_operationHistory.first().toMap().value("id").toString();
+    if (newestId.isEmpty() || newestId == m_historySeenId)
+        return;
+    QFile f(historySeenMarkerPath());
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(newestId.toUtf8());
+        f.close();
+    } else {
+        return;
+    }
+    m_historySeenId = newestId;
+    emit operationHistoryChanged();
 }
 
 void Backend::attachExistingTask() {

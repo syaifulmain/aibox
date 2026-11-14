@@ -765,6 +765,23 @@ private slots:
         QCOMPARE(backend.operationHistory().size(), 2);
         QCOMPARE(backend.recentFailedHistoryCount(), 1);
         QCOMPARE(backend.readOperationLog("20261113-130005-001"), QString("build failed on step 2\n"));
+        backend.acknowledgeOperationHistory();
+        QCOMPARE(backend.recentFailedHistoryCount(), 0);
+        QCOMPARE(backend.operationHistory().size(), 2);
+        {
+            // Viewed marker survives a restart without deleting entries.
+            Backend reopened(dir.path());
+            QCOMPARE(reopened.recentFailedHistoryCount(), 0);
+            QCOMPARE(reopened.operationHistory().size(), 2);
+        }
+        write(dir.path() + "/.state/history/20261113-140000-001.json",
+              R"({"id":"20261113-140000-001","description":"Start box","envName":"box1","status":"failed","exitCode":1,"timestamp":"2026-11-13 14:00:00","durationMs":1200,"logFile":"20261113-140000-001.log"})");
+        {
+            // A failure newer than the viewed marker raises the counter again.
+            Backend reopened(dir.path());
+            QCOMPARE(reopened.operationHistory().size(), 3);
+            QCOMPARE(reopened.recentFailedHistoryCount(), 1);
+        }
         backend.clearOperationHistory();
         QCOMPARE(backend.operationHistory().size(), 0);
         QCOMPARE(backend.recentFailedHistoryCount(), 0);
