@@ -7,9 +7,20 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 ## Features
 
 - Create and manage Linux containers and virtual machines with configurable CPU, memory, and disk limits.
-- Share a project workspace with environments at `/workspace`.
+- Monitor real-time disk usage, memory usage, CPU core utilization, and network status in task-manager style cards.
+- Monitor live per-environment network health with Ping, Packet Loss, Receiving/Sending throughput, Downloaded/Uploaded totals, IP address, and Gateway in a compact **Network Monitor** card (throughput sampled from Incus counters, gateway/ping probed every 10s inside the environment).
+- Share a project workspace with environments at `/workspace` and open it directly on the host.
 - Cache OS images, track task progress, and resume background operations.
-- Save and restore Btrfs snapshots.
+- Save, restore, and automate paired Btrfs snapshots (OS container + `/workspace` subvolume, with **Both / System only / Workspace only** restore and `pre-restore` safety snapshots) and configurable retention before entering or starting environments.
+- Inspect `/workspace` added/modified/deleted files and unified diffs since any workspace snapshot (`V`), configure exclude patterns, and restore individual files without rolling back the whole environment.
+- Automate workflows and git hooks from plain terminals with the headless CLI (`enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `list`, `check`) using `--project <dir>`, task locking, and auto-snapshot/allowlist guardrails.
+- Store API keys on the host in `~/.config/aibox/secrets.json` (`0600`) and inject selected secrets per environment only at `exec` runtime (`A`) with automatic log redaction and zero exposure in `/workspace`, snapshots, clones, or backups.
+- Clone environments in seconds with isolated workspaces and mark environments as reusable templates.
+- Control per-environment network access (`Online`, IP-based `Allowlist` via Incus Network ACLs, or `Offline` kill switch), record outbound connections via **Egress Log**, and allow destinations with one click.
+- Enforce per-container process caps (`limits.processes`) and root disk I/O bandwidth limits (`limits.read` / `limits.write`), edit CPU/RAM/disk/I/O quotas on existing environments (`E`), monitor storage pool capacity with overcommit warnings in **Create** / **Quotas** and `aibox check` (`pool_capacity`), grow loop-file backed pools from **Settings → Storage → Incus storage pool** (grow-only, validated and confirmed, hides the control for directory-backed pools), monitor disk/CPU/RAM thresholds with a debounced desktop watchdog + opt-in critical auto-stop, optionally auto-stop idle environments while the GUI is running (`idleStopMinutes`, per-env `user.aibox.idlestop`, active `incus exec` / port-forward guards, 1-min desktop warning, auto-snapshot before stop), and view per-snapshot disk sizes.
+- Forward container ports safely to `127.0.0.1` (**Ports**), attach read-only extra host folders under `/mnt/<name>` with system/sensitive path protection (**Extra Mounts**), and run optional provisioning presets (`Dev Essentials`, `Node.js`, `Python 3`, `Rust`) on Debian, Ubuntu, and Arch environments.
+- Inspect the last 50 background operations and tail-capped logs in the **Operation History** viewer (`H`), plus opt-in interactive **Session Recording** (`script -q -f`, `user.aibox.record`, automatic S3 secret redaction, 20-per-env / 200 MB retention, ANSI-stripped 200 KB log viewer, and `scriptreplay` terminal replay) under **History (`H`) → Sessions**.
+- Export environments and `/workspace` directories to compressed archives with pre-flight free-space checks, import backups into new isolated environments (`B`), audit unused environments (`staleDays`) alongside orphaned workspaces, snapshots, and unpaired backups with verified **Export & Wipe** (`U`), and diagnose/repair host setup issues with `aibox check --fix`.
 - Follow the active Omarchy theme.
 
 ## Requirements
@@ -40,7 +51,16 @@ Run the test suite:
 
 ## Usage
 
-Launch **AIBox** from the app launcher (`Super` + `Space`). By default, project workspaces, cached images, and settings are stored in `.aibox/` under the launch directory. The configuration menu lets you change storage paths and environment options.
+Launch **AIBox** from the app launcher (`Super` + `Space`). On first launch, choose the system storage location (defaulting to `~/aibox/`, containing `workspaces/`, `os-images/`, `state/`, and `config.json`) before clicking **Continue**; this choice is remembered in `~/.config/aibox/location.json`. The configuration menu lets you view the active system root and change workspace/OS image storage paths and environment options. **Settings → Storage → Incus storage pool** shows live pool usage and can grow a loop-file backed pool in place (for example `30GiB` → `60GiB`); directory-backed pools follow the host filesystem and hide the growth controls.
+
+For headless scripting and terminal workflows, use `aibox [--project <dir>] <command>`:
+
+- `aibox enter <env>` / `aibox exec <env> -- <cmd...>` — run pre-steps (auto-snapshot, allowlist refresh, auto-start) and attach or run a command in `/workspace`
+- `aibox start <env>` / `aibox stop <env>` — start (with auto-snapshot & allowlist refresh) or stop an environment
+- `aibox snapshot <env> [name]` / `aibox snapshots <env> [--json]` — create or list paired OS + `/workspace` snapshots
+- `aibox restore <env> <snap> [--system-only|--workspace-only] [--yes]` — restore snapshot with safety backup
+- `aibox diff <env> [snap] [--json]` — review `/workspace` changes since a snapshot
+- `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
 
 ## Keyboard Shortcuts
 
@@ -51,7 +71,16 @@ Launch **AIBox** from the app launcher (`Super` + `Space`). By default, project 
 | `F` | Open shared workspace folder on Host |
 | `S` | Start or stop selected environment |
 | `P` | Create instant 1-second Btrfs snapshot |
+| `V` | Review `/workspace` changes since a snapshot |
+| `D` | Clone selected environment |
+| `E` | Edit quotas and limits of selected environment |
+| `T` | Mark or unmark environment as template |
+| `K` | Kill or restore environment network |
 | `C` | Copy AI agent execution command |
+| `A` | Manage global secrets and per-environment secret bindings |
+| `H` | View operation history and full task logs |
+| `B` | Export and import environment backups |
+| `U` | Inspect stale environments and orphaned disk artifacts |
 | `Delete` | Wipe / destroy selected environment |
 | `1` / `2` | Switch between Environments and OS Catalog |
 | `3` | Open the configuration menu |

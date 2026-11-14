@@ -1,56 +1,60 @@
 // aibox — Isolated Linux OS environment manager for AI, desktop, and mobile projects.
 
-#include <QCommandLineParser>
-#include <QDir>
+#include <QCoreApplication>
+#include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QImage>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTimer>
 #include <QUrl>
-#include <cstdio>
 
 #include "backend.h"
+#include "cli.h"
 #include "theme.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
-    // Support headless CLI inspection (`aibox check` / `aibox list --json`) without a display.
-    if (argc > 1) {
-        const QString sub = QString::fromLocal8Bit(argv[1]);
-        if (sub == QLatin1String("check") || sub == QLatin1String("list")) {
-            qputenv("QT_QPA_PLATFORM", "offscreen");
+    if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("--redact-session")) {
+        qunsetenv("QT_QPA_PLATFORMTHEME");
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+        QCoreApplication app(argc, argv);
+        const QString logPath = QString::fromLocal8Bit(argv[2]);
+        const QString envSecrets = qEnvironmentVariable("AIBOX_SECRETS_PATH").trimmed();
+        const QString storePath = envSecrets.isEmpty() ? Backend::defaultSecretsStorePath() : envSecrets;
+        const auto secrets = Backend::loadSecretsStore(storePath);
+        QStringList secretValues;
+        for (const auto &kv : secrets) {
+            if (!kv.second.isEmpty())
+                secretValues.append(kv.second);
         }
+        Backend::redactSessionLogFile(logPath, secretValues);
+        QFile::setPermissions(logPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        if (argc >= 4)
+            Backend::pruneRecordedSessions(QString::fromLocal8Bit(argv[3]));
+        return 0;
+    }
+
+    if (Cli::isCliInvocation(argc, argv)) {
+        qunsetenv("QT_QPA_PLATFORMTHEME");
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+        QCoreApplication app(argc, argv);
+        app.setApplicationName("aibox");
+        app.setApplicationVersion("0.2.0");
+        return Cli::run(argc, argv);
     }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("aibox");
     app.setApplicationVersion("0.2.0");
 
-    if (argc > 1) {
-        const QString sub = QString::fromLocal8Bit(argv[1]);
-        if (sub == QLatin1String("check") || sub == QLatin1String("list")) {
-            QProcess proc;
-            proc.start(QStringLiteral("incus"), {QStringLiteral("list"), QStringLiteral("--format=json")});
-            proc.waitForFinished(5000);
-            if (proc.exitCode() != 0) {
-                std::fprintf(stderr, "Error: Incus daemon is not reachable.\n");
-                return 1;
-            }
-            const auto envs = Backend::parseIncusListJson(proc.readAllStandardOutput(),
-                                                          QDir::currentPath() + "/.aibox/workspaces");
-            const auto doc = QJsonDocument::fromVariant(envs);
-            std::fwrite(doc.toJson(QJsonDocument::Indented).constData(), 1,
-                        doc.toJson(QJsonDocument::Indented).size(), stdout);
-            return 0;
-        }
-    }
+    QStringList rawArgs;
+    for (int i = 1; i < argc; ++i)
+        rawArgs.append(QString::fromLocal8Bit(argv[i]));
+    const Cli::ParsedArgs guiArgs = Cli::parseArgs(rawArgs);
 
     // Matches the window to aibox.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
@@ -66,7 +70,7 @@ int main(int argc, char *argv[]) {
 
     const QString themeDir = qEnvironmentVariable("AIBOX_THEME_DIR");
     Theme theme(themeDir);
-    Backend backend;
+    Backend backend(guiArgs.projectDir, Backend::PathMode::ProjectDir);
 
     const QString selectIdx = qEnvironmentVariable("AIBOX_SELECT_INDEX");
     if (!selectIdx.isEmpty()) {
