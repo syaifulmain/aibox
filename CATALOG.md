@@ -38,7 +38,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/backend.cpp](file:///home/user/Work/aibox/src/backend.cpp) | Source (C++) | Incus JSON parser (including per-environment workspace device paths), dynamic OS catalog, JSON configuration persistence and validation, OS image export/import cache, PTY progress stream parser (`script -q -e -c`), process-group cancellation (`cancelTask`), and background task persistence. |
 | [src/theme.h](file:///home/user/Work/aibox/src/theme.h) & [src/theme.cpp](file:///home/user/Work/aibox/src/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
 | [src/translator.h](file:///home/user/Work/aibox/src/translator.h) & [src/translator.cpp](file:///home/user/Work/aibox/src/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
-| [src/Main.qml](file:///home/user/Work/aibox/src/Main.qml) | Source (QML) | Main application window, custom `FlatInput`, `ActionButton`, and monochrome `SlidersIcon` components, first-run workspace dialog, modern Configuration menu (storage, OS catalog CRUD, create options), environment inspector, OS catalog, creation dialog, live progress bar, and keyboard shortcuts. |
+| [src/Main.qml](file:///home/user/Work/aibox/src/Main.qml) | Source (QML) | Main application window, custom `FlatInput`, `ActionButton`, and monochrome `SlidersIcon` components, first-run workspace dialog, modern Configuration menu (locations, storage pool, OS catalog CRUD, create options, safety), environment inspector, OS catalog, creation dialog, live progress bar, and keyboard shortcuts. |
 | [src/resources.qrc](file:///home/user/Work/aibox/src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
 | [src/i18n/en.json](file:///home/user/Work/aibox/src/i18n/en.json) & [da.json](file:///home/user/Work/aibox/src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [tests/aibox_tests.pro](file:///home/user/Work/aibox/tests/aibox_tests.pro) & [aibox_tests.cpp](file:///home/user/Work/aibox/tests/aibox_tests.cpp) | Unit Tests | 69 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, provisioning bundles), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), network monitoring parsers (gateway/ping/loss and counter rates), `Theme`, and `Translator`. |
@@ -55,6 +55,14 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Iteration 30 — Split Locations & Storage Pool Settings
+- **Configuration Sidebar (`src/Main.qml`)**:
+  - Split the former combined **Storage & Locations** page into two responsibility-focused pages: **01 Locations** (system root, workspace folder, OS image storage + `Save Locations`) and **02 Storage Pool** (Incus pool usage, allocated quotas, and loop-file growth).
+  - Shifted the remaining pages to **03 OS Catalog**, **04 Create Options**, and **05 Safety**; `settingsSection` indices were renumbered accordingly (`AIBOX_SETTINGS_SECTION` now maps `0` = Locations, `1` = Storage Pool, `2` = OS Catalog, `3` = Create Options, `4` = Safety).
+  - Added a **Pool details unavailable** fallback card with a `Refresh` action when `poolInfo.valid` is false, so the new page never renders blank.
+- **Localization (`src/i18n/da.json`)**:
+  - Added Danish entries for `Locations`, `Storage Pool`, `Storage Locations`, `Incus Storage Pool`, `Incus capacity & growth`, and the new pool page subtitle/fallback strings.
 
 ### Iteration 29 — Viewed History Acknowledgement
 - **Unread-Only Badge (`src/backend.{h,cpp}`)**:

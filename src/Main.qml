@@ -4840,10 +4840,11 @@ ApplicationWindow {
 
                             Repeater {
                                 model: [
-                                    { title: qsTr("Storage"), detail: qsTr("Workspace & OS images"), step: "01" },
-                                    { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove"), step: "02" },
-                                    { title: qsTr("Create Options"), detail: qsTr("Presets & quotas"), step: "03" },
-                                    { title: qsTr("Safety"), detail: qsTr("Auto-snapshots"), step: "04" }
+                                    { title: qsTr("Locations"), detail: qsTr("Workspace & OS images"), step: "01" },
+                                    { title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth"), step: "02" },
+                                    { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove"), step: "03" },
+                                    { title: qsTr("Create Options"), detail: qsTr("Presets & quotas"), step: "04" },
+                                    { title: qsTr("Safety"), detail: qsTr("Auto-snapshots"), step: "05" }
                                 ]
                                 delegate: Rectangle {
                                     required property var modelData
@@ -4932,17 +4933,21 @@ ApplicationWindow {
 
                         ModalHeader {
                             title: win.settingsSection === 0
-                                   ? qsTr("Storage & Locations")
+                                   ? qsTr("Storage Locations")
                                    : (win.settingsSection === 1
-                                      ? qsTr("Linux OS Catalog")
-                                      : (win.settingsSection === 2 ? qsTr("Create Environment Options") : qsTr("Safety & Auto-Snapshots")))
+                                      ? qsTr("Incus Storage Pool")
+                                      : (win.settingsSection === 2
+                                         ? qsTr("Linux OS Catalog")
+                                         : (win.settingsSection === 3 ? qsTr("Create Environment Options") : qsTr("Safety & Auto-Snapshots"))))
                             subtitle: win.settingsSection === 0
                                       ? qsTr("Choose where shared project files live and where offline OS image copies are saved.")
                                       : (win.settingsSection === 1
-                                         ? qsTr("Add, edit, or remove the distributions shown in the environment creation dialog.")
+                                         ? qsTr("Monitor pool usage and allocated quotas, and grow the loop file in place when space runs low.")
                                          : (win.settingsSection === 2
-                                            ? qsTr("Customize the preset cards, disk quota, RAM, and CPU choices shown in the creation dialog.")
-                                            : qsTr("Configure automatic Btrfs snapshots before entering or starting an environment.")))
+                                            ? qsTr("Add, edit, or remove the distributions shown in the environment creation dialog.")
+                                            : (win.settingsSection === 3
+                                               ? qsTr("Customize the preset cards, disk quota, RAM, and CPU choices shown in the creation dialog.")
+                                               : qsTr("Configure automatic Btrfs snapshots before entering or starting an environment."))))
                             onClosed: win.settingsVisible = false
                         }
 
@@ -4980,7 +4985,7 @@ ApplicationWindow {
                                 spacing: 14
 
                                 // ==================================================
-                                // SECTION 0: STORAGE
+                                // SECTION 0: LOCATIONS
                                 // ==================================================
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -5147,6 +5152,59 @@ ApplicationWindow {
                                             variant: "primary"
                                             minWidth: 150
                                             onClicked: win.saveGeneralSettings()
+                                        }
+                                    }
+                                }
+
+                                // ==================================================
+                                // SECTION 1: STORAGE POOL
+                                // ==================================================
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: win.settingsSection === 1
+                                    spacing: 12
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        visible: !(backend.poolInfo.valid || false)
+                                        implicitHeight: poolUnavailableCol.implicitHeight + 28
+                                        radius: Math.min(6, theme.radius)
+                                        color: win.surfaceInput
+                                        border.width: 1
+                                        border.color: win.borderSubtle
+
+                                        ColumnLayout {
+                                            id: poolUnavailableCol
+                                            anchors.fill: parent
+                                            anchors.margins: 14
+                                            spacing: 8
+
+                                            Text {
+                                                text: qsTr("Pool details unavailable")
+                                                color: theme.foreground
+                                                font.family: win.sansFont
+                                                font.pixelSize: 12
+                                                font.weight: Font.Medium
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                wrapMode: Text.WordWrap
+                                                text: qsTr("AIBox could not read the Incus storage pool yet. Make sure Incus is initialized with the default pool, then refresh.")
+                                                color: theme.muted
+                                                font.family: win.sansFont
+                                                font.pixelSize: 10
+                                            }
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 10
+                                                Item { Layout.fillWidth: true }
+                                                ActionButton {
+                                                    label: qsTr("Refresh")
+                                                    minWidth: 96
+                                                    disabled: backend.busy
+                                                    onClicked: backend.refresh()
+                                                }
+                                            }
                                         }
                                     }
 
@@ -5344,11 +5402,11 @@ ApplicationWindow {
                                 }
 
                                 // ==================================================
-                                // SECTION 1: OS CATALOG
+                                // SECTION 2: OS CATALOG
                                 // ==================================================
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    visible: win.settingsSection === 1
+                                    visible: win.settingsSection === 2
                                     spacing: 10
 
                                     RowLayout {
@@ -5635,11 +5693,11 @@ ApplicationWindow {
                                 }
 
                                 // ==================================================
-                                // SECTION 2: CREATE OPTIONS
+                                // SECTION 3: CREATE OPTIONS
                                 // ==================================================
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    visible: win.settingsSection === 2
+                                    visible: win.settingsSection === 3
                                     spacing: 12
 
                                     Text {
@@ -5848,11 +5906,11 @@ ApplicationWindow {
                                 }
 
                                 // ==================================================
-                                // SECTION 3: SAFETY & AUTO-SNAPSHOTS
+                                // SECTION 4: SAFETY & AUTO-SNAPSHOTS
                                 // ==================================================
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    visible: win.settingsSection === 3
+                                    visible: win.settingsSection === 4
                                     spacing: 12
 
                                     Rectangle {
