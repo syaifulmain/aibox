@@ -56,6 +56,15 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 34 — Refreshed Environment Rows & Leaner Sidebar
+- **Environment Sidebar (`src/Main.qml`)**:
+  - Rebuilt the environment row (`68px`) around two aligned lines: the status dot, name, `TEMPLATE`/`RUNNING` badges on top, then a labelled metric line — `DISK`, `RAM`, and the network endpoint — that no longer clips. The left pane grew from `330px` to `352px` to give names and quotas room.
+  - Added `compactSize()` / `sizePair()` helpers that collapse `8.2 GiB` / `100GiB` into `8.2G` / `100G`, so disk, memory and IP fit side by side; the IP right-aligns and elides as a single flexible field instead of overlapping its neighbours.
+  - Disk usage now warns in colour: the value turns yellow at ≥75% of the quota and red at ≥90% (computed from `diskUsageBytes` / `diskQuotaBytes`). Hovering a row shows a tooltip with the full, un-compacted disk/memory/network values.
+  - `NET OFF` stays red and allowlisted rows keep the `ACL · <ip>` prefix; the network label is now a single `networkLabel` property shared by the row and its tooltip.
+  - Removed the redundant `POOL` card from the sidebar bottom (live pool usage, allocation and growth stay in **Settings → Storage Pool**) along with the now-unused `openPoolSettings()` helper.
+- **Localization (`src/i18n/da.json`)**: added Danish entries for `DISK`, `RAM`, and the row tooltip string.
+
 ### Iteration 33 — Aligned Network Monitor & Click-to-Copy IP
 - **Resource Cards (`src/Main.qml`)**:
   - Removed the **IPv4 Address** card (with its `ONLINE`/`OFFLINE`/`ALLOWLIST` badge and connection bar) from the task-manager row; the row is now three equal cards (**Disk Usage**, **Memory Usage**, **CPU Usage**, `columns: 3`), so IP status lives only in the **Network Monitor**.

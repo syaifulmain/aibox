@@ -474,6 +474,22 @@ ApplicationWindow {
         win.updateCreateChoices("disk", win.diskChoiceDraft)
     }
 
+    // Compact "3.7 GiB" / "100GiB" into "3.7G" / "100G" so a sidebar row can
+    // show disk, memory and network side by side without clipping.
+    function compactSize(value) {
+        const text = String(value === undefined || value === null ? "" : value).trim()
+        if (text.length === 0)
+            return "—"
+        const compact = text.replace(/\s*(GiB|GB)\b/gi, "G")
+                            .replace(/\s*(MiB|MB)\b/gi, "M")
+                            .replace(/\s*(KiB|KB)\b/gi, "K")
+        return compact.length > 0 ? compact : "—"
+    }
+
+    function sizePair(usage, limit) {
+        return win.compactSize(usage) + "/" + win.compactSize(limit)
+    }
+
     function runningEnvironmentCount() {
         let count = 0
         const envs = backend.environments || []
@@ -482,13 +498,6 @@ ApplicationWindow {
                 count++
         }
         return count
-    }
-
-    function openPoolSettings() {
-        win.poolResizeDraft = ""
-        win.poolResizeConfirmVisible = false
-        win.poolResizeError = ""
-        win.openSettings(0)
     }
 
     function preparePoolResize() {
@@ -1564,7 +1573,7 @@ ApplicationWindow {
 
                     // LEFT PANE: ENVIRONMENT LIST
                     Rectangle {
-                        Layout.preferredWidth: 330
+                        Layout.preferredWidth: 352
                         Layout.fillHeight: true
                         visible: backend.environments.length > 0
                         color: win.surfaceCard
@@ -1604,23 +1613,35 @@ ApplicationWindow {
                                 model: backend.environments
 
                                 delegate: Item {
+                                    id: envRow
                                     required property var modelData
                                     required property int index
                                     width: envListView.width
-                                    height: 64
+                                    height: 68
+
+                                    readonly property bool selected: backend.selectedIndex === index
+                                    readonly property real diskRatio: (modelData.diskQuotaBytes || 0) > 0
+                                                                     ? (modelData.diskUsageBytes || 0) / modelData.diskQuotaBytes
+                                                                     : 0
+                                    readonly property string networkLabel: modelData.networkMode === "offline"
+                                                                           ? qsTr("NET OFF")
+                                                                           : (modelData.networkMode === "allowlist"
+                                                                              ? qsTr("ACL") + " · " + (modelData.ipv4 || "")
+                                                                              : (modelData.ipv4 || ""))
 
                                     Rectangle {
                                         anchors.fill: parent
                                         radius: Math.min(4, theme.radius)
-                                        color: backend.selectedIndex === index ? win.surfaceSelected : win.surfaceInput
+                                        color: envRow.selected ? win.surfaceSelected : win.surfaceInput
                                         border.width: 1
-                                        border.color: backend.selectedIndex === index ? theme.accent : win.borderSubtle
+                                        border.color: envRow.selected ? theme.accent : win.borderSubtle
 
                                         ColumnLayout {
                                             anchors.fill: parent
                                             anchors.margins: 12
-                                            spacing: 8
+                                            spacing: 7
 
+                                            // Row 1: state dot, name and badges
                                             RowLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 8
@@ -1678,98 +1699,88 @@ ApplicationWindow {
                                                 }
                                             }
 
+                                            // Row 2: disk / memory usage and network endpoint
                                             RowLayout {
                                                 Layout.fillWidth: true
-                                                spacing: 10
-                                                Text {
-                                                    text: (modelData.diskUsage || "0 MB") + " / " + modelData.diskLimit
-                                                    color: theme.muted
-                                                    font.family: win.monoFont
-                                                    font.pixelSize: 10
+                                                spacing: 12
+
+                                                RowLayout {
+                                                    spacing: 5
+
+                                                    Text {
+                                                        text: qsTr("DISK")
+                                                        color: theme.muted
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 8
+                                                        font.letterSpacing: 1
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
+
+                                                    Text {
+                                                        text: win.sizePair(modelData.diskUsage, modelData.diskLimit)
+                                                        color: envRow.diskRatio >= 0.9 ? theme.red
+                                                             : (envRow.diskRatio >= 0.75 ? theme.yellow : theme.foreground)
+                                                        opacity: envRow.diskRatio >= 0.75 ? 1 : 0.72
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 10
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
                                                 }
-                                                Text {
-                                                    text: modelData.memoryUsage + " / " + modelData.memoryLimit
-                                                    color: theme.muted
-                                                    font.family: win.monoFont
-                                                    font.pixelSize: 10
+
+                                                RowLayout {
+                                                    spacing: 5
+
+                                                    Text {
+                                                        text: qsTr("RAM")
+                                                        color: theme.muted
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 8
+                                                        font.letterSpacing: 1
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
+
+                                                    Text {
+                                                        text: win.sizePair(modelData.memoryUsage, modelData.memoryLimit)
+                                                        color: theme.foreground
+                                                        opacity: 0.72
+                                                        font.family: win.monoFont
+                                                        font.pixelSize: 10
+                                                        Layout.alignment: Qt.AlignVCenter
+                                                    }
                                                 }
-                                                Item { Layout.fillWidth: true }
+
                                                 Text {
-                                                    text: modelData.networkMode === "offline"
-                                                          ? qsTr("NET OFF")
-                                                          : (modelData.networkMode === "allowlist" ? qsTr("ACL") + " · " + modelData.ipv4 : modelData.ipv4)
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    horizontalAlignment: Text.AlignRight
+                                                    elide: Text.ElideRight
+                                                    text: envRow.networkLabel
                                                     color: modelData.networkMode === "offline" ? theme.red : theme.accent
                                                     font.family: win.monoFont
                                                     font.pixelSize: 10
+                                                    Layout.alignment: Qt.AlignVCenter
                                                 }
                                             }
                                         }
 
                                         MouseArea {
+                                            id: envRowMouse
                                             anchors.fill: parent
                                             preventStealing: true
+                                            hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: backend.selectedIndex = index
                                             onDoubleClicked: backend.enterEnvironment(modelData.name)
+                                            ToolTip.delay: 700
+                                            ToolTip.visible: envRowMouse.containsMouse
+                                            ToolTip.text: qsTr("Disk %1 / %2 · RAM %3 / %4 · %5")
+                                                              .arg(modelData.diskUsage || "—")
+                                                              .arg(modelData.diskLimit || "—")
+                                                              .arg(modelData.memoryUsage || "—")
+                                                              .arg(modelData.memoryLimit || "—")
+                                                              .arg(envRow.networkLabel)
                                         }
                                     }
-                                }
-                            }
-
-                            Rectangle {
-                                visible: backend.poolInfo.valid || false
-                                Layout.fillWidth: true
-                                implicitHeight: poolSidebarRow.implicitHeight + 12
-                                radius: Math.min(4, theme.radius)
-                                color: win.surfaceInput
-                                border.width: 1
-                                border.color: (backend.poolInfo.alertLevel === 2)
-                                              ? theme.red
-                                              : (backend.poolInfo.alertLevel === 1 ? "#e5a93c" : win.borderSubtle)
-
-                                RowLayout {
-                                    id: poolSidebarRow
-                                    anchors.fill: parent
-                                    anchors.margins: 6
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 10
-                                    spacing: 6
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        elide: Text.ElideRight
-                                        text: qsTr("Pool %1: %2 / %3 (%4%)")
-                                                  .arg(backend.poolInfo.name || "default")
-                                                  .arg(backend.poolInfo.usedText || "0 MiB")
-                                                  .arg(backend.poolInfo.totalText || "0 MiB")
-                                                  .arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
-                                        color: (backend.poolInfo.alertLevel === 2)
-                                               ? theme.red
-                                               : (backend.poolInfo.alertLevel === 1 ? "#e5a93c" : theme.muted)
-                                        font.family: win.monoFont
-                                        font.pixelSize: 10
-                                    }
-
-                                    Text {
-                                        visible: (backend.poolInfo.allocatedBytes || 0) > 0
-                                        text: qsTr("Alloc %1").arg(backend.poolInfo.allocatedText || "0 MiB")
-                                        color: (backend.poolInfo.overcommitted || false) ? "#e5a93c" : theme.muted
-                                        font.family: win.monoFont
-                                        font.pixelSize: 10
-                                    }
-
-                                    Text {
-                                        text: qsTr("Manage")
-                                        color: theme.accent
-                                        font.family: win.sansFont
-                                        font.pixelSize: 10
-                                    }
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: win.openPoolSettings()
                                 }
                             }
 
