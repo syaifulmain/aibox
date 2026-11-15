@@ -4644,6 +4644,26 @@ void Backend::copyAiCommand(const QString &name) {
     }
 }
 
+bool Backend::copyText(const QString &text, const QString &label) {
+    if (text.isEmpty() || text == QStringLiteral("—"))
+        return false;
+    auto *cb = QGuiApplication::clipboard();
+    if (!cb)
+        return false;
+    cb->setText(text);
+    m_statusMessage = label.isEmpty()
+                          ? tr("Copied '%1' to clipboard.").arg(text)
+                          : tr("Copied %1 '%2' to clipboard.").arg(label, text);
+    emit statusMessageChanged();
+    QTimer::singleShot(3000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+    return true;
+}
+
 void Backend::downloadOsImage(const QString &osId) {
     if (osId.isEmpty() || m_busy)
         return;

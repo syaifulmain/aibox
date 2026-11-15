@@ -56,6 +56,15 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 33 — Aligned Network Monitor & Click-to-Copy IP
+- **Resource Cards (`src/Main.qml`)**:
+  - Removed the **IPv4 Address** card (with its `ONLINE`/`OFFLINE`/`ALLOWLIST` badge and connection bar) from the task-manager row; the row is now three equal cards (**Disk Usage**, **Memory Usage**, **CPU Usage**, `columns: 3`), so IP status lives only in the **Network Monitor**.
+- **Network Monitor (`src/Main.qml`)**:
+  - Replaced the `GridLayout` of eight alternating rows with two equal-width `ColumnLayout`s (`Layout.fillWidth` + `Layout.preferredWidth: 0`) so labels and values line up in true left/right pairs: *Ping / Packet Loss*, *Receiving / Sending*, *Downloaded / Uploaded*, *IP Address / Gateway*.
+  - **IP Address** and **Gateway** values are now clickable: a `HoverHandler` shows a pointing cursor plus a monochrome copy glyph (two overlapping outlined rectangles, no emoji) and a `TapHandler` copies the value via the new `backend.copyText(text, label)`; the value momentarily renders `Copied` in the theme accent and the status bar reports the copy.
+- **Backend (`src/backend.{h,cpp}`)**:
+  - Added `Q_INVOKABLE bool copyText(const QString &text, const QString &label = QString())` — a generic clipboard helper that ignores empty/`—` values, sets `statusMessage` (auto-cleared after 3 s) and returns whether the copy happened.
+
 ### Iteration 32 — Chip-Based Create Option Editor
 - **Create Options Editor (`src/Main.qml`)**:
   - Replaced the three comma-separated text fields (disk quota, RAM limit, CPU cores) with a new `ChipInput` component: type a number and press `Enter` to store it as a removable chip, capped at **4 choices** per list.

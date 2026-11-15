@@ -7,8 +7,8 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 ## Features
 
 - Create and manage Linux containers and virtual machines with configurable CPU, memory, and disk limits.
-- Monitor real-time disk usage, memory usage, CPU core utilization, and network status in task-manager style cards.
-- Monitor live per-environment network health with Ping, Packet Loss, Receiving/Sending throughput, Downloaded/Uploaded totals, IP address, and Gateway in a compact **Network Monitor** card (throughput sampled from Incus counters, gateway/ping probed every 10s inside the environment).
+- Monitor real-time disk usage, memory usage, and CPU core utilization in task-manager style cards.
+- Monitor live per-environment network health with Ping, Packet Loss, Receiving/Sending throughput, Downloaded/Uploaded totals, IP address, and Gateway in a compact **Network Monitor** card laid out in two aligned columns (throughput sampled from Incus counters, gateway/ping probed every 10s inside the environment; click the IP address or Gateway to copy it to the clipboard).
 - Share a project workspace with environments at `/workspace` and open it directly on the host.
 - Cache OS images, track task progress, and resume background operations.
 - Save, restore, and automate paired Btrfs snapshots (OS container + `/workspace` subvolume, with **Both / System only / Workspace only** restore and `pre-restore` safety snapshots) and configurable retention before entering or starting environments.

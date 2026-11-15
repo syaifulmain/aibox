@@ -244,6 +244,7 @@ public:
     Q_INVOKABLE void acknowledgeOperationHistory();
     Q_INVOKABLE void runHeadlessCommand(const QString &name, const QString &command);
     Q_INVOKABLE void copyAiCommand(const QString &name);
+    Q_INVOKABLE bool copyText(const QString &text, const QString &label = QString());
     Q_INVOKABLE QString saveSecret(const QString &name, const QString &value);
     Q_INVOKABLE QString deleteSecret(const QString &name);
     Q_INVOKABLE void reloadSecrets();

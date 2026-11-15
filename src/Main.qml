@@ -2020,10 +2020,10 @@ ApplicationWindow {
                                 }
                             }
 
-                            // 4 Hardware & Network Resource Monitor Cards (Task Manager Style)
+                            // 3 Hardware Resource Monitor Cards (Task Manager Style)
                             GridLayout {
                                 Layout.fillWidth: true
-                                columns: 4
+                                columns: 3
                                 columnSpacing: 10
                                 rowSpacing: 10
 
@@ -2075,28 +2075,6 @@ ApplicationWindow {
                                             alertLevel: 0,
                                             cores: backend.selectedEnvironment.cpuCorePercents || [0, 0, 0, 0],
                                             active: backend.selectedEnvironment.running || false
-                                        },
-                                        {
-                                            title: qsTr("IPv4 Address"),
-                                            val: backend.selectedEnvironment.networkMode === "offline"
-                                                 ? qsTr("Disabled")
-                                                 : (backend.selectedEnvironment.ipv4 || "—"),
-                                            subtext: "",
-                                            subAlert: 0,
-                                            pct: backend.selectedEnvironment.networkMode === "offline"
-                                                 ? 0
-                                                 : ((backend.selectedEnvironment.running && backend.selectedEnvironment.ipv4 && backend.selectedEnvironment.ipv4 !== "—") ? 100 : 0),
-                                            badge: backend.selectedEnvironment.networkMode === "offline"
-                                                   ? qsTr("NET OFF")
-                                                   : (backend.selectedEnvironment.networkMode === "allowlist"
-                                                      ? qsTr("ALLOWLIST")
-                                                      : ((backend.selectedEnvironment.running && backend.selectedEnvironment.ipv4 && backend.selectedEnvironment.ipv4 !== "—") ? qsTr("ONLINE") : qsTr("OFFLINE"))),
-                                            hasBar: true,
-                                            isCpu: false,
-                                            isNetwork: true,
-                                            alertLevel: 0,
-                                            cores: [],
-                                            active: backend.selectedEnvironment.networkMode !== "offline" && ((backend.selectedEnvironment.running && backend.selectedEnvironment.ipv4 && backend.selectedEnvironment.ipv4 !== "—") || false)
                                         }
                                     ]
                                     delegate: Rectangle {
@@ -2549,52 +2527,125 @@ ApplicationWindow {
                                         }
                                     }
 
-                                    GridLayout {
+                                    // Two equal-width columns so labels and values line up
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        columns: 2
-                                        columnSpacing: 30
-                                        rowSpacing: 8
+                                        spacing: 30
 
                                         Repeater {
                                             model: [
-                                                { label: qsTr("Ping"), value: netMonitorCard.pingText(), tone: "normal" },
-                                                { label: qsTr("Packet Loss"), value: netMonitorCard.lossText(), tone: netMonitorCard.lossPct > 0 ? "warn" : "normal" },
-                                                { label: qsTr("Receiving"), value: netMonitorCard.stats.rxRateText || "0 KB/s", tone: "down" },
-                                                { label: qsTr("Sending"), value: netMonitorCard.stats.txRateText || "0 KB/s", tone: "up" },
-                                                { label: qsTr("Downloaded"), value: netMonitorCard.stats.rxTotalText || "0 B", tone: "normal" },
-                                                { label: qsTr("Uploaded"), value: netMonitorCard.stats.txTotalText || "0 B", tone: "normal" },
-                                                { label: qsTr("IP Address"), value: netMonitorCard.stats.ip || "—", tone: "normal" },
-                                                { label: qsTr("Gateway"), value: netMonitorCard.stats.gateway || "—", tone: "normal" }
+                                                [
+                                                    { label: qsTr("Ping"), value: netMonitorCard.pingText(), tone: "normal", copyValue: "" },
+                                                    { label: qsTr("Receiving"), value: netMonitorCard.stats.rxRateText || "0 KB/s", tone: "down", copyValue: "" },
+                                                    { label: qsTr("Downloaded"), value: netMonitorCard.stats.rxTotalText || "0 B", tone: "normal", copyValue: "" },
+                                                    { label: qsTr("IP Address"), value: netMonitorCard.stats.ip || "—", tone: "normal", copyValue: netMonitorCard.stats.ip || "" }
+                                                ],
+                                                [
+                                                    { label: qsTr("Packet Loss"), value: netMonitorCard.lossText(), tone: netMonitorCard.lossPct > 0 ? "warn" : "normal", copyValue: "" },
+                                                    { label: qsTr("Sending"), value: netMonitorCard.stats.txRateText || "0 KB/s", tone: "up", copyValue: "" },
+                                                    { label: qsTr("Uploaded"), value: netMonitorCard.stats.txTotalText || "0 B", tone: "normal", copyValue: "" },
+                                                    { label: qsTr("Gateway"), value: netMonitorCard.stats.gateway || "—", tone: "normal", copyValue: netMonitorCard.stats.gateway || "" }
+                                                ]
                                             ]
 
-                                            delegate: RowLayout {
+                                            delegate: ColumnLayout {
                                                 required property var modelData
                                                 Layout.fillWidth: true
-                                                Layout.minimumWidth: 0
-                                                spacing: 12
+                                                Layout.preferredWidth: 0
+                                                spacing: 8
 
-                                                Text {
-                                                    text: modelData.label
-                                                    color: theme.muted
-                                                    font.family: win.sansFont
-                                                    font.pixelSize: 11
-                                                }
+                                                Repeater {
+                                                    model: modelData
 
-                                                Item { Layout.fillWidth: true }
+                                                    delegate: RowLayout {
+                                                        id: netRow
+                                                        required property var modelData
 
-                                                Text {
-                                                    Layout.minimumWidth: 0
-                                                    elide: Text.ElideRight
-                                                    text: modelData.value
-                                                    color: modelData.value === "—"
-                                                           ? theme.muted
-                                                           : (modelData.tone === "down"
-                                                              ? theme.green
-                                                              : (modelData.tone === "up"
-                                                                 ? theme.accent
-                                                                 : (modelData.tone === "warn" ? "#e5a93c" : theme.foreground)))
-                                                    font.family: win.monoFont
-                                                    font.pixelSize: 12
+                                                        readonly property bool copyable: (modelData.copyValue || "").length > 0
+                                                        property bool justCopied: false
+
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        spacing: 10
+
+                                                        Text {
+                                                            text: modelData.label
+                                                            color: netRow.copyable && netHover.hovered ? theme.foreground : theme.muted
+                                                            font.family: win.sansFont
+                                                            font.pixelSize: 11
+                                                        }
+
+                                                        Item { Layout.fillWidth: true }
+
+                                                        Text {
+                                                            Layout.minimumWidth: 0
+                                                            elide: Text.ElideRight
+                                                            text: netRow.justCopied ? qsTr("Copied") : modelData.value
+                                                            color: netRow.justCopied
+                                                                   ? theme.accent
+                                                                   : (modelData.value === "—"
+                                                                      ? theme.muted
+                                                                      : (modelData.tone === "down"
+                                                                         ? theme.green
+                                                                         : (modelData.tone === "up"
+                                                                            ? theme.accent
+                                                                            : (modelData.tone === "warn" ? "#e5a93c" : theme.foreground))))
+                                                            font.family: win.monoFont
+                                                            font.pixelSize: 12
+                                                        }
+
+                                                        // Monochrome copy glyph: hover hint for copyable values
+                                                        Item {
+                                                            visible: netRow.copyable
+                                                            Layout.alignment: Qt.AlignVCenter
+                                                            Layout.preferredWidth: 10
+                                                            Layout.preferredHeight: 10
+                                                            opacity: netRow.justCopied ? 1.0 : (netHover.hovered ? 0.95 : 0.4)
+
+                                                            Rectangle {
+                                                                x: 0
+                                                                y: 3
+                                                                width: 7
+                                                                height: 7
+                                                                radius: 1
+                                                                color: "transparent"
+                                                                border.width: 1
+                                                                border.color: netRow.justCopied ? theme.accent : (netHover.hovered ? theme.accent : theme.muted)
+                                                            }
+                                                            Rectangle {
+                                                                x: 3
+                                                                y: 0
+                                                                width: 7
+                                                                height: 7
+                                                                radius: 1
+                                                                color: win.surfaceInput
+                                                                border.width: 1
+                                                                border.color: netRow.justCopied ? theme.accent : (netHover.hovered ? theme.accent : theme.muted)
+                                                            }
+                                                        }
+
+                                                        HoverHandler {
+                                                            id: netHover
+                                                            enabled: netRow.copyable
+                                                            cursorShape: Qt.PointingHandCursor
+                                                        }
+
+                                                        TapHandler {
+                                                            enabled: netRow.copyable
+                                                            onTapped: {
+                                                                if (backend.copyText(netRow.modelData.copyValue, netRow.modelData.label)) {
+                                                                    netRow.justCopied = true
+                                                                    copyResetTimer.restart()
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Timer {
+                                                            id: copyResetTimer
+                                                            interval: 1200
+                                                            onTriggered: netRow.justCopied = false
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
