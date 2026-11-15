@@ -10,6 +10,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 - Monitor real-time disk usage, memory usage, and CPU core utilization in task-manager style cards.
 - Monitor live per-environment network health with Ping, Packet Loss, Receiving/Sending throughput, Downloaded/Uploaded totals, IP address, and Gateway in a compact **Network Monitor** card laid out in two aligned columns (throughput sampled from Incus counters, gateway/ping probed every 10s inside the environment; click the IP address or Gateway to copy it to the clipboard).
 - Share a project workspace with environments at `/workspace` and open it directly on the host.
+- Browse an environment's **entire root filesystem** from the host file manager: **Root Files** (under Shared Workspace) starts a passwordless, `127.0.0.1`-only SFTP listener through `incus file mount`, shows a copyable `sftp://root@127.0.0.1:<port>/` URL, and opens it with one click. It stops automatically when the environment stops, and the listener survives AIBox restarts until disabled.
 - Cache OS images, track task progress, and resume background operations.
 - Save, restore, and automate paired Btrfs snapshots (OS container + `/workspace` subvolume, with **Both / System only / Workspace only** restore and `pre-restore` safety snapshots) and configurable retention before entering or starting environments.
 - Inspect `/workspace` added/modified/deleted files and unified diffs since any workspace snapshot (`V`), configure exclude patterns, and restore individual files without rolling back the whole environment.
@@ -53,7 +54,7 @@ Run the test suite:
 
 Launch **AIBox** from the app launcher (`Super` + `Space`). On first launch, choose the system storage location (defaulting to `~/aibox/`, containing `workspaces/`, `os-images/`, `state/`, and `config.json`) before clicking **Continue**; this choice is remembered in `~/.config/aibox/location.json`. The configuration menu is split by responsibility: **Locations** (system root, workspace folder, OS image storage), **Storage Pool** (live pool usage and in-place growth), **OS Catalog**, **Create Options**, and **Safety**. **Settings → Storage Pool** shows live pool usage and can grow a loop-file backed pool in place (for example `30GiB` → `60GiB`); directory-backed pools follow the host filesystem and hide the growth controls. **Settings → Create Options** stores the disk quota, RAM, and CPU choices as chips: type a number and press `Enter` to add one (units such as `GiB` are appended automatically), with up to 4 choices per list and `×` to remove a chip.
 
-For headless scripting and terminal workflows, use `aibox [--project <dir>] <command>`:
+To browse an environment's root filesystem in your file manager, use the **Root Files** row under **Shared Workspace**. **Enable** starts a localhost-only SFTP listener and shows a click-to-copy URL such as `sftp://root@127.0.0.1:2222/`; **Open** hands it to the default file manager, and **Disable** stops the listener. Access requires the environment to be running, and it is stopped automatically when the environment stops.
 
 For headless scripting and terminal workflows, use `aibox [--project <dir>] <command>`:
 

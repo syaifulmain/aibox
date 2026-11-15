@@ -194,6 +194,9 @@ public:
                                        const QStringList &provisionBundleIds = {});
     Q_INVOKABLE void enterEnvironment(const QString &name);
     Q_INVOKABLE void openWorkspaceFolder(const QString &name);
+    Q_INVOKABLE QString enableFileAccess(const QString &name);
+    Q_INVOKABLE void disableFileAccess(const QString &name);
+    Q_INVOKABLE void openFileAccess(const QString &name);
     Q_INVOKABLE void toggleStartStop(const QString &name);
     Q_INVOKABLE void createSnapshot(const QString &name, const QString &snapshotName);
     Q_INVOKABLE void restoreSnapshot(const QString &name, const QString &snapshotName,
@@ -445,6 +448,10 @@ public:
     // Daily workflow helpers (W1 - W4)
     static QString proxyDeviceName(int hostPort);
     static bool isHostPortAvailable(int hostPort);
+    static QString fileAccessUrl(int port);
+    static int chooseFileAccessPort(const QSet<int> &reservedPorts,
+                                    const std::function<bool(int)> &isAvailable,
+                                    int startPort = 2222, int maxPort = 2299);
     static QString addPortForwardScript(const QString &name, int hostPort, int guestPort);
     static QString validateExtraMountPath(const QString &rawPath, const QStringList &forbiddenConfigPaths = {});
     static QString extraMountDeviceName(const QString &rawName);
@@ -656,6 +663,13 @@ private:
     QVariantMap environmentByName(const QString &name) const;
     QString buildAutoSnapshotIfNeeded(const QString &name);
     QString buildAllowlistRefreshIfNeeded(const QString &name) const;
+    QString fileAccessDirPath() const;
+    QString fileAccessStatePath(const QString &name) const;
+    QString fileAccessLogPath(const QString &name) const;
+    QVariantMap loadFileAccessState(const QString &name) const;
+    bool fileAccessProcessAlive(qint64 pid, const QString &name) const;
+    void stopFileAccessProcess(const QString &name);
+    void applyFileAccessState(QVariantList &environments);
 
     int m_count = 0;
     QVariantList m_environments;

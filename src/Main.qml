@@ -2294,6 +2294,95 @@ ApplicationWindow {
                                 }
                             }
 
+                            // Root File Access (localhost-only SFTP) Info Box
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 50
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceInput
+                                border.width: 1
+                                border.color: (backend.selectedEnvironment.fileAccessActive || false)
+                                              ? theme.accent
+                                              : win.borderSubtle
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 14
+                                    anchors.rightMargin: 14
+                                    spacing: 10
+
+                                    Text {
+                                        text: qsTr("Root Files")
+                                        color: theme.muted
+                                        font.family: win.sansFont
+                                        font.pixelSize: 11
+                                        ToolTip.visible: rootLabelHover.hovered
+                                        ToolTip.delay: 500
+                                        ToolTip.text: qsTr("Browse this environment's root filesystem in your file manager over a localhost-only, passwordless SFTP connection. Anyone on this machine can read and write files as root while it is enabled.")
+                                        HoverHandler { id: rootLabelHover }
+                                    }
+
+                                    Text {
+                                        id: rootAccessText
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        elide: Text.ElideMiddle
+                                        text: (backend.selectedEnvironment.fileAccessActive || false)
+                                              ? (backend.selectedEnvironment.fileAccessUrl || "")
+                                              : (backend.selectedEnvironment.running
+                                                 ? qsTr("Off — browse the container root in your file manager")
+                                                 : qsTr("Off — start the environment to enable"))
+                                        color: (backend.selectedEnvironment.fileAccessActive || false)
+                                               ? theme.accent
+                                               : theme.muted
+                                        font.family: win.monoFont
+                                        font.pixelSize: 12
+                                        ToolTip.visible: rootUrlHover.hovered && (backend.selectedEnvironment.fileAccessActive || false)
+                                        ToolTip.delay: 400
+                                        ToolTip.text: qsTr("Click to copy this SFTP URL")
+                                        HoverHandler {
+                                            id: rootUrlHover
+                                            cursorShape: (backend.selectedEnvironment.fileAccessActive || false)
+                                                         ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                        }
+                                        TapHandler {
+                                            enabled: backend.selectedEnvironment.fileAccessActive || false
+                                            onTapped: backend.copyText(
+                                                backend.selectedEnvironment.fileAccessUrl || "",
+                                                qsTr("SFTP URL"))
+                                        }
+                                    }
+
+                                    ActionButton {
+                                        visible: backend.selectedEnvironment.fileAccessActive || false
+                                        label: qsTr("Open")
+                                        minWidth: 78
+                                        onClicked: backend.openFileAccess(backend.selectedEnvironment.name || "")
+                                    }
+
+                                    ActionButton {
+                                        label: (backend.selectedEnvironment.fileAccessActive || false)
+                                               ? qsTr("Disable")
+                                               : qsTr("Enable")
+                                        variant: (backend.selectedEnvironment.fileAccessActive || false)
+                                                 ? "danger"
+                                                 : "accent"
+                                        minWidth: 92
+                                        disabled: backend.busy
+                                                  || (backend.selectedEnvironment.isTemplate || false)
+                                                  || (!(backend.selectedEnvironment.fileAccessActive || false)
+                                                      && !(backend.selectedEnvironment.running || false))
+                                        onClicked: {
+                                            const name = backend.selectedEnvironment.name || ""
+                                            if (backend.selectedEnvironment.fileAccessActive || false)
+                                                backend.disableFileAccess(name)
+                                            else
+                                                backend.enableFileAccess(name)
+                                        }
+                                    }
+                                }
+                            }
+
                             // Network Control Bar
                             Rectangle {
                                 Layout.fillWidth: true

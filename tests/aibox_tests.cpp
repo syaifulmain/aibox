@@ -810,6 +810,47 @@ private slots:
         QVERIFY(!backend.addPortForward("web-box", 3000, 0).isEmpty());
     }
 
+    void fileAccessUrlAndPortSelection()
+    {
+        QCOMPARE(Backend::fileAccessUrl(2222), QString("sftp://root@127.0.0.1:2222/"));
+        QCOMPARE(Backend::fileAccessUrl(0), QString());
+        QCOMPARE(Backend::fileAccessUrl(70000), QString());
+
+        const QSet<int> reserved{2222, 2223, 2224};
+        int probes = 0;
+        const int port = Backend::chooseFileAccessPort(reserved, [&probes](int candidate) {
+            ++probes;
+            return candidate != 2225; // pretend 2225 is already bound on the host
+        });
+        QCOMPARE(port, 2226);
+        QCOMPARE(probes, 2);
+
+        QCOMPARE(Backend::chooseFileAccessPort(QSet<int>{}, std::function<bool(int)>{}, 2222, 2224), 2222);
+        QCOMPARE(Backend::chooseFileAccessPort(QSet<int>{2222, 2223, 2224}, std::function<bool(int)>{}, 2222, 2224), 0);
+
+        // Real bind check: an occupied 127.0.0.1 port must be skipped.
+        QTcpServer blocker;
+        QVERIFY(blocker.listen(QHostAddress::LocalHost, 0));
+        const int busyPort = blocker.serverPort();
+        const auto available = [](int candidate) { return Backend::isHostPortAvailable(candidate); };
+        const int chosen = Backend::chooseFileAccessPort(QSet<int>{}, available, busyPort, busyPort + 50);
+        QVERIFY(chosen > busyPort);
+        QVERIFY(Backend::isHostPortAvailable(chosen));
+        blocker.close();
+        QVERIFY(Backend::isHostPortAvailable(busyPort));
+    }
+
+    void enableFileAccessRequiresKnownRunningEnvironment()
+    {
+        QTemporaryDir dir;
+        Backend backend(dir.path());
+        QVERIFY(!backend.enableFileAccess("missing-box").isEmpty());
+        QVERIFY(backend.selectedEnvironment().isEmpty());
+
+        backend.disableFileAccess("missing-box");
+        backend.openFileAccess("missing-box");
+    }
+
     void extraMountValidationAndScript()
     {
         QTemporaryDir dir;

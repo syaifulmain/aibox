@@ -290,6 +290,26 @@ bool isGuiSession() {
            QGuiApplication::platformName() != QLatin1String("offscreen");
 }
 
+bool isLocalTcpPortListening(int port) {
+    if (port < 1 || port > 65535)
+        return false;
+    QFile tcp(QStringLiteral("/proc/net/tcp"));
+    if (!tcp.open(QIODevice::ReadOnly))
+        return false;
+    // /proc/net/tcp columns: sl, local_address (HEXADDR:HEXPORT), rem_address, st, ...
+    // 127.0.0.1 in little-endian hex is 0100007F and st 0A means LISTEN.
+    const QString needle = QStringLiteral("0100007F:%1").arg(port, 4, 16, QLatin1Char('0')).toUpper();
+    const QStringList lines = QString::fromLatin1(tcp.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QStringList fields = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (fields.size() < 4)
+            continue;
+        if (fields.at(1).compare(needle, Qt::CaseInsensitive) == 0 && fields.at(3) == QLatin1String("0A"))
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 Backend::Backend(const QString &workspaceDir, QObject *parent)
@@ -2004,6 +2024,7 @@ void Backend::refresh() {
                                                       m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions,
                                                       &m_lastNetCounters);
             applyCachedSnapshotSizes(newEnvs);
+            applyFileAccessState(newEnvs);
             for (int i = 0; i < newEnvs.size(); ++i) {
                 QVariantMap env = newEnvs.at(i).toMap();
                 const int pct = env.value("diskPercent").toInt();
@@ -2105,6 +2126,7 @@ bool Backend::refreshSync(QString *errorOut) {
     const QByteArray rawJson = proc.readAllStandardOutput();
     m_environments = parseIncusListJson(rawJson, m_workspaceBase, nullptr, 0,
                                           m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions);
+    applyFileAccessState(m_environments);
     m_count = m_environments.size();
     return true;
 }
@@ -3996,6 +4018,345 @@ void Backend::openWorkspaceFolder(const QString &name) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
+QString Backend::fileAccessDirPath() const {
+    return m_stateDir + QStringLiteral("/file-access");
+}
+
+QString Backend::fileAccessStatePath(const QString &name) const {
+    return fileAccessDirPath() + QLatin1Char('/') + sanitizeName(name) + QStringLiteral(".json");
+}
+
+QString Backend::fileAccessLogPath(const QString &name) const {
+    return fileAccessDirPath() + QLatin1Char('/') + sanitizeName(name) + QStringLiteral(".log");
+}
+
+QVariantMap Backend::loadFileAccessState(const QString &name) const {
+    QFile file(fileAccessStatePath(name));
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object().toVariantMap() : QVariantMap{};
+}
+
+bool Backend::fileAccessProcessAlive(qint64 pid, const QString &name) const {
+    if (pid <= 0)
+        return false;
+    if (::kill(static_cast<pid_t>(pid), 0) != 0)
+        return false;
+
+    // Guard against PID reuse: only trust processes that still look like the
+    // `incus file mount <name> ...` listener we started.
+    QFile cmdline(QStringLiteral("/proc/%1/cmdline").arg(pid));
+    if (!cmdline.open(QIODevice::ReadOnly))
+        return false;
+    const QList<QByteArray> args = cmdline.readAll().split('\0');
+    bool hasFile = false;
+    bool hasMount = false;
+    bool hasName = false;
+    for (const QByteArray &arg : args) {
+        if (arg == "file")
+            hasFile = true;
+        else if (arg == "mount")
+            hasMount = true;
+        else if (QString::fromUtf8(arg) == name)
+            hasName = true;
+        else if (arg.contains("incus file mount") && arg.contains(name.toUtf8())) {
+            // The detached `/bin/sh -c 'exec incus file mount ...'` wrapper is
+            // still alive for a few milliseconds before exec replaces it.
+            hasFile = true;
+            hasMount = true;
+            hasName = true;
+        }
+    }
+    return hasFile && hasMount && hasName;
+}
+
+void Backend::stopFileAccessProcess(const QString &name) {
+    if (name.isEmpty())
+        return;
+    const QVariantMap state = loadFileAccessState(name);
+    const qint64 pid = state.value(QStringLiteral("pid")).toLongLong();
+    if (fileAccessProcessAlive(pid, name)) {
+        ::kill(static_cast<pid_t>(pid), SIGTERM);
+        QTimer::singleShot(700, this, [this, pid, name] {
+            if (fileAccessProcessAlive(pid, name))
+                ::kill(static_cast<pid_t>(pid), SIGKILL);
+        });
+    }
+    QFile::remove(fileAccessStatePath(name));
+    QFile::remove(fileAccessLogPath(name));
+}
+
+void Backend::applyFileAccessState(QVariantList &environments) {
+    QSet<QString> knownFiles;
+    for (int i = 0; i < environments.size(); ++i) {
+        QVariantMap env = environments.at(i).toMap();
+        const QString name = env.value("name").toString();
+        if (name.isEmpty())
+            continue;
+        knownFiles.insert(sanitizeName(name));
+
+        const QVariantMap state = loadFileAccessState(name);
+        const qint64 pid = state.value(QStringLiteral("pid")).toLongLong();
+        int port = state.value(QStringLiteral("port")).toInt();
+        bool active = fileAccessProcessAlive(pid, name);
+
+        if (!active && !state.isEmpty()) {
+            QFile::remove(fileAccessStatePath(name));
+            QFile::remove(fileAccessLogPath(name));
+            port = 0;
+        }
+        if (active && !env.value("running").toBool()) {
+            // The environment stopped, so the listener no longer has a rootfs to serve.
+            stopFileAccessProcess(name);
+            active = false;
+            port = 0;
+        }
+
+        env["fileAccessActive"] = active;
+        env["fileAccessPort"] = active ? port : 0;
+        env["fileAccessUrl"] = active ? fileAccessUrl(port) : QString();
+        environments[i] = env;
+    }
+
+    // Drop state files whose environment disappeared (deleted outside AIBox).
+    QDir dir(fileAccessDirPath());
+    const QFileInfoList states = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files);
+    for (const QFileInfo &info : states) {
+        const QString base = info.completeBaseName();
+        if (knownFiles.contains(base))
+            continue;
+        QFile stateFile(info.absoluteFilePath());
+        QString stateName;
+        qint64 pid = 0;
+        if (stateFile.open(QIODevice::ReadOnly)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(stateFile.readAll());
+            if (doc.isObject()) {
+                stateName = doc.object().value(QStringLiteral("name")).toString();
+                pid = doc.object().value(QStringLiteral("pid")).toVariant().toLongLong();
+            }
+        }
+        if (stateName.isEmpty())
+            stateName = base;
+        if (fileAccessProcessAlive(pid, stateName))
+            ::kill(static_cast<pid_t>(pid), SIGTERM);
+        QFile::remove(info.absoluteFilePath());
+        QFile::remove(fileAccessLogPath(stateName));
+    }
+}
+
+QString Backend::fileAccessUrl(int port) {
+    if (port < 1 || port > 65535)
+        return {};
+    return QStringLiteral("sftp://root@127.0.0.1:%1/").arg(port);
+}
+
+int Backend::chooseFileAccessPort(const QSet<int> &reservedPorts,
+                                  const std::function<bool(int)> &isAvailable,
+                                  int startPort, int maxPort) {
+    for (int port = startPort; port <= maxPort; ++port) {
+        if (reservedPorts.contains(port))
+            continue;
+        if (isAvailable && !isAvailable(port))
+            continue;
+        return port;
+    }
+    return 0;
+}
+
+QString Backend::enableFileAccess(const QString &name) {
+    auto fail = [this](const QString &message) {
+        setError(message);
+        return message;
+    };
+
+    if (name.isEmpty())
+        return fail(tr("Select an environment first."));
+    if (m_busy)
+        return fail(tr("Wait for the current operation to finish before changing root file access."));
+
+    const QVariantMap env = environmentByName(name);
+    if (env.isEmpty())
+        return fail(tr("Environment '%1' was not found.").arg(name));
+    if (env.value("isTemplate").toBool())
+        return fail(tr("Templates cannot expose root files. Clone or unmark as template first."));
+    if (!env.value("running").toBool())
+        return fail(tr("Start '%1' before enabling root file access.").arg(name));
+
+    const QVariantMap existing = loadFileAccessState(name);
+    if (fileAccessProcessAlive(existing.value(QStringLiteral("pid")).toLongLong(), name))
+        return {};
+
+    if (!QDir().mkpath(fileAccessDirPath()))
+        return fail(tr("Could not create the root file access state directory: %1").arg(fileAccessDirPath()));
+
+    QSet<int> reservedPorts;
+    QDir stateDir(fileAccessDirPath());
+    const QFileInfoList states = stateDir.entryInfoList({QStringLiteral("*.json")}, QDir::Files);
+    for (const QFileInfo &info : states) {
+        const QVariantMap state = loadFileAccessState(info.completeBaseName());
+        const int port = state.value(QStringLiteral("port")).toInt();
+        if (port > 0)
+            reservedPorts.insert(port);
+    }
+
+    const int port = chooseFileAccessPort(reservedPorts, [](int candidate) {
+        return isHostPortAvailable(candidate);
+    });
+    if (port <= 0)
+        return fail(tr("No free local port is available for root file access (tried 2222-2299)."));
+
+    const QString logPath = fileAccessLogPath(name);
+    const QString script = QStringLiteral("exec incus file mount %1 --listen %2 --no-auth > %3 2>&1")
+                               .arg(shellQuote(name),
+                                    shellQuote(QStringLiteral("127.0.0.1:%1").arg(port)),
+                                    shellQuote(logPath));
+    qint64 pid = 0;
+    if (!QProcess::startDetached(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), script},
+                                 QDir::homePath(), &pid) ||
+        pid <= 0) {
+        return fail(tr("Could not start the local SFTP listener."));
+    }
+
+    QJsonObject state;
+    state[QStringLiteral("name")] = name;
+    state[QStringLiteral("pid")] = pid;
+    state[QStringLiteral("port")] = port;
+    state[QStringLiteral("startedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QSaveFile stateFile(fileAccessStatePath(name));
+    if (!stateFile.open(QIODevice::WriteOnly)) {
+        ::kill(static_cast<pid_t>(pid), SIGTERM);
+        return fail(tr("Could not save the root file access state file."));
+    }
+    stateFile.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
+    if (!stateFile.commit()) {
+        ::kill(static_cast<pid_t>(pid), SIGTERM);
+        return fail(tr("Could not save the root file access state file."));
+    }
+
+    // Wait briefly for the listener to bind so the UI never hands out a dead URL.
+    bool listening = false;
+    QElapsedTimer waitTimer;
+    waitTimer.start();
+    while (waitTimer.elapsed() < 3000) {
+        // Check the process first: if incus failed to bind, it exits and we must
+        // not mistake someone else's late listener on that port for ours.
+        if (!fileAccessProcessAlive(pid, name))
+            break;
+        if (isLocalTcpPortListening(port)) {
+            listening = true;
+            break;
+        }
+        QThread::msleep(60);
+    }
+    if (!listening) {
+        QString detail;
+        QFile log(logPath);
+        if (log.open(QIODevice::ReadOnly)) {
+            const QStringList lines = QString::fromUtf8(log.readAll())
+                                          .split(QRegularExpression(QStringLiteral("[\\r\\n]+")),
+                                                 Qt::SkipEmptyParts);
+            if (!lines.isEmpty())
+                detail = lines.last().trimmed();
+        }
+        stopFileAccessProcess(name);
+        return fail(detail.isEmpty()
+                        ? tr("Root file access failed to start on 127.0.0.1:%1.").arg(port)
+                        : tr("Root file access failed to start: %1").arg(detail));
+    }
+
+    for (int i = 0; i < m_environments.size(); ++i) {
+        QVariantMap item = m_environments.at(i).toMap();
+        if (item.value("name").toString() != name)
+            continue;
+        item["fileAccessActive"] = true;
+        item["fileAccessPort"] = port;
+        item["fileAccessUrl"] = fileAccessUrl(port);
+        m_environments[i] = item;
+        emit environmentsChanged();
+        emit selectedIndexChanged();
+        break;
+    }
+
+    m_statusMessage = tr("Root file access enabled: %1").arg(fileAccessUrl(port));
+    emit statusMessageChanged();
+    setError(QString());
+    QTimer::singleShot(3000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+
+    return {};
+}
+
+void Backend::disableFileAccess(const QString &name) {
+    if (name.isEmpty())
+        return;
+    stopFileAccessProcess(name);
+    for (int i = 0; i < m_environments.size(); ++i) {
+        QVariantMap env = m_environments.at(i).toMap();
+        if (env.value("name").toString() != name)
+            continue;
+        env["fileAccessActive"] = false;
+        env["fileAccessPort"] = 0;
+        env["fileAccessUrl"] = QString();
+        m_environments[i] = env;
+        emit environmentsChanged();
+        emit selectedIndexChanged();
+        break;
+    }
+    m_statusMessage = tr("Root file access disabled for '%1'.").arg(name);
+    emit statusMessageChanged();
+    QTimer::singleShot(3000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+}
+
+void Backend::openFileAccess(const QString &name) {
+    if (name.isEmpty())
+        return;
+    const QVariantMap env = environmentByName(name);
+    const QString url = env.value("fileAccessUrl").toString();
+    if (url.isEmpty())
+        return;
+
+    // Prefer a registered sftp:// scheme handler (GVFS/Nautilus, KIO, etc.).
+    QProcess gio;
+    QProcessEnvironment gioEnv = QProcessEnvironment::systemEnvironment();
+    gioEnv.insert(QStringLiteral("LC_ALL"), QStringLiteral("C"));
+    gio.setProcessEnvironment(gioEnv);
+    gio.start(QStringLiteral("gio"),
+              {QStringLiteral("mime"), QStringLiteral("x-scheme-handler/sftp")});
+    const bool hasHandler = gio.waitForFinished(1500) && gio.exitCode() == 0 &&
+                            !QString::fromUtf8(gio.readAllStandardOutput())
+                                 .contains(QLatin1String("No default applications"));
+    if (hasHandler && QDesktopServices::openUrl(QUrl(url)))
+        return;
+
+    // Nautilus and most file managers accept an sftp:// URI directly even when
+    // the desktop environment has no x-scheme-handler registered for sftp.
+    for (const QString &fileManager : {QStringLiteral("nautilus"), QStringLiteral("dolphin"),
+                                       QStringLiteral("thunar"), QStringLiteral("nemo"),
+                                       QStringLiteral("pcmanfm"), QStringLiteral("caja")}) {
+        if (QStandardPaths::findExecutable(fileManager).isEmpty())
+            continue;
+        QStringList args;
+        if (fileManager == QLatin1String("nautilus"))
+            args << QStringLiteral("-w");
+        args << url;
+        if (QProcess::startDetached(fileManager, args))
+            return;
+    }
+
+    copyText(url, tr("SFTP URL"));
+    setError(tr("No file manager accepted the SFTP URL; it has been copied to the clipboard."));
+}
+
 void Backend::toggleStartStop(const QString &name) {
     if (name.isEmpty() || m_busy)
         return;
@@ -4007,6 +4368,7 @@ void Backend::toggleStartStop(const QString &name) {
     const bool isRunning = env.value("running").toBool();
 
     if (isRunning) {
+        stopFileAccessProcess(name);
         runShellTask(tr("Stopping '%1'").arg(name), stopEnvironmentScript(name), {}, name);
     } else {
         runShellTask(tr("Starting '%1'").arg(name), startEnvironmentScript(name), {}, name);
@@ -4536,6 +4898,7 @@ void Backend::wipeEnvironment(const QString &name, bool deleteWorkspaceFiles) {
         return;
     const QString hostWorkspace = workspacePathFor(name);
     const QString envSessionsDir = sessionsDirPath() + QLatin1Char('/') + sanitizeName(name);
+    stopFileAccessProcess(name);
     runShellTask(tr("Wiping environment '%1'").arg(name),
                  wipeEnvironmentScript(name, hostWorkspace, deleteWorkspaceFiles, envSessionsDir), {}, name);
 }
@@ -5477,6 +5840,7 @@ QString Backend::exportAndWipeEnvironment(const QString &name, bool includeWorks
         wsArchiveFile = backupsDirPath() + QStringLiteral("/%1-%2-workspace.tar.gz").arg(clean, stamp);
 
     const QString envSessionsDir = sessionsDirPath() + QLatin1Char('/') + clean;
+    stopFileAccessProcess(clean);
     runShellTask(tr("Exporting & wiping '%1'").arg(clean),
                  exportAndWipeEnvironmentScript(clean, backupFile, wsPath, wsArchiveFile,
                                                 deleteWorkspaceFiles, envSessionsDir),
