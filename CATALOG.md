@@ -57,6 +57,10 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 43 — Create Dialog Fits Its Content
+- **Create Dialog (`src/Main.qml`)**: the modal height now follows the form instead of a fixed height, so template mode no longer leaves a large empty area below the quota rows. The form still scrolls when fresh-OS creation needs more room than the window offers.
+- **Quota Chips (`src/Main.qml`)**: disk, RAM, CPU, process, and I/O chips now share the row width equally and elide long labels, so narrow windows no longer squeeze or clip the chip rows.
+
 ### Iteration 42 — Inline Secret Injection Checkbox
 - **Secrets Manager (`src/Main.qml`)**: the separate **Inject into '<environment>'** chip panel is removed. Every row in **Global Secrets** now carries the injection checkbox on its left, so one list shows both the stored secrets and their per-environment bindings.
 - **Behavior**: the checkbox only appears when an environment is selected; toggling it still calls `Backend::setEnvironmentSecrets`. The "No secrets configured yet" hint stays at the top of the empty list.

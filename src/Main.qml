@@ -3572,9 +3572,9 @@ ApplicationWindow {
             Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 60, 680)
-                height: backend.busy
-                        ? Math.min(parent.height - 40, createCol.implicitHeight + 44)
-                        : Math.min(parent.height - 40, 700)
+                // The dialog follows its content, so the form stays compact in
+                // template mode instead of leaving a large empty area.
+                height: Math.min(parent.height - 40, createCol.implicitHeight + 44)
                 radius: Math.min(8, theme.radius)
                 color: win.surfaceCard
                 border.width: 1
@@ -3630,12 +3630,14 @@ ApplicationWindow {
                         id: createFormScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        Layout.minimumHeight: 220
+                        Layout.preferredHeight: createFormContent.implicitHeight
+                        Layout.minimumHeight: 140
                         visible: !backend.busy
                         clip: true
                         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                         ColumnLayout {
+                            id: createFormContent
                             width: createFormScroll.availableWidth
                             spacing: 12
 
@@ -3988,14 +3990,18 @@ ApplicationWindow {
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvDisk === modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 0
                                             height: 32
-                                            width: 54
                                             radius: Math.min(4, theme.radius)
                                             color: selected ? win.surfaceSelected : win.surfaceInput
                                             border.width: 1
                                             border.color: selected ? theme.accent : win.borderSubtle
                                             Text {
                                                 anchors.centerIn: parent
+                                                width: parent.width - 4
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
                                                 text: modelData
                                                 color: selected ? theme.accent : theme.muted
                                                 font.family: win.monoFont
@@ -4029,14 +4035,18 @@ ApplicationWindow {
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvRam === modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 0
                                             height: 32
-                                            width: 48
                                             radius: Math.min(4, theme.radius)
                                             color: selected ? win.surfaceSelected : win.surfaceInput
                                             border.width: 1
                                             border.color: selected ? theme.accent : win.borderSubtle
                                             Text {
                                                 anchors.centerIn: parent
+                                                width: parent.width - 4
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
                                                 text: modelData
                                                 color: selected ? theme.accent : theme.muted
                                                 font.family: win.monoFont
@@ -4069,14 +4079,18 @@ ApplicationWindow {
                                         delegate: Rectangle {
                                             required property int modelData
                                             readonly property bool selected: win.newEnvCpu === modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 0
                                             height: 32
-                                            width: 36
                                             radius: Math.min(4, theme.radius)
                                             color: selected ? win.surfaceSelected : win.surfaceInput
                                             border.width: 1
                                             border.color: selected ? theme.accent : win.borderSubtle
                                             Text {
                                                 anchors.centerIn: parent
+                                                width: parent.width - 4
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
                                                 text: modelData
                                                 color: selected ? theme.accent : theme.muted
                                                 font.family: win.monoFont
@@ -4115,8 +4129,9 @@ ApplicationWindow {
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvProcLimit === modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 0
                                             height: 30
-                                            width: procChipTxt.implicitWidth + 18
                                             radius: Math.min(4, theme.radius)
                                             color: selected ? win.surfaceSelected : win.surfaceInput
                                             border.width: 1
@@ -4124,6 +4139,9 @@ ApplicationWindow {
                                             Text {
                                                 id: procChipTxt
                                                 anchors.centerIn: parent
+                                                width: parent.width - 4
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
                                                 text: modelData
                                                 color: selected ? theme.accent : theme.muted
                                                 font.family: win.monoFont
@@ -4156,8 +4174,9 @@ ApplicationWindow {
                                         delegate: Rectangle {
                                             required property string modelData
                                             readonly property bool selected: win.newEnvIoLimit === modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 0
                                             height: 30
-                                            width: ioChipTxt.implicitWidth + 18
                                             radius: Math.min(4, theme.radius)
                                             color: selected ? win.surfaceSelected : win.surfaceInput
                                             border.width: 1
@@ -4165,6 +4184,9 @@ ApplicationWindow {
                                             Text {
                                                 id: ioChipTxt
                                                 anchors.centerIn: parent
+                                                width: parent.width - 4
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
                                                 text: modelData
                                                 color: selected ? theme.accent : theme.muted
                                                 font.family: win.monoFont
