@@ -66,6 +66,30 @@ private slots:
         QCOMPARE(Backend::sanitizeName("---Mobile__POS---"), QString("mobile-pos"));
     }
 
+    void resolveWorkspacePathHandlesCustomBaseAndValidation()
+    {
+        QTemporaryDir dir;
+        const QString base = dir.filePath("workspaces");
+        const QString custom = dir.filePath("projects");
+
+        QCOMPARE(Backend::resolveWorkspacePath("", "demo", base), QDir::cleanPath(base + "/demo"));
+        QCOMPARE(Backend::resolveWorkspacePath(custom, "demo", base), QDir::cleanPath(custom + "/demo"));
+        QCOMPARE(Backend::resolveWorkspacePath(custom + "/nested", "demo", base),
+                 QDir::cleanPath(custom + "/nested/demo"));
+
+        QString error;
+        QVERIFY(Backend::resolveWorkspacePath("relative/path", "demo", base, &error).isEmpty());
+        QVERIFY(!error.isEmpty());
+
+        error.clear();
+        QVERIFY(Backend::resolveWorkspacePath("/", "demo", base, &error).isEmpty());
+        QVERIFY(!error.isEmpty());
+
+        error.clear();
+        QVERIFY(Backend::resolveWorkspacePath(QDir::homePath(), "demo", base, &error).isEmpty());
+        QVERIFY(!error.isEmpty());
+    }
+
     void parseIncusJsonExtractsSpecsAndSnapshots()
     {
         const QByteArray sampleJson = R"json([
@@ -896,7 +920,7 @@ private slots:
         QCOMPARE(Backend::validateExtraMountPath(safeDir, {cfgDir}), QString());
 
         QCOMPARE(Backend::extraMountDeviceName("My Data"), QString("mnt-my-data"));
-        const QString roScript = Backend::addExtraMountScript("ct1", "mnt-data", safeDir, "/mnt/data", true);
+        const QString roScript = Backend::addExtraMountScript("ct1", "mnt-data", safeDir, "/home/workspace/data", true);
         QVERIFY(roScript.contains("readonly=true shift=true"));
 
         Backend backend(dir.path());

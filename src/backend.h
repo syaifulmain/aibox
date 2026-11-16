@@ -194,7 +194,8 @@ public:
     Q_INVOKABLE void createEnvironment(const QString &name, const QString &osId, const QString &preset,
                                        const QString &diskGiB, const QString &ramGiB, int cpuCores,
                                        const QString &processLimit = {}, const QString &ioLimit = {},
-                                       const QStringList &provisionBundleIds = {});
+                                       const QStringList &provisionBundleIds = {},
+                                       const QString &workspaceParent = {});
     Q_INVOKABLE void enterEnvironment(const QString &name);
     Q_INVOKABLE void openWorkspaceFolder(const QString &name);
     Q_INVOKABLE QString enableFileAccess(const QString &name);
@@ -218,7 +219,8 @@ public:
     Q_INVOKABLE void cloneEnvironment(const QString &sourceName, const QString &newName,
                                       const QString &diskGiB = {}, const QString &ramGiB = {},
                                       int cpuCores = 0, bool startAfter = false,
-                                      const QString &processLimit = {}, const QString &ioLimit = {});
+                                      const QString &processLimit = {}, const QString &ioLimit = {},
+                                      const QString &workspaceParent = {});
     Q_INVOKABLE void setEnvironmentTemplate(const QString &name, bool isTemplate);
     Q_INVOKABLE void setEnvironmentAutoSnapshot(const QString &name, bool enabled);
     Q_INVOKABLE void setEnvironmentAutoStop(const QString &name, bool enabled);
@@ -296,6 +298,9 @@ public:
     Q_INVOKABLE QString localPath(const QUrl &url) const;
 
     static QString sanitizeName(const QString &rawName);
+    // Resolves an optional custom shared-folder parent into a full workspace path.
+    static QString resolveWorkspacePath(const QString &rawParent, const QString &envName,
+                                        const QString &defaultBase, QString *error = nullptr);
     static QVariantList parseIncusListJson(const QByteArray &json, const QString &workspaceBase,
                                            QHash<QString, qint64> *cpuSnapshotNs = nullptr,
                                            qint64 elapsedWallNs = 0,

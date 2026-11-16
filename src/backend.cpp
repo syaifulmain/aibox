@@ -1491,6 +1491,59 @@ QString Backend::sanitizeName(const QString &rawName) {
     return s;
 }
 
+QString Backend::resolveWorkspacePath(const QString &rawParent, const QString &envName,
+                                      const QString &defaultBase, QString *error) {
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return QString();
+    };
+
+    QString parent = rawParent.trimmed();
+    if (parent.isEmpty()) {
+        parent = defaultBase.trimmed();
+        if (parent.isEmpty())
+            return fail(tr("The default shared location is not configured."));
+    } else {
+        if (parent == QLatin1String("~"))
+            parent = QDir::homePath();
+        else if (parent.startsWith(QLatin1String("~/")))
+            parent = QDir::homePath() + parent.mid(1);
+
+        if (!QDir::isAbsolutePath(parent))
+            return fail(tr("The custom shared location must be an absolute path."));
+
+        parent = QDir::cleanPath(parent);
+        const QString homeClean = QDir::cleanPath(QDir::homePath());
+        static const QSet<QString> blockedExact = {
+            QStringLiteral("/"), QStringLiteral("/bin"), QStringLiteral("/boot"),
+            QStringLiteral("/dev"), QStringLiteral("/etc"), QStringLiteral("/home"),
+            QStringLiteral("/lib"), QStringLiteral("/lib64"), QStringLiteral("/proc"),
+            QStringLiteral("/root"), QStringLiteral("/run"), QStringLiteral("/sbin"),
+            QStringLiteral("/sys"), QStringLiteral("/usr"), QStringLiteral("/var")
+        };
+        if (blockedExact.contains(parent) || parent == homeClean)
+            return fail(tr("Refusing to use system root or home directory '%1' as shared location. Pick a specific subfolder.").arg(parent));
+
+        static const QStringList blockedPrefixes = {
+            QStringLiteral("/bin/"), QStringLiteral("/boot/"), QStringLiteral("/dev/"),
+            QStringLiteral("/etc/"), QStringLiteral("/lib/"), QStringLiteral("/lib64/"),
+            QStringLiteral("/proc/"), QStringLiteral("/root/"), QStringLiteral("/run/"),
+            QStringLiteral("/sbin/"), QStringLiteral("/sys/"), QStringLiteral("/usr/")
+        };
+        for (const QString &prefix : blockedPrefixes) {
+            if (parent.startsWith(prefix))
+                return fail(tr("Refusing to use system path '%1' as shared location.").arg(parent));
+        }
+    }
+
+    const QString cleanName = envName.trimmed();
+    if (cleanName.isEmpty())
+        return fail(tr("Please enter a valid environment name (letters, numbers, hyphens)."));
+
+    return QDir::cleanPath(parent + QLatin1Char('/') + cleanName);
+}
+
 QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &workspaceBase,
                                          QHash<QString, qint64> *cpuSnapshotNs, qint64 elapsedWallNs,
                                          bool defaultAutoSnapshot, bool defaultAutoStop,
@@ -3065,7 +3118,7 @@ bool Backend::isValidIoLimit(const QString &value) {
 void Backend::createEnvironment(const QString &rawName, const QString &osId, const QString &presetId,
                                 const QString &diskGiB, const QString &ramGiB, int cpuCores,
                                 const QString &processLimit, const QString &ioLimit,
-                                const QStringList &provisionBundleIds) {
+                                const QStringList &provisionBundleIds, const QString &workspaceParent) {
     if (m_busy) {
         setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
         return;
@@ -3131,7 +3184,12 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
     const QString entryId = osEntry.value("id").toString();
     const QString osAlias = osEntry.value("alias").toString();
     const QString localAlias = QStringLiteral("aibox-") + entryId;
-    const QString hostWorkspace = m_workspaceBase + "/" + name;
+    QString workspaceError;
+    const QString hostWorkspace = resolveWorkspacePath(workspaceParent, name, m_workspaceBase, &workspaceError);
+    if (hostWorkspace.isEmpty()) {
+        setError(workspaceError);
+        return;
+    }
     const QString cacheBase = cacheBasePath(entryId);
     const QString flags = preset.value("flags").toString();
     const bool isVm = flags.contains(QLatin1String("--vm"));
@@ -4434,7 +4492,8 @@ void Backend::toggleStartStop(const QString &name) {
 void Backend::cloneEnvironment(const QString &sourceName, const QString &rawNewName,
                                const QString &diskGiB, const QString &ramGiB,
                                int cpuCores, bool startAfter,
-                               const QString &processLimit, const QString &ioLimit) {
+                               const QString &processLimit, const QString &ioLimit,
+                               const QString &workspaceParent) {
     if (m_busy) {
         setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
         return;
@@ -4487,7 +4546,12 @@ void Backend::cloneEnvironment(const QString &sourceName, const QString &rawNewN
         resolvedCidrs = resolveAllowlistCidrs(parseAllowlistEntries(netAllow));
 
     const bool isVm = source.value("type").toString().toUpper() == QLatin1String("VM");
-    const QString hostWorkspace = m_workspaceBase + "/" + newName;
+    QString workspaceError;
+    const QString hostWorkspace = resolveWorkspacePath(workspaceParent, newName, m_workspaceBase, &workspaceError);
+    if (hostWorkspace.isEmpty()) {
+        setError(workspaceError);
+        return;
+    }
     const QString script = cloneEnvironmentScript(sourceName, newName, hostWorkspace,
                                                   diskGiB, ramGiB, cpuCores, startAfter,
                                                   netMode, netAllow, resolvedCidrs,
@@ -5333,7 +5397,7 @@ QString Backend::addExtraMount(const QString &name, const QString &hostPath, con
 
     const QString resolvedSource = QFileInfo(expanded).canonicalFilePath();
     const QString devName = extraMountDeviceName(cleanMount);
-    const QString containerPath = QStringLiteral("/mnt/") + cleanMount;
+    const QString containerPath = kContainerWorkspacePath + QLatin1Char('/') + cleanMount;
 
     const QVariantMap env = environmentByName(name);
     if (env.isEmpty())

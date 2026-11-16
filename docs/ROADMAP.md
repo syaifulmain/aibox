@@ -19,7 +19,7 @@ Implemented (do not re-plan):
 - Operation history viewer with persistent metadata and tail-capped 200 KB logs (Iteration 14).
 - Kernel bridge ACL egress log (`Record: ON/OFF`, `journalctl -k` aggregation, and one-click `+ Allow`) (Iteration 14).
 - Localhost (`127.0.0.1`) port forwarding with conflict detection and browser open (Iteration 15).
-- Read-only extra mounts under `/mnt/<name>` with system/sensitive path protection (Iteration 15).
+- Read-only extra mounts under `/home/workspace/<name>` with system/sensitive path protection (Iteration 15, updated in Iteration 40).
 - Live quota & limit editing with disk-shrink guard (Iteration 15).
 - Provisioning presets (`devtools`, `node`, `python`, `rust`) for Debian/Ubuntu/Arch under `.aibox/provision/` (Iteration 15).
 - Full environment + `/workspace` backup export & import (`B`) with pre-flight disk free-space guard (Iteration 16).

@@ -60,6 +60,7 @@ ApplicationWindow {
     property int newEnvCpu: backend.defaultCpu
     property bool createFromTemplate: false
     property string newEnvTemplateName: ""
+    property string newEnvSharedPath: ""
 
     // Form state for Clone dialog and Network allowlist editor
     property string cloneSourceName: ""
@@ -215,6 +216,8 @@ ApplicationWindow {
 
     function openCreateDialog(osId, templateName) {
         win.newEnvName = ""
+        win.newEnvSharedPath = ""
+        createSharedPathField.text = ""
         win.newEnvOsId = (osId && osId.length > 0) ? osId : backend.defaultOsId
         win.newEnvPreset = backend.defaultPresetId
         win.newEnvDisk = backend.defaultDisk
@@ -3559,7 +3562,9 @@ ApplicationWindow {
             Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 60, 680)
-                height: Math.min(parent.height - 40, createCol.implicitHeight + 44)
+                height: backend.busy
+                        ? Math.min(parent.height - 40, createCol.implicitHeight + 44)
+                        : Math.min(parent.height - 40, 700)
                 radius: Math.min(8, theme.radius)
                 color: win.surfaceCard
                 border.width: 1
@@ -3611,10 +3616,18 @@ ApplicationWindow {
                     // ----------------------------------------------------------
                     // VIEW A: CREATION FORM (SHOWN WHEN NOT BUSY)
                     // ----------------------------------------------------------
-                    ColumnLayout {
+                    ScrollView {
+                        id: createFormScroll
                         Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 220
                         visible: !backend.busy
-                        spacing: 12
+                        clip: true
+                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                        ColumnLayout {
+                            width: createFormScroll.availableWidth
+                            spacing: 12
 
                         // Project Name Field (Clean FlatInput, NO floating label!)
                         ColumnLayout {
@@ -3635,7 +3648,9 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: 0
                                     horizontalAlignment: Text.AlignRight
-                                    text: qsTr("Shared at: %1/%2").arg(backend.workspaceBase).arg(win.newEnvName.length > 0 ? win.newEnvName : "<name>")
+                                    text: qsTr("Shared at: %1/%2")
+                                              .arg(win.newEnvSharedPath.trim().length > 0 ? win.newEnvSharedPath.trim() : backend.workspaceBase)
+                                              .arg(win.newEnvName.length > 0 ? win.newEnvName : "<name>")
                                     color: theme.muted
                                     font.family: win.monoFont
                                     font.pixelSize: 11
@@ -3649,6 +3664,48 @@ ApplicationWindow {
                                 placeholder: qsTr("e.g. pos-desktop, flutter-mobile, web-api")
                                 text: win.newEnvName
                                 onTextChanged: win.newEnvName = text
+                            }
+                        }
+
+                        // Optional custom shared folder location (defaults to Settings base)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Text {
+                                text: qsTr("Shared Folder Location (optional)")
+                                color: theme.foreground
+                                font.family: win.sansFont
+                                font.pixelSize: 12
+                                font.weight: Font.Medium
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                FlatInput {
+                                    id: createSharedPathField
+                                    Layout.fillWidth: true
+                                    placeholder: qsTr("Default: %1").arg(backend.workspaceBase)
+                                    text: win.newEnvSharedPath
+                                    onTextChanged: win.newEnvSharedPath = text
+                                }
+
+                                ActionButton {
+                                    label: qsTr("Browse...")
+                                    minWidth: 94
+                                    onClicked: createSharedFolderDialog.open()
+                                }
+
+                                ActionButton {
+                                    label: qsTr("Default")
+                                    minWidth: 84
+                                    onClicked: {
+                                        win.newEnvSharedPath = ""
+                                        createSharedPathField.text = ""
+                                    }
+                                }
                             }
                         }
 
@@ -4196,11 +4253,14 @@ ApplicationWindow {
                                 font.pixelSize: 11
                             }
                         }
+                        }
+                        }
 
                         // Dialog Footer Buttons
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: 4
+                            visible: !backend.busy
                             spacing: 10
                             Item { Layout.fillWidth: true }
 
@@ -4219,17 +4279,17 @@ ApplicationWindow {
                                     if (win.createFromTemplate) {
                                         backend.cloneEnvironment(win.newEnvTemplateName, win.newEnvName,
                                                                  win.newEnvDisk, win.newEnvRam, win.newEnvCpu, true,
-                                                                 win.newEnvProcLimit, win.newEnvIoLimit)
+                                                                 win.newEnvProcLimit, win.newEnvIoLimit,
+                                                                 win.newEnvSharedPath)
                                     } else {
                                         backend.createEnvironment(win.newEnvName, win.newEnvOsId, win.newEnvPreset,
                                                                   win.newEnvDisk, win.newEnvRam, win.newEnvCpu,
                                                                   win.newEnvProcLimit, win.newEnvIoLimit,
-                                                                  win.newEnvProvisionBundles)
+                                                                  win.newEnvProvisionBundles, win.newEnvSharedPath)
                                     }
                                 }
                             }
                         }
-                    }
 
                     // ----------------------------------------------------------
                     // VIEW B: LIVE PROGRESS & CANCELLATION PANEL (WHEN BUSY)
@@ -7971,7 +8031,7 @@ ApplicationWindow {
 
                     ModalHeader {
                         title: qsTr("Extra Host Mounts · %1").arg(backend.selectedEnvironment.name || "")
-                        subtitle: qsTr("Mounts additional folders under /mnt/<name> (Read-Only by default; system/sensitive paths blocked)")
+                        subtitle: qsTr("Mounts additional folders under /home/workspace/<name> (Read-Only by default; system/sensitive paths blocked)")
                         onClosed: win.mountsVisible = false
                     }
 
@@ -9516,6 +9576,17 @@ ApplicationWindow {
             title: qsTr("Choose Extra Host Folder to Mount")
             currentFolder: backend.pathToUrl(backend.workspaceBase)
             onAccepted: extraMountPathInput.text = backend.localPath(selectedFolder)
+        }
+
+        FolderDialog {
+            id: createSharedFolderDialog
+            title: qsTr("Choose Custom Shared Folder Location")
+            currentFolder: backend.pathToUrl(win.newEnvSharedPath.trim().length > 0
+                                             ? win.newEnvSharedPath.trim() : backend.workspaceBase)
+            onAccepted: {
+                win.newEnvSharedPath = backend.localPath(selectedFolder)
+                createSharedPathField.text = win.newEnvSharedPath
+            }
         }
 
         Timer {
