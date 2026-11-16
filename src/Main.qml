@@ -1452,6 +1452,16 @@ ApplicationWindow {
 
                         ActionButton {
                             visible: backend.errorMessage.length > 0
+                                     && backend.adminFixCommand(backend.errorMessage).length > 0
+                            implicitHeight: 26
+                            label: qsTr("Copy Fix")
+                            accent: true
+                            onClicked: backend.copyText(backend.adminFixCommand(backend.errorMessage),
+                                                        qsTr("fix command"))
+                        }
+
+                        ActionButton {
+                            visible: backend.errorMessage.length > 0
                             implicitHeight: 26
                             label: qsTr("Dismiss")
                             onClicked: backend.clearError()

@@ -2675,6 +2675,15 @@ exit 0
 
         Backend backend(wsBase);
         QVERIFY(!backend.deleteOrphanAsAdmin("workspace", "/tmp/not-a-workspace").isEmpty());
+
+        QCOMPARE(backend.adminFixCommand(QStringLiteral(
+                     "Could not completely remove orphan workspace folder.\n"
+                     "Fix (admin): sudo rm -rf '/home/user/aibox/workspaces/modding-game'")),
+                 QStringLiteral("sudo rm -rf '/home/user/aibox/workspaces/modding-game'"));
+        QCOMPARE(backend.adminFixCommand(QStringLiteral(
+                     "Warning: could not delete subvolume; run: sudo rm -rf '/tmp/ghost'")),
+                 QStringLiteral("sudo rm -rf '/tmp/ghost'"));
+        QVERIFY(backend.adminFixCommand(QStringLiteral("Plain error without a fix.")).isEmpty());
     }
 
     void sessionRecordingConfigOverridesAndWrapBuilder()

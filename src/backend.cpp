@@ -5131,6 +5131,25 @@ void Backend::copyAiCommand(const QString &name) {
     }
 }
 
+QString Backend::adminFixCommand(const QString &message) const {
+    static const QRegularExpression fixRe(
+        QStringLiteral("Fix \\(admin\\):\\s*(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression runRe(
+        QStringLiteral("\\brun:\\s*(sudo\\s+.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QStringList lines = message.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        const QRegularExpressionMatch fix = fixRe.match(line);
+        if (fix.hasMatch())
+            return fix.captured(1).trimmed();
+        const QRegularExpressionMatch run = runRe.match(line);
+        if (run.hasMatch())
+            return run.captured(1).trimmed();
+    }
+    return {};
+}
+
 bool Backend::copyText(const QString &text, const QString &label) {
     if (text.isEmpty() || text == QStringLiteral("—"))
         return false;

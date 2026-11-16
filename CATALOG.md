@@ -57,6 +57,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 41 — Copy Admin Fix Command from Error Banner
+- **Error Banner (`src/Main.qml`)**: when an operation fails because container-written files are root-owned, the banner now shows **Copy Fix** next to **Dismiss** and copies the exact `sudo` command to the clipboard.
+- **Command Extraction (`src/backend.{h,cpp}`)**: new `Backend::adminFixCommand()` reads the `Fix (admin): ...` or `run: sudo ...` line from an error message, so paths with spaces stay quoted.
+- **Tests (`tests/aibox_tests.cpp`)**: `orphanDeleteScriptsHandleRootOwnedFiles` now covers fix extraction for both message forms and ignores errors without a command.
+
 ### Iteration 40 — Custom Shared Location & Workspace-Based Extra Mounts
 - **Create Dialog (`src/Main.qml`)**: the form is now scrollable and includes an optional **Shared Folder Location** field with **Browse...** and **Default** actions. The default stays `<workspaceBase>/<name>`; a custom parent produces `<custom>/<name>` and the **Shared at** preview follows the selection.
 - **Workspace Resolution (`src/backend.{h,cpp}`)**: new `Backend::resolveWorkspacePath()` expands `~`, requires an absolute custom parent, rejects system paths, the filesystem root, and the home directory itself, and appends the environment name. `createEnvironment()` and `cloneEnvironment()` accept the optional custom parent.
