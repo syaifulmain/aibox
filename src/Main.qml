@@ -8840,101 +8840,6 @@ ApplicationWindow {
                         }
                     }
 
-                    // Per-environment checkboxes
-                    Rectangle {
-                        visible: (backend.selectedEnvironment.name || "").length > 0
-                        Layout.fillWidth: true
-                        implicitHeight: envSecCol.implicitHeight + 20
-                        radius: Math.min(4, theme.radius)
-                        color: win.surfaceInput
-                        border.width: 1
-                        border.color: win.borderSubtle
-
-                        ColumnLayout {
-                            id: envSecCol
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Text {
-                                    text: qsTr("Inject into '%1' at session start (names only stored in user.aibox.secrets):").arg(backend.selectedEnvironment.name || "")
-                                    color: theme.foreground
-                                    font.family: win.sansFont
-                                    font.pixelSize: 11
-                                    font.weight: Font.Medium
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
-
-                            Text {
-                                visible: backend.secretsList.length === 0
-                                text: qsTr("No secrets configured yet. Add one below.")
-                                color: theme.muted
-                                font.family: win.sansFont
-                                font.pixelSize: 11
-                            }
-
-                            Flow {
-                                visible: backend.secretsList.length > 0
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Repeater {
-                                    model: backend.secretsList
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        readonly property bool assigned: (backend.selectedEnvironment.secretNames || []).indexOf(modelData.name) >= 0
-                                        height: 30
-                                        width: secCheckRow.implicitWidth + 18
-                                        radius: Math.min(4, theme.radius)
-                                        color: assigned ? win.surfaceSelected : win.surfaceCard
-                                        border.width: 1
-                                        border.color: assigned ? theme.accent : win.borderSubtle
-
-                                        RowLayout {
-                                            id: secCheckRow
-                                            anchors.centerIn: parent
-                                            spacing: 7
-                                            Rectangle {
-                                                width: 14
-                                                height: 14
-                                                radius: 2
-                                                color: assigned ? theme.accent : "transparent"
-                                                border.width: 1
-                                                border.color: assigned ? theme.accent : win.borderSubtle
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    visible: assigned
-                                                    text: "x"
-                                                    color: theme.accentForeground
-                                                    font.family: win.monoFont
-                                                    font.pixelSize: 10
-                                                    font.weight: Font.Bold
-                                                }
-                                            }
-                                            Text {
-                                                text: modelData.name
-                                                color: assigned ? theme.foreground : theme.muted
-                                                font.family: win.monoFont
-                                                font.pixelSize: 11
-                                            }
-                                        }
-
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            enabled: !backend.busy
-                                            cursorShape: backend.busy ? Qt.ForbiddenCursor : Qt.PointingHandCursor
-                                            onClicked: win.toggleEnvSecret(modelData.name)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // Global secret list
                     Text {
                         text: qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
@@ -8942,6 +8847,24 @@ ApplicationWindow {
                         font.family: win.sansFont
                         font.pixelSize: 11
                         font.weight: Font.Medium
+                    }
+
+                    Text {
+                        visible: (backend.selectedEnvironment.name || "").length > 0
+                        text: qsTr("Inject into '%1' at session start (names only stored in user.aibox.secrets):").arg(backend.selectedEnvironment.name || "")
+                        color: theme.muted
+                        font.family: win.sansFont
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        visible: backend.secretsList.length === 0
+                        text: qsTr("No secrets configured yet. Add one below.")
+                        color: theme.muted
+                        font.family: win.sansFont
+                        font.pixelSize: 11
                     }
 
                     ScrollView {
@@ -8957,6 +8880,8 @@ ApplicationWindow {
                             delegate: Rectangle {
                                 required property var modelData
                                 readonly property bool revealed: (win.secretRevealMap || {})[modelData.name] === true
+                                readonly property bool assigned: (backend.selectedEnvironment.secretNames || []).indexOf(modelData.name) >= 0
+                                readonly property bool hasEnv: (backend.selectedEnvironment.name || "").length > 0
                                 width: ListView.view.width
                                 implicitHeight: 46
                                 radius: Math.min(4, theme.radius)
@@ -8969,6 +8894,34 @@ ApplicationWindow {
                                     anchors.leftMargin: 12
                                     anchors.rightMargin: 10
                                     spacing: 10
+
+                                    Rectangle {
+                                        visible: hasEnv
+                                        Layout.preferredWidth: 16
+                                        Layout.preferredHeight: 16
+                                        radius: 2
+                                        color: assigned ? theme.accent : "transparent"
+                                        border.width: 1
+                                        border.color: assigned ? theme.accent : win.borderSubtle
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: assigned
+                                            text: "x"
+                                            color: theme.accentForeground
+                                            font.family: win.monoFont
+                                            font.pixelSize: 10
+                                            font.weight: Font.Bold
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            anchors.margins: -8
+                                            enabled: !backend.busy
+                                            cursorShape: backend.busy ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+                                            onClicked: win.toggleEnvSecret(modelData.name)
+                                        }
+                                    }
 
                                     Text {
                                         text: modelData.name

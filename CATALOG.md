@@ -57,6 +57,10 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 42 — Inline Secret Injection Checkbox
+- **Secrets Manager (`src/Main.qml`)**: the separate **Inject into '<environment>'** chip panel is removed. Every row in **Global Secrets** now carries the injection checkbox on its left, so one list shows both the stored secrets and their per-environment bindings.
+- **Behavior**: the checkbox only appears when an environment is selected; toggling it still calls `Backend::setEnvironmentSecrets`. The "No secrets configured yet" hint stays at the top of the empty list.
+
 ### Iteration 41 — Copy Admin Fix Command from Error Banner
 - **Error Banner (`src/Main.qml`)**: when an operation fails because container-written files are root-owned, the banner now shows **Copy Fix** next to **Dismiss** and copies the exact `sudo` command to the clipboard.
 - **Command Extraction (`src/backend.{h,cpp}`)**: new `Backend::adminFixCommand()` reads the `Fix (admin): ...` or `run: sudo ...` line from an error message, so paths with spaces stay quoted.
