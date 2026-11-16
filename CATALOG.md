@@ -57,6 +57,15 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 39 — Copy Secret Action
+- **Secrets Manager (`src/Main.qml`)**: the per-secret **Edit** button is replaced by **Copy**, which copies the stored value to the clipboard. Values can still be changed through the **Add or Update Secret** form at the bottom of the dialog.
+- **Clipboard Copy (`src/backend.{h,cpp}`)**: new `Backend::copySecret` copies a named secret without loading it into the form and reports only the secret name, so the value never appears in the status bar or an operation log.
+- **Localization (`src/i18n/da.json`)**: added Danish entries for the copy action and its failure message.
+
+### Iteration 38 — Restore Sidebar Storage Pool Card
+- **Storage Pool Card (`src/Main.qml`)**: the environment list again shows the storage pool card (**Pool** usage, **Alloc** quota total, and **Manage**) above the **Stale & Orphans Report** button. Clicking the card opens Configuration → Storage Pool.
+- **Disk Usage Card (`src/Main.qml`)**: the pool percentage line is removed from the selected environment **Disk Usage** monitor card, which now reports only that environment's usage against its quota.
+
 ### Iteration 37 — Orphan Delete Workspace Cleanup Fix
 - **Root-Owned Files (`src/backend.cpp`)**: orphan workspace cleanup no longer fails silently on container-written files. The delete script reports the exact blocked reason, retries through `sudo -n` when passwordless admin rights exist, and prints a copyable `Fix (admin): sudo rm -rf <path>` hint otherwise.
 - **Delete as Admin (`src/backend.{h,cpp}`, `src/Main.qml`)**: new **Delete as admin** action in the stale-report confirmation bar writes a root cleanup script to `<state>/admin-delete.sh` and opens it through `sudo` in the default terminal, so nested Btrfs subvolumes and root-owned directories are removed with the password prompt visible.

@@ -253,6 +253,7 @@ public:
     Q_INVOKABLE bool copyText(const QString &text, const QString &label = QString());
     Q_INVOKABLE QString saveSecret(const QString &name, const QString &value);
     Q_INVOKABLE QString deleteSecret(const QString &name);
+    Q_INVOKABLE bool copySecret(const QString &name);
     Q_INVOKABLE void reloadSecrets();
     Q_INVOKABLE void setEnvironmentSecrets(const QString &name, const QStringList &secretNames);
     Q_INVOKABLE QString poolWarningForCreate(const QString &diskSpec) const;

@@ -349,6 +349,13 @@ ApplicationWindow {
         win.settingsVisible = true
     }
 
+    function openPoolSettings() {
+        win.poolResizeDraft = ""
+        win.poolResizeConfirmVisible = false
+        win.poolResizeError = ""
+        win.openSettings(1)
+    }
+
     function showConfigNotice(message, isError) {
         win.configNotice = message
         win.configNoticeError = isError
@@ -1784,6 +1791,63 @@ ApplicationWindow {
                                 }
                             }
 
+                            Rectangle {
+                                visible: backend.poolInfo.valid || false
+                                Layout.fillWidth: true
+                                implicitHeight: poolSidebarRow.implicitHeight + 12
+                                radius: Math.min(4, theme.radius)
+                                color: win.surfaceInput
+                                border.width: 1
+                                border.color: (backend.poolInfo.alertLevel === 2)
+                                              ? theme.red
+                                              : (backend.poolInfo.alertLevel === 1 ? "#e5a93c" : win.borderSubtle)
+
+                                RowLayout {
+                                    id: poolSidebarRow
+                                    anchors.fill: parent
+                                    anchors.margins: 6
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    spacing: 6
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        elide: Text.ElideRight
+                                        text: qsTr("Pool %1: %2 / %3 (%4%)")
+                                                  .arg(backend.poolInfo.name || "default")
+                                                  .arg(backend.poolInfo.usedText || "0 MiB")
+                                                  .arg(backend.poolInfo.totalText || "0 MiB")
+                                                  .arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
+                                        color: (backend.poolInfo.alertLevel === 2)
+                                               ? theme.red
+                                               : (backend.poolInfo.alertLevel === 1 ? "#e5a93c" : theme.muted)
+                                        font.family: win.monoFont
+                                        font.pixelSize: 10
+                                    }
+
+                                    Text {
+                                        visible: (backend.poolInfo.allocatedBytes || 0) > 0
+                                        text: qsTr("Alloc %1").arg(backend.poolInfo.allocatedText || "0 MiB")
+                                        color: (backend.poolInfo.overcommitted || false) ? "#e5a93c" : theme.muted
+                                        font.family: win.monoFont
+                                        font.pixelSize: 10
+                                    }
+
+                                    Text {
+                                        text: qsTr("Manage")
+                                        color: theme.accent
+                                        font.family: win.sansFont
+                                        font.pixelSize: 10
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: win.openPoolSettings()
+                                }
+                            }
+
                             ActionButton {
                                 Layout.fillWidth: true
                                 label: qsTr("Stale & Orphans Report")
@@ -2043,10 +2107,8 @@ ApplicationWindow {
                                         {
                                             title: qsTr("Disk Usage"),
                                             val: (backend.selectedEnvironment.diskUsage || "0 MB") + " / " + (backend.selectedEnvironment.diskLimit || "—"),
-                                            subtext: backend.poolInfo.valid
-                                                     ? qsTr("Pool: %1 / %2 (%3%)").arg(backend.poolInfo.usedText || "0 MiB").arg(backend.poolInfo.totalText || "0 MiB").arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
-                                                     : "",
-                                            subAlert: backend.poolInfo.alertLevel || 0,
+                                            subtext: "",
+                                            subAlert: 0,
                                             pct: backend.selectedEnvironment.diskPercent !== undefined ? backend.selectedEnvironment.diskPercent : 0,
                                             badge: (backend.selectedEnvironment.diskAlertLevel === 2
                                                     ? qsTr("CRIT ")
@@ -8864,12 +8926,11 @@ ApplicationWindow {
                                     }
 
                                     ActionButton {
-                                        label: qsTr("Edit")
+                                        label: qsTr("Copy")
                                         minWidth: 62
                                         onClicked: {
-                                            win.secretNameDraft = modelData.name
-                                            win.secretValueDraft = modelData.value
-                                            win.secretFormError = ""
+                                            if (!backend.copySecret(modelData.name))
+                                                win.secretFormError = qsTr("Could not copy secret '%1' to the clipboard.").arg(modelData.name)
                                         }
                                     }
 

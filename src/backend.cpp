@@ -7375,7 +7375,34 @@ QString Backend::deleteSecret(const QString &name) {
     return {};
 }
 
-void Backend::setEnvironmentSecrets(const QString &name, const QStringList &secretNames) {    if (name.isEmpty())
+bool Backend::copySecret(const QString &name) {
+    const QString cleanName = name.trimmed();
+    for (const auto &pair : m_secrets) {
+        if (pair.first != cleanName)
+            continue;
+        if (pair.second.isEmpty())
+            return false;
+        auto *cb = QGuiApplication::clipboard();
+        if (!cb)
+            return false;
+        cb->setText(pair.second);
+        // The status message names the secret only, so the value never lands
+        // in the visible UI or an operation log.
+        m_statusMessage = tr("Copied secret '%1' to clipboard.").arg(cleanName);
+        emit statusMessageChanged();
+        QTimer::singleShot(3000, this, [this] {
+            if (!m_busy) {
+                m_statusMessage.clear();
+                emit statusMessageChanged();
+            }
+        });
+        return true;
+    }
+    return false;
+}
+
+void Backend::setEnvironmentSecrets(const QString &name, const QStringList &secretNames) {
+    if (name.isEmpty())
         return;
 
     const QStringList cleanNames = parseEnvSecretNames(secretNames.join(QLatin1Char(',')));
