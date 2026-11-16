@@ -1537,7 +1537,7 @@ ApplicationWindow {
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
                                 lineHeight: 1.35
-                                text: qsTr("Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via /workspace, and wipe it in 1 second when done.")
+                                text: qsTr("Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via %1, and wipe it in 1 second when done.").arg(backend.containerWorkspacePath)
                                 color: theme.muted
                                 font.family: win.sansFont
                                 font.pixelSize: 12
@@ -2269,7 +2269,7 @@ ApplicationWindow {
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 0
                                         elide: Text.ElideMiddle
-                                        text: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  /workspace"
+                                        text: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
                                         color: theme.accent
                                         font.family: win.monoFont
                                         font.pixelSize: 12
@@ -3015,7 +3015,7 @@ ApplicationWindow {
                                             elide: Text.ElideRight
                                             text: (backend.selectedEnvironment.hasPreSubvolBackup || false)
                                                   ? qsTr("Pre-subvolume backup (.pre-subvol) is kept on disk.")
-                                                  : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired /workspace snapshots.")
+                                                  : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired %1 snapshots.").arg(backend.containerWorkspacePath)
                                             color: theme.muted
                                             font.family: win.sansFont
                                             font.pixelSize: 11
@@ -4531,9 +4531,9 @@ ApplicationWindow {
 
                         Repeater {
                             model: [
-                                { id: "both", title: qsTr("Both (System + Workspace)"), desc: qsTr("Restore OS container rootfs and /workspace together."), enabled: win.restoreHasSystem && win.restoreHasWorkspace },
-                                { id: "system", title: qsTr("System only"), desc: qsTr("Restore OS container rootfs; leave /workspace untouched."), enabled: win.restoreHasSystem },
-                                { id: "workspace", title: qsTr("Workspace only"), desc: qsTr("Restore /workspace from Btrfs snapshot; leave OS packages untouched."), enabled: win.restoreHasWorkspace }
+                                { id: "both", title: qsTr("Both (System + Workspace)"), desc: qsTr("Restore OS container rootfs and %1 together.").arg(backend.containerWorkspacePath), enabled: win.restoreHasSystem && win.restoreHasWorkspace },
+                                { id: "system", title: qsTr("System only"), desc: qsTr("Restore OS container rootfs; leave %1 untouched.").arg(backend.containerWorkspacePath), enabled: win.restoreHasSystem },
+                                { id: "workspace", title: qsTr("Workspace only"), desc: qsTr("Restore %1 from Btrfs snapshot; leave OS packages untouched.").arg(backend.containerWorkspacePath), enabled: win.restoreHasWorkspace }
                             ]
                             delegate: Rectangle {
                                 required property var modelData
@@ -4613,8 +4613,8 @@ ApplicationWindow {
                             wrapMode: Text.WordWrap
                             lineHeight: 1.3
                             text: (backend.selectedEnvironment.running || false)
-                                  ? qsTr("A safety snapshot (pre-restore) of your current /workspace will be created first, and '%1' will be stopped automatically before swapping /workspace.").arg(backend.selectedEnvironment.name || "")
-                                  : qsTr("A safety snapshot (pre-restore) of your current /workspace will be created before swapping /workspace.")
+                                  ? qsTr("A safety snapshot (pre-restore) of your current %1 will be created first, and '%2' will be stopped automatically before swapping %1.").arg(backend.containerWorkspacePath).arg(backend.selectedEnvironment.name || "")
+                                  : qsTr("A safety snapshot (pre-restore) of your current %1 will be created before swapping %1.").arg(backend.containerWorkspacePath)
                             color: theme.muted
                             font.family: win.sansFont
                             font.pixelSize: 11
@@ -5022,12 +5022,12 @@ ApplicationWindow {
 
                     Repeater {
                         model: [
-                            { k: "Space / Enter", d: qsTr("Enter selected OS terminal in /workspace") },
+                            { k: "Space / Enter", d: qsTr("Enter selected OS terminal in %1").arg(backend.containerWorkspacePath) },
                             { k: "N", d: qsTr("Create a new isolated OS environment") },
                             { k: "F", d: qsTr("Open shared workspace folder on Host") },
                             { k: "S", d: qsTr("Start or stop selected environment") },
                             { k: "P", d: qsTr("Create instant 1-second Btrfs snapshot") },
-                            { k: "V", d: qsTr("Review /workspace changes since a snapshot") },
+                            { k: "V", d: qsTr("Review %1 changes since a snapshot").arg(backend.containerWorkspacePath) },
                             { k: "D", d: qsTr("Clone selected environment") },
                             { k: "E", d: qsTr("Edit quotas and limits of selected environment") },
                             { k: "T", d: qsTr("Mark or unmark environment as template") },
@@ -5396,7 +5396,7 @@ ApplicationWindow {
                                             }
                                             Text {
                                                 Layout.fillWidth: true
-                                                text: qsTr("New environments share this host folder at /workspace. Existing environments keep their current shared folder.")
+                                                text: qsTr("New environments share this host folder at %1. Existing environments keep their current shared folder.").arg(backend.containerWorkspacePath)
                                                 color: theme.muted
                                                 font.family: win.sansFont
                                                 font.pixelSize: 10
@@ -9091,7 +9091,7 @@ ApplicationWindow {
                                             font.pixelSize: 11
                                         }
                                         Text {
-                                            text: qsTr("Also delete host /workspace files & snapshots")
+                                            text: qsTr("Also delete host %1 files & snapshots").arg(backend.containerWorkspacePath)
                                             color: theme.foreground
                                             font.family: win.sansFont
                                             font.pixelSize: 11
@@ -9105,6 +9105,22 @@ ApplicationWindow {
                                 }
 
                                 Item { Layout.fillWidth: true }
+
+                                ActionButton {
+                                    visible: win.staleConfirmAction === "delete-orphan"
+                                    label: qsTr("Delete as admin")
+                                    minWidth: 132
+                                    disabled: backend.busy
+                                    onClicked: {
+                                        win.staleActionError = ""
+                                        const err = backend.deleteOrphanAsAdmin(
+                                            win.staleConfirmKind, win.staleConfirmTarget)
+                                        if (err.length > 0)
+                                            win.staleActionError = err
+                                        else
+                                            win.staleConfirmAction = ""
+                                    }
+                                }
 
                                 ActionButton {
                                     label: qsTr("Cancel")
@@ -9406,7 +9422,7 @@ ApplicationWindow {
                                                 win.staleConfirmTitle = qsTr("Delete orphan '%1' (%2)?")
                                                                             .arg(modelData.name || "")
                                                                             .arg(modelData.sizeDisplay || "0 KB")
-                                                win.staleConfirmDetail = qsTr("Permanently deletes %1 (%2 · %3). This cannot be undone.")
+                                                win.staleConfirmDetail = qsTr("Permanently deletes %1 (%2 · %3). This cannot be undone. Root-owned files need 'Delete as admin'.")
                                                                              .arg(modelData.path || "")
                                                                              .arg(modelData.kindLabel || "")
                                                                              .arg(modelData.sizeDisplay || "0 KB")

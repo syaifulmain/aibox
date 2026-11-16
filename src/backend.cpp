@@ -33,6 +33,9 @@
 
 namespace {
 
+// Path where the shared host workspace is mounted inside every environment.
+const QString kContainerWorkspacePath = QStringLiteral("/home/workspace");
+
 QString formatBytes(qint64 bytes) {
     if (bytes <= 0)
         return QStringLiteral("0 MiB");
@@ -1722,6 +1725,12 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
         if (workspacePath.isEmpty())
             workspacePath = workspaceBase + "/" + name;
 
+        QString workspaceMountPath = expandedDevices.value("workspace").toObject().value("path").toString();
+        if (workspaceMountPath.isEmpty())
+            workspaceMountPath = devices.value("workspace").toObject().value("path").toString();
+        if (workspaceMountPath.isEmpty())
+            workspaceMountPath = kContainerWorkspacePath;
+
         const QString wsSnapOverride = config.value("user.aibox.wssnap").toString().trimmed().toLower();
         const bool wsOnBtrfs = isBtrfsFilesystem(workspacePath);
         const bool wsIsSubvolume = isBtrfsSubvolume(workspacePath);
@@ -1805,6 +1814,7 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
         item["netRxTotalText"] = formatByteTotal(netRxBytes);
         item["netTxTotalText"] = formatByteTotal(netTxBytes);
         item["workspacePath"] = workspacePath;
+        item["workspaceMountPath"] = workspaceMountPath;
         item["workspaceOnBtrfs"] = wsOnBtrfs;
         item["workspaceIsSubvolume"] = wsIsSubvolume;
         item["workspaceSnapshotOverride"] = wsSnapOverride;
@@ -3167,6 +3177,7 @@ NAME=%1
 LOCAL_ALIAS=%2
 REMOTE_IMAGE=%3
 WORKSPACE=%4
+WS_PATH=%12
 CACHE=%5
 CACHE_ROOT=%6
 PROFILE_ARGS=(%7)
@@ -3177,7 +3188,7 @@ echo "@@STAGE:8:Step 1/4 — Preparing shared workspace directory..."
 %11
 if command -v setfacl >/dev/null 2>&1; then
     ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
-    setfacl -R -m "u:${ACL_USER}:rwx" -d -m "u:${ACL_USER}:rwx" "$WORKSPACE" 2>/dev/null || true
+    setfacl -R -m "u:${ACL_USER}:rwx" -m "m::rwx" -d -m "u:${ACL_USER}:rwx" -d -m "m::rwx" "$WORKSPACE" 2>/dev/null || true
 fi
 
 if incus image info "$LOCAL_ALIAS" >/dev/null 2>&1; then
@@ -3196,11 +3207,11 @@ fi
 echo "@@STAGE:72:Step 3/4 — Launching isolated OS container & applying quotas..."
 script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" ${PROFILE_ARGS[*]} ${QUOTA_ARGS[*]}" /dev/null
 
-echo "@@STAGE:86:Step 4/4 — Mounting /workspace & waiting for network IP..."
+echo "@@STAGE:86:Step 4/4 — Mounting $WS_PATH & waiting for network IP..."
 sleep 1
 
-if ! incus config device add "$NAME" workspace disk source="$WORKSPACE" path=/workspace shift=true >/dev/null 2>&1; then
-    incus config device add "$NAME" workspace disk source="$WORKSPACE" path=/workspace >/dev/null
+if ! incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$WS_PATH" shift=true >/dev/null 2>&1; then
+    incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$WS_PATH" >/dev/null
 fi
 
 if [[ "$X11" == "1" ]] && [[ -d /tmp/.X11-unix ]]; then
@@ -3211,12 +3222,12 @@ if [[ "$X11" == "1" ]] && [[ -d /tmp/.X11-unix ]]; then
 fi
 
 incus exec "$NAME" -- sh -c '
-    mkdir -p /workspace && chmod 777 /workspace || true
+    mkdir -p "$1" && chmod 777 "$1" || true
     if [ -f /etc/dhcpcd.conf ] && ! grep -q "^noarp" /etc/dhcpcd.conf; then
         echo "noarp" >> /etc/dhcpcd.conf
         pkill -HUP dhcpcd 2>/dev/null || udhcpc -i eth0 -n -q 2>/dev/null || true
     fi
-' >/dev/null 2>&1 || true
+' aibox "$WS_PATH" >/dev/null 2>&1 || true
 
 for _ in 1 2 3 4 5; do
     if incus list "$NAME" -f csv -c 4 | grep -q "[0-9]"; then
@@ -3237,7 +3248,8 @@ echo "@@STAGE:100:Environment ready!"
                                     shellArrayWords(quotaArgs),
                                     x11 ? QStringLiteral("1") : QStringLiteral("0"),
                                     provisionSnippet,
-                                    workspaceCreateSnippet(workspace));
+                                    workspaceCreateSnippet(workspace))
+                                .arg(shellQuote(kContainerWorkspacePath));
 }
 
 QVariantList Backend::templates() const {
@@ -3380,6 +3392,41 @@ QString Backend::workspaceCreateSnippet(const QString &workspacePath) {
         .arg(qWs);
 }
 
+QString Backend::workspaceMountMigrationScript(const QString &envName) {
+    const QString qName = shellQuote(envName);
+    const QString qPath = shellQuote(kContainerWorkspacePath);
+    return QStringLiteral(
+        "WS_MOUNT=$(incus config device get %1 workspace path 2>/dev/null || true)\n"
+        "if [ -n \"$WS_MOUNT\" ] && [ \"$WS_MOUNT\" != %2 ]; then\n"
+        "    if incus config device set %1 workspace path=%2 >/dev/null 2>&1; then\n"
+        "        echo \"Workspace mount moved: $WS_MOUNT -> %2\"\n"
+        "    fi\n"
+        "fi")
+        .arg(qName, qPath);
+}
+
+// Reads the live workspace mount path inside an environment so legacy
+// environments that still mount at /workspace keep working until migrated.
+QString Backend::containerWorkspacePathFor(const QString &name) const {
+    if (m_demoMode || name.trimmed().isEmpty())
+        return containerWorkspacePath();
+    QProcess proc;
+    proc.start(QStringLiteral("incus"),
+               {QStringLiteral("config"), QStringLiteral("device"), QStringLiteral("get"), name,
+                QStringLiteral("workspace"), QStringLiteral("path")});
+    if (!proc.waitForStarted(3000))
+        return containerWorkspacePath();
+    if (!proc.waitForFinished(5000)) {
+        proc.kill();
+        proc.waitForFinished(1000);
+        return containerWorkspacePath();
+    }
+    const QString out = QString::fromUtf8(proc.readAllStandardOutput()).trimmed();
+    if (proc.exitCode() == 0 && out.startsWith(QLatin1Char('/')))
+        return out;
+    return containerWorkspacePath();
+}
+
 QString Backend::workspaceSnapshotSnippet(const QString &workspacePath, const QString &snapDir,
                                           const QString &snapName) {
     const QString cleanWs = QDir::cleanPath(workspacePath.trimmed());
@@ -3417,8 +3464,11 @@ QString Backend::workspaceDeleteSnapshotSnippet(const QString &snapPath, bool wa
         "        fi\n"
         "        rm -rf %1 >/dev/null 2>&1 || true\n"
         "    fi\n"
+        "    if [ -e %1 ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then\n"
+        "        sudo -n rm -rf %1 >/dev/null 2>&1 || true\n"
+        "    fi\n"
         "    if [ -e %1 ]; then\n"
-        "        echo \"Warning: could not delete subvolume; run: sudo btrfs subvolume delete %1\" >&2\n"
+        "        echo \"Warning: could not delete subvolume or root-owned files; run: sudo rm -rf %1\" >&2\n"
         "%2"
         "    fi\n"
         "fi")
@@ -3517,7 +3567,7 @@ QString Backend::convertWorkspaceToSubvolumeScript(const QString &envName, const
         "fi\n"
         "if command -v setfacl >/dev/null 2>&1; then\n"
         "    ACL_USER=\"${SUDO_USER:-${USER:-$(id -un)}}\"\n"
-        "    setfacl -R -m \"u:${ACL_USER}:rwx\" -d -m \"u:${ACL_USER}:rwx\" %3 2>/dev/null || true\n"
+        "    setfacl -R -m \"u:${ACL_USER}:rwx\" -m \"m::rwx\" -d -m \"u:${ACL_USER}:rwx\" -d -m \"m::rwx\" %3 2>/dev/null || true\n"
         "fi\n"
         "echo '@@STAGE:85:Swapping workspace into place...'\n"
         "if [ -d %2 ]; then\n"
@@ -3813,12 +3863,13 @@ set -euo pipefail
 SRC=%1
 DST=%2
 WORKSPACE=%3
+WS_PATH=%8
 
 echo "@@STAGE:12:Step 1/3 — Preparing fresh workspace directory..."
 %7
 if command -v setfacl >/dev/null 2>&1; then
     ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
-    setfacl -R -m "u:${ACL_USER}:rwx" -d -m "u:${ACL_USER}:rwx" "$WORKSPACE" 2>/dev/null || true
+    setfacl -R -m "u:${ACL_USER}:rwx" -m "m::rwx" -d -m "u:${ACL_USER}:rwx" -d -m "m::rwx" "$WORKSPACE" 2>/dev/null || true
 fi
 
 echo "@@STAGE:35:Step 2/3 — Cloning environment with Btrfs copy-on-write..."
@@ -3827,8 +3878,8 @@ script -q -e -c "incus copy \"$SRC\" \"$DST\" --stateless" /dev/null
 echo "@@STAGE:70:Step 3/3 — Configuring isolated workspace & limits..."
 incus config unset "$DST" user.aibox.template >/dev/null 2>&1 || true
 incus config device remove "$DST" workspace >/dev/null 2>&1 || true
-if ! incus config device add "$DST" workspace disk source="$WORKSPACE" path=/workspace shift=true >/dev/null 2>&1; then
-    incus config device add "$DST" workspace disk source="$WORKSPACE" path=/workspace >/dev/null
+if ! incus config device add "$DST" workspace disk source="$WORKSPACE" path="$WS_PATH" shift=true >/dev/null 2>&1; then
+    incus config device add "$DST" workspace disk source="$WORKSPACE" path="$WS_PATH" >/dev/null
 fi
 %4
 %5
@@ -3841,7 +3892,8 @@ echo "@@STAGE:100:Clone ready!"
              quotaLines.trimmed(),
              netSnippet,
              startSnippet,
-             workspaceCreateSnippet(workspace));
+             workspaceCreateSnippet(workspace),
+             shellQuote(kContainerWorkspacePath));
 }
 
 QString Backend::prepareEnvironmentScript(const QString &name) {
@@ -3854,13 +3906,14 @@ if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
 fi
 %2
 %3
+%4
 STATUS=$(incus info %1 | awk '/^Status:/ {print $2}')
 if [[ "$STATUS" != "RUNNING" ]]; then
     incus start %1
     sleep 1
 fi
 incus config set %1 user.aibox.lastused "$(date +%s)" >/dev/null 2>&1 || true
-)sh").arg(shellQuote(name), autoSnap, allowRefresh);
+)sh").arg(shellQuote(name), autoSnap, allowRefresh, workspaceMountMigrationScript(name));
 }
 
 QStringList Backend::enterIncusExecArgs(const QString &name, const QString &remoteEnvPath) const {
@@ -3878,7 +3931,7 @@ QStringList Backend::enterIncusExecArgs(const QString &name, const QString &remo
         QStringLiteral("exec"),
         name,
         QStringLiteral("--cwd"),
-        QStringLiteral("/workspace"),
+        containerWorkspacePathFor(name),
         QStringLiteral("--env"),
         QStringLiteral("DISPLAY=") + displayVal,
         QStringLiteral("--env"),
@@ -3896,7 +3949,7 @@ QStringList Backend::execIncusCommandArgs(const QString &name, const QStringList
         QStringLiteral("exec"),
         name,
         QStringLiteral("--cwd"),
-        QStringLiteral("/workspace"),
+        containerWorkspacePathFor(name),
         QStringLiteral("--")
     };
     if (remoteEnvPath.isEmpty()) {
@@ -3920,10 +3973,10 @@ QString Backend::startEnvironmentScript(const QString &name) {
         script += autoSnap + QLatin1Char('\n');
     if (!allowRefresh.isEmpty())
         script += allowRefresh + QLatin1Char('\n');
-    script += QStringLiteral("echo '@@STAGE:55:Starting container...'\nincus start %1 && sleep 1\n"
+    script += QStringLiteral("echo '@@STAGE:55:Starting container...'\n%2\nincus start %1 && sleep 1\n"
                              "incus config set %1 user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n"
                              "echo '@@STAGE:100:Started.'")
-                  .arg(shellQuote(name));
+                  .arg(shellQuote(name), workspaceMountMigrationScript(name));
     return script;
 }
 
@@ -3982,17 +4035,20 @@ void Backend::enterEnvironment(const QString &name) {
     }
 
     QString enterCmd;
+    const QString wsMountArg = QStringLiteral(
+        "\"$(incus config device get %1 workspace path 2>/dev/null || echo %2)\"")
+        .arg(shellQuote(name), shellQuote(kContainerWorkspacePath));
     if (remoteEnvPath.isEmpty()) {
         enterCmd = QStringLiteral(
-            "incus exec %1 --cwd /workspace --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- bash -l || "
-            "incus exec %1 --cwd /workspace -- sh").arg(shellQuote(name));
+            "incus exec %1 --cwd %2 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- bash -l || "
+            "incus exec %1 --cwd %2 -- sh").arg(shellQuote(name), wsMountArg);
     } else {
         enterCmd = QStringLiteral(
-            "incus exec %1 --cwd /workspace --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- "
+            "incus exec %1 --cwd %3 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- "
             "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter %2 || "
-            "incus exec %1 --cwd /workspace -- "
+            "incus exec %1 --cwd %3 -- "
             "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter %2")
-                       .arg(shellQuote(name), shellQuote(remoteEnvPath));
+                       .arg(shellQuote(name), shellQuote(remoteEnvPath), wsMountArg);
     }
 
     if (env.value(QStringLiteral("recordEnabled")).toBool()) {
@@ -4941,13 +4997,13 @@ void Backend::runHeadlessCommand(const QString &name, const QString &command) {
             "rm -f \"$HOST_ENV\"\n"
             "HOST_ENV=\n").arg(qHost, qRemote, qName);
         execLine = QStringLiteral(
-            "incus exec %1 --cwd /workspace -- sh -c "
+            "incus exec %1 --cwd \"$WS_PATH\" -- sh -c "
             "'F=\"$1\"; C=\"$2\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; "
             "exec xvfb-run -a -s \"-screen 0 1920x1080x24\" sh -lc \"$C\"' "
             "aibox-headless \"$REMOTE_ENV\" %2").arg(qName, qCmd);
     } else {
         execLine = QStringLiteral(
-            "incus exec %1 --cwd /workspace -- xvfb-run -a -s \"-screen 0 1920x1080x24\" sh -lc %2")
+            "incus exec %1 --cwd \"$WS_PATH\" -- xvfb-run -a -s \"-screen 0 1920x1080x24\" sh -lc %2")
                        .arg(qName, qCmd);
     }
 
@@ -4960,6 +5016,8 @@ if [[ "$STATUS" != "RUNNING" ]]; then
     sleep 2
 fi
 incus config set %1 user.aibox.lastused "$(date +%s)" >/dev/null 2>&1 || true
+%4
+WS_PATH=$(incus config device get %1 workspace path 2>/dev/null || echo /home/workspace)
 %2
 incus exec %1 -- sh -c '
     if ! command -v xvfb-run >/dev/null 2>&1; then
@@ -4977,7 +5035,7 @@ incus exec %1 -- sh -c '
 echo "@@STAGE:60:Running command inside 1920x1080 virtual screen..."
 %3
 echo "@@STAGE:100:Completed."
-)sh").arg(qName, pushSnippet, execLine);
+)sh").arg(qName, pushSnippet, execLine, workspaceMountMigrationScript(name));
 
     runShellTask(tr("Running headless GUI test in '%1'").arg(name), script, {}, name);
 }
@@ -4988,7 +5046,9 @@ QString Backend::aiExecCommandText(const QString &name) const {
     const QVariantMap env = environmentByName(name);
     if (!env.value("secretNames").toStringList().isEmpty())
         return QStringLiteral("aibox exec %1 -- bash").arg(name);
-    return QStringLiteral("incus exec %1 --cwd /workspace -- bash").arg(name);
+    const QString wsMount = env.value(QStringLiteral("workspaceMountPath")).toString().trimmed();
+    return QStringLiteral("incus exec %1 --cwd %2 -- bash")
+        .arg(name, wsMount.isEmpty() ? containerWorkspacePath() : wsMount);
 }
 
 void Backend::copyAiCommand(const QString &name) {
@@ -5663,15 +5723,16 @@ QString Backend::importEnvironmentScript(const QString &backupFile, const QStrin
         "%4\n"
         "if command -v setfacl >/dev/null 2>&1; then\n"
         "    ACL_USER=\"${SUDO_USER:-${USER:-$(id -un)}}\"\n"
-        "    setfacl -R -m \"u:${ACL_USER}:rwx\" -d -m \"u:${ACL_USER}:rwx\" %3 2>/dev/null || true\n"
+        "    setfacl -R -m \"u:${ACL_USER}:rwx\" -m \"m::rwx\" -d -m \"u:${ACL_USER}:rwx\" -d -m \"m::rwx\" %3 2>/dev/null || true\n"
         "fi\n"
         "echo '@@STAGE:35:Importing archive as %2...'\n"
         "incus import %1 %2\n"
         "incus config unset %2 user.aibox.template >/dev/null 2>&1 || true\n"
         "incus config set %2 user.aibox.workspace %3 >/dev/null 2>&1 || true\n"
-        "incus config device set %2 workspace source=%3 >/dev/null 2>&1 || "
-        "incus config device add %2 workspace disk source=%3 path=/workspace >/dev/null 2>&1 || true")
-                         .arg(qBackup, qName, qWs, workspaceCreateSnippet(workspacePath));
+        "incus config device set %2 workspace source=%3 path=%5 >/dev/null 2>&1 || "
+        "incus config device add %2 workspace disk source=%3 path=%5 >/dev/null 2>&1 || true")
+                         .arg(qBackup, qName, qWs, workspaceCreateSnippet(workspacePath),
+                              shellQuote(kContainerWorkspacePath));
 
     if (!workspaceArchiveFile.trimmed().isEmpty()) {
         const QString qWsArc = shellQuote(workspaceArchiveFile);
@@ -7314,8 +7375,7 @@ QString Backend::deleteSecret(const QString &name) {
     return {};
 }
 
-void Backend::setEnvironmentSecrets(const QString &name, const QStringList &secretNames) {
-    if (name.isEmpty())
+void Backend::setEnvironmentSecrets(const QString &name, const QStringList &secretNames) {    if (name.isEmpty())
         return;
 
     const QStringList cleanNames = parseEnvSecretNames(secretNames.join(QLatin1Char(',')));
@@ -8215,7 +8275,16 @@ QString Backend::deleteOrphanScript(const QString &kind, const QString &targetPa
             "            rm -rf \"$S\" >/dev/null 2>&1 || true\n"
             "        fi\n"
             "    done\n"
-            "    rmdir %1 2>/dev/null || rm -rf %1\n"
+            "    rmdir %1 >/dev/null 2>&1 || rm -rf %1 >/dev/null 2>&1 || true\n"
+            "    if [ -e %1 ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then\n"
+            "        echo '@@STAGE:70:Retrying removal with admin rights...'\n"
+            "        sudo -n rm -rf %1 >/dev/null 2>&1 || true\n"
+            "    fi\n"
+            "fi\n"
+            "if [ -e %1 ]; then\n"
+            "    echo 'Could not completely remove orphan workspace snapshots (root-owned files or Btrfs subvolumes).' >&2\n"
+            "    echo \"Fix (admin): sudo rm -rf %1\" >&2\n"
+            "    exit 1\n"
             "fi\n"
             "echo '@@STAGE:100:Orphan workspace snapshots removed.'").arg(qTarget);
     }
@@ -8224,12 +8293,105 @@ QString Backend::deleteOrphanScript(const QString &kind, const QString &targetPa
         "echo '@@STAGE:35:Removing orphan workspace folder...'\n"
         "%1\n"
         "rm -rf %2 >/dev/null 2>&1 || true\n"
+        "if [ -e %2 ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then\n"
+        "    echo '@@STAGE:70:Retrying removal with admin rights...'\n"
+        "    sudo -n rm -rf %2 >/dev/null 2>&1 || true\n"
+        "fi\n"
         "if [ -e %2 ]; then\n"
-        "    echo 'Could not completely remove orphan workspace folder.' >&2\n"
+        "    echo 'Could not completely remove orphan workspace folder (root-owned files or Btrfs subvolumes).' >&2\n"
+        "    echo \"Fix (admin): sudo rm -rf %2\" >&2\n"
         "    exit 1\n"
         "fi\n"
         "echo '@@STAGE:100:Orphan workspace removed.'")
         .arg(workspaceDeleteSnapshotSnippet(cleanTarget, true), qTarget);
+}
+
+QString Backend::adminDeleteScriptText(const QString &kind, const QString &targetPath) {
+    const QString cleanTarget = QDir::cleanPath(targetPath.trimmed());
+    const QString qTarget = shellQuote(cleanTarget);
+    if (kind == QLatin1String("backup-workspace")) {
+        return QStringLiteral("#!/bin/sh\nset -u\nrm -f %1\n").arg(qTarget);
+    }
+    return QStringLiteral(
+        "#!/bin/sh\n"
+        "set -u\n"
+        "TARGET=%1\n"
+        "rm -rf \"$TARGET\" 2>/dev/null || true\n"
+        "if [ -e \"$TARGET\" ]; then\n"
+        "    find \"$TARGET\" -depth -type d -exec sh -c 'btrfs subvolume show \"$1\" >/dev/null 2>&1 && "
+        "btrfs subvolume delete \"$1\" >/dev/null 2>&1' sh {} \\; 2>/dev/null || true\n"
+        "    rm -rf \"$TARGET\" 2>/dev/null || true\n"
+        "fi\n"
+        "if [ -e \"$TARGET\" ]; then\n"
+        "    echo \"Failed to remove: $TARGET\" >&2\n"
+        "    exit 1\n"
+        "fi\n"
+        "echo \"Removed: $TARGET\"\n")
+        .arg(qTarget);
+}
+
+QString Backend::validateOrphanPath(const QString &kind, const QString &cleanPath) const {
+    const QFileInfo fi(cleanPath);
+    const QString parentDir = QDir::cleanPath(fi.dir().absolutePath());
+    const QString cleanWsBase = QDir::cleanPath(m_workspaceBase);
+    const QString cleanSnapRoot = QDir::cleanPath(m_workspaceBase + QStringLiteral("/.snapshots"));
+    const QString cleanBackups = QDir::cleanPath(backupsDirPath());
+
+    if (kind == QLatin1String("workspace") &&
+        (parentDir != cleanWsBase || fi.fileName() == QLatin1String(".snapshots") ||
+         fi.fileName().startsWith(QLatin1Char('.')))) {
+        return tr("Refusing to delete path outside workspace directory: %1").arg(cleanPath);
+    }
+    if (kind == QLatin1String("workspace-snapshot") && parentDir != cleanSnapRoot) {
+        return tr("Refusing to delete path outside snapshot root: %1").arg(cleanPath);
+    }
+    if (kind == QLatin1String("backup-workspace") &&
+        (parentDir != cleanBackups || !fi.fileName().endsWith(QStringLiteral("-workspace.tar.gz")))) {
+        return tr("Refusing to delete non-orphan archive outside backups directory: %1").arg(cleanPath);
+    }
+    return {};
+}
+
+QString Backend::deleteOrphanAsAdmin(const QString &kind, const QString &path) {
+    const QString clean = QDir::cleanPath(path.trimmed());
+    if (clean.isEmpty())
+        return tr("Orphan path is empty.");
+
+    if (kind != QLatin1String("workspace") &&
+        kind != QLatin1String("workspace-snapshot") &&
+        kind != QLatin1String("backup-workspace")) {
+        return tr("Unknown orphan kind '%1'.").arg(kind);
+    }
+    const QString pathErr = validateOrphanPath(kind, clean);
+    if (!pathErr.isEmpty())
+        return pathErr;
+    if (m_demoMode)
+        return deleteOrphan(kind, clean);
+    if (!QFileInfo::exists(clean))
+        return tr("Orphan path '%1' no longer exists.").arg(clean);
+    if (QStandardPaths::findExecutable(QStringLiteral("sudo")).isEmpty())
+        return tr("sudo is not available on this system.");
+
+    const QString scriptPath = m_stateDir + QStringLiteral("/admin-delete.sh");
+    QDir().mkpath(m_stateDir);
+    QFile f(scriptPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return tr("Could not write admin delete script to %1.").arg(scriptPath);
+    f.write(adminDeleteScriptText(kind, clean).toUtf8());
+    f.close();
+    QFile::setPermissions(scriptPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner
+                                           | QFileDevice::ExeOwner);
+
+    const QString cmd = QStringLiteral(
+        "%1; RC=$?; echo; if [ $RC -eq 0 ]; then echo 'AIBox: orphan removed.'; "
+        "else echo 'AIBox: orphan removal failed.'; fi; "
+        "echo 'Refresh the stale report to update this list.'; "
+        "echo 'Press Enter to close...'; read -r _")
+        .arg(QStringLiteral("sudo -- sh %1").arg(shellQuote(scriptPath)));
+    launchCommandInTerminal(cmd);
+    m_statusMessage = tr("Admin delete opened in terminal for '%1'.").arg(QFileInfo(clean).fileName());
+    emit statusMessageChanged();
+    return {};
 }
 
 QString Backend::deleteOrphan(const QString &kind, const QString &path) {
@@ -8242,24 +8404,11 @@ QString Backend::deleteOrphan(const QString &kind, const QString &path) {
         kind != QLatin1String("backup-workspace")) {
         return tr("Unknown orphan kind '%1'.").arg(kind);
     }
+    const QString pathErr = validateOrphanPath(kind, clean);
+    if (!pathErr.isEmpty())
+        return pathErr;
 
     const QFileInfo fi(clean);
-    const QString parentDir = QDir::cleanPath(fi.dir().absolutePath());
-    const QString cleanWsBase = QDir::cleanPath(m_workspaceBase);
-    const QString cleanSnapRoot = QDir::cleanPath(m_workspaceBase + QStringLiteral("/.snapshots"));
-    const QString cleanBackups = QDir::cleanPath(backupsDirPath());
-
-    if (kind == QLatin1String("workspace") &&
-        (parentDir != cleanWsBase || fi.fileName() == QLatin1String(".snapshots") || fi.fileName().startsWith(QLatin1Char('.')))) {
-        return tr("Refusing to delete path outside workspace directory: %1").arg(clean);
-    }
-    if (kind == QLatin1String("workspace-snapshot") && parentDir != cleanSnapRoot) {
-        return tr("Refusing to delete path outside snapshot root: %1").arg(clean);
-    }
-    if (kind == QLatin1String("backup-workspace") &&
-        (parentDir != cleanBackups || !fi.fileName().endsWith(QStringLiteral("-workspace.tar.gz")))) {
-        return tr("Refusing to delete non-orphan archive outside backups directory: %1").arg(clean);
-    }
 
     if (m_demoMode) {
         QVariantList orphans = m_staleReport.value(QStringLiteral("orphans")).toList();
@@ -8611,13 +8760,13 @@ QString Backend::readRecordedSessionLog(const QString &logPath) const {
         return {};
     if (m_demoMode && logPath.startsWith(QLatin1String("demo://"))) {
         return formatRecordedSessionText(QByteArrayLiteral(
-            "Script started on 2026-11-13 17:10:00+07:00 [COMMAND=\"incus exec desktop-studio --cwd /workspace -- bash -l\"]\n"
-            "\x1b[32muser@desktop-studio:/workspace$\x1b[0m ls -la\n"
+            "Script started on 2026-11-13 17:10:00+07:00 [COMMAND=\"incus exec desktop-studio --cwd /home/workspace -- bash -l\"]\n"
+            "\x1b[32muser@desktop-studio:/home/workspace$\x1b[0m ls -la\n"
             "total 12\n"
             "drwxrwx--- 1 root user 120 Nov 13 17:09 .\n"
-            "\x1b[32muser@desktop-studio:/workspace$\x1b[0m echo $ANTHROPIC_API_KEY\n"
+            "\x1b[32muser@desktop-studio:/home/workspace$\x1b[0m echo $ANTHROPIC_API_KEY\n"
             "[REDACTED]\n"
-            "\x1b[32muser@desktop-studio:/workspace$\x1b[0m exit\n"
+            "\x1b[32muser@desktop-studio:/home/workspace$\x1b[0m exit\n"
             "Script done on 2026-11-13 17:12:14+07:00 [COMMAND_EXIT_CODE=\"0\"]\n"));
     }
 

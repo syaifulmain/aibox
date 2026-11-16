@@ -869,11 +869,11 @@ QString helpText(Command cmd) {
     case Command::Enter:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] enter <env>\n\n"
-            "Run pre-steps (auto-snapshot, allowlist refresh, start if stopped) and attach an interactive shell in /workspace.\n");
+            "Run pre-steps (auto-snapshot, allowlist refresh, start if stopped) and attach an interactive shell in /home/workspace.\n");
     case Command::Exec:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] exec <env> -- <cmd...>\n\n"
-            "Run pre-steps and execute a non-interactive command in /workspace, returning its exit code.\n");
+            "Run pre-steps and execute a non-interactive command in /home/workspace, returning its exit code.\n");
     case Command::Start:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] start <env>\n\n"
@@ -885,7 +885,7 @@ QString helpText(Command cmd) {
     case Command::Snapshot:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] snapshot <env> [name]\n\n"
-            "Create a paired OS container and /workspace Btrfs snapshot.\n");
+            "Create a paired OS container and /home/workspace Btrfs snapshot.\n");
     case Command::Snapshots:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] snapshots <env> [--json]\n\n"
@@ -897,7 +897,7 @@ QString helpText(Command cmd) {
     case Command::Diff:
         return QStringLiteral(
             "Usage: aibox [--project <dir>] diff <env> [snap] [--json]\n\n"
-            "Show /workspace file changes compared against a snapshot (default: latest).\n");
+            "Show /home/workspace file changes compared against a snapshot (default: latest).\n");
     case Command::Help:
     case Command::None:
         break;
@@ -908,15 +908,15 @@ QString helpText(Command cmd) {
         "Commands:\n"
         "  list [--json]                                       List environments\n"
         "  check [--fix] [--json]                              Check/repair host setup\n"
-        "  enter <env>                                         Open interactive shell in /workspace\n"
-        "  exec <env> -- <cmd...>                              Run command in /workspace\n"
+        "  enter <env>                                         Open interactive shell in /home/workspace\n"
+        "  exec <env> -- <cmd...>                              Run command in /home/workspace\n"
         "  start <env>                                         Start environment\n"
         "  stop <env>                                          Stop environment\n"
-        "  snapshot <env> [name]                               Create paired OS + /workspace snapshot\n"
+        "  snapshot <env> [name]                               Create paired OS + /home/workspace snapshot\n"
         "  snapshots <env> [--json]                            List snapshots and sizes\n"
         "  restore <env> <snap> [--system-only|--workspace-only] [--yes]\n"
         "                                                      Restore snapshot\n"
-        "  diff <env> [snap] [--json]                          Review /workspace changes\n"
+        "  diff <env> [snap] [--json]                          Review /home/workspace changes\n"
         "  help [command]                                      Show help\n\n"
         "Global options:\n"
         "  --project <dir>                                     Select project directory containing aibox/ (default: ~/aibox)\n"

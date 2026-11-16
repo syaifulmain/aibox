@@ -18,7 +18,7 @@ All host-level configurations are automated in [bin/setup-system](file:///home/u
 | **Network Bridge** | `incusbr0` (`10.143.44.1/24`, IPv4 NAT enabled, IPv6 disabled) | Managed private bridge providing automatic DHCP IPv4 addresses and internet access to all environments. |
 | **UFW Firewall Rules** | `ufw allow in on incusbr0` & `ufw route allow in/out on incusbr0` | Permits DHCP, DNS, and routed internet traffic from `incusbr0` through the active host UFW firewall. |
 | **GPU & KVM Profile** | Incus profile `ai-gui` (`security.nesting=true`, `gpu` & `kvm` devices) | Enables nested Docker, hardware-accelerated Desktop GUI apps, and full-speed Android Emulators inside containers. |
-| **Shared Workspaces** | `~/aibox/workspaces/<name>` (configurable) ⟷ `/workspace` | Two-way shared directory between Host and container using POSIX default ACLs (`setfacl`) and UID shifting (`shift=true`). Existing environments keep the workspace path they were created with. |
+| **Shared Workspaces** | `~/aibox/workspaces/<name>` (configurable) ⟷ `/home/workspace` | Two-way shared directory between Host and container using POSIX default ACLs (`setfacl`) and UID shifting (`shift=true`). Existing environments keep the workspace path they were created with, and their container mount is moved from `/workspace` to `/home/workspace` automatically on the next Start/Enter. |
 | **App Configuration** | `~/aibox/config.json` & `~/.config/aibox/location.json` | Persists the active system root location (`location.json`), workspace and OS image storage locations, the editable OS catalog, preset titles, disk/RAM/CPU choices, defaults, and first-run completion (`config.json`). |
 | **OS Image Storage** | `~/aibox/os-images` (configurable) | Offline OS image exports (`<id>` metadata + `<id>.root`) used as a fallback import source when the local Incus image is missing. |
 | **Background Task State** | `~/aibox/state/` (`task.pid`, `task.meta`, `task.log`, `task.sh`) | Tracks detached background operations (`setsid`) so tasks survive GUI window closure and automatically re-attach on startup. |
@@ -56,6 +56,21 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Iteration 37 — Orphan Delete Workspace Cleanup Fix
+- **Root-Owned Files (`src/backend.cpp`)**: orphan workspace cleanup no longer fails silently on container-written files. The delete script reports the exact blocked reason, retries through `sudo -n` when passwordless admin rights exist, and prints a copyable `Fix (admin): sudo rm -rf <path>` hint otherwise.
+- **Delete as Admin (`src/backend.{h,cpp}`, `src/Main.qml`)**: new **Delete as admin** action in the stale-report confirmation bar writes a root cleanup script to `<state>/admin-delete.sh` and opens it through `sudo` in the default terminal, so nested Btrfs subvolumes and root-owned directories are removed with the password prompt visible.
+- **ACL Defaults (`src/backend.cpp`)**: create, clone, convert, and import workspace ACL steps now set the default ACL mask to `rwx`, so directories written later inside the container stay deletable by the host user.
+- **Tests (`tests/aibox_tests.cpp`)**: added `orphanDeleteScriptsHandleRootOwnedFiles` covering the sudo fallback, admin hint, nested-subvolume cleanup script, and path validation (73 tests total).
+- **Localization (`src/i18n/da.json`)**: added Danish entries for the admin delete action and error messages.
+
+### Iteration 36 — Shared Workspace Mounted in `/home/workspace`
+- **Container Mount Path (`src/backend.{h,cpp}`)**: new environments, clones, and imported backups mount their shared host workspace at `/home/workspace` instead of `/workspace`; the path is exposed through the read-only `containerWorkspacePath` property.
+- **Legacy Migration (`src/backend.cpp`)**: `prepareEnvironmentScript()` and `startEnvironmentScript()` call `workspaceMountMigrationScript()`, which moves an existing `workspace` device from `/workspace` to `/home/workspace` while the environment is stopped; running environments keep their current mount until the next start.
+- **Live Path Resolution (`src/backend.cpp`)**: `enterIncusExecArgs()`, `execIncusCommandArgs()`, the GUI Enter command, and the headless GUI runner read the actual workspace mount path (`incus config device get <env> workspace path`) so both legacy and migrated environments open in the correct directory. `aibox exec` command hints use the parsed `workspaceMountPath`.
+- **UI & CLI (`src/Main.qml`, `src/cli.cpp`)**: workspace labels, snapshot restore descriptions, shortcut help, and CLI usage now render `/home/workspace` from `backend.containerWorkspacePath`.
+- **Tests (`tests/aibox_tests.cpp`)**: added `workspaceMountUsesHomePathAndMigratesLegacyEnvironments` covering the create script, migration snippet, and pre-step scripts; updated clone and CLI `--cwd` expectations.
+- **Localization (`src/i18n/da.json`)**: updated Danish keys to the `%1` placeholder form.
 
 ### Iteration 35 — Root Files in Your File Manager
 - **Root File Access (`src/Main.qml`)**: added a **Root Files** row directly below **Shared Workspace** in the environment inspector. When the environment is running, **Enable** starts a localhost-only SFTP listener and the row shows a copyable `sftp://root@127.0.0.1:<port>/` URL (click the URL or use **Open** to hand it to the default file manager). **Disable** stops the listener and restores the off state. The row follows the Omarchy accent/radius conventions, warns on hover about the passwordless localhost-only access, and disables the toggle for templates, stopped environments, and busy tasks.

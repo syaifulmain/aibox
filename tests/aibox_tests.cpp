@@ -578,10 +578,35 @@ private slots:
         QVERIFY(log.contains("copy node-tpl cloned-box --stateless"));
         QVERIFY(log.contains("config unset cloned-box user.aibox.template"));
         QVERIFY(log.contains("config device remove cloned-box workspace"));
-        QVERIFY(log.contains("config device add cloned-box workspace disk source=" + workspace + " path=/workspace shift=true"));
+        QVERIFY(log.contains("config device add cloned-box workspace disk source=" + workspace + " path=/home/workspace shift=true"));
         QVERIFY(log.contains("config set cloned-box limits.cpu 4"));
         QVERIFY(log.contains("config set cloned-box limits.memory 8GiB"));
         QVERIFY(QFileInfo(workspace).isDir());
+    }
+
+    void workspaceMountUsesHomePathAndMigratesLegacyEnvironments()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Backend backend(dir.filePath("ws"));
+        QCOMPARE(backend.containerWorkspacePath(), QStringLiteral("/home/workspace"));
+
+        const QString createScript = Backend::createEnvironmentScript(
+            QStringLiteral("box"), QStringLiteral("aibox-arch"), QStringLiteral("images:arch"),
+            dir.filePath("ws/box"), dir.filePath("cache"), {}, QStringLiteral("4GiB"),
+            QStringLiteral("30GiB"), 2, false, {}, {}, false, {});
+        QVERIFY2(createScript.contains("WS_PATH='/home/workspace'"), qPrintable(createScript));
+        QVERIFY2(createScript.contains("path=\"$WS_PATH\""), qPrintable(createScript));
+
+        const QString migrate = Backend::workspaceMountMigrationScript(QStringLiteral("box"));
+        QVERIFY(migrate.contains("incus config device get 'box' workspace path"));
+        QVERIFY(migrate.contains("incus config device set 'box' workspace path='/home/workspace'"));
+
+        const QString startScript = backend.startEnvironmentScript(QStringLiteral("box"));
+        QVERIFY2(startScript.contains("workspace path='/home/workspace'"), qPrintable(startScript));
+
+        const QString prepareScript = backend.prepareEnvironmentScript(QStringLiteral("box"));
+        QVERIFY2(prepareScript.contains("workspace path='/home/workspace'"), qPrintable(prepareScript));
     }
 
     void networkAllowlistResolvesAndBlocksPrivateDnsRebinding()
@@ -1731,7 +1756,7 @@ exit 0
             const QString log = QString::fromUtf8(f.readAll());
             QVERIFY2(log.contains("incus snapshot create dev auto-"), qPrintable(log));
             QVERIFY2(log.contains("incus start dev"), qPrintable(log));
-            QVERIFY2(log.contains("incus exec dev --cwd /workspace -- true"), qPrintable(log));
+            QVERIFY2(log.contains("incus exec dev --cwd /home/workspace -- true"), qPrintable(log));
         }
 
         // exec dev -- false -> exits 1
@@ -2601,6 +2626,31 @@ exit 0
             QVERIFY(f.open(QIODevice::ReadOnly));
             QVERIFY(f.readAll().contains("delete stale-env --force"));
         }
+    }
+
+    void orphanDeleteScriptsHandleRootOwnedFiles()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString wsBase = dir.path() + "/ws";
+        QVERIFY(QDir().mkpath(wsBase));
+        const QString target = wsBase + "/ghost-ws";
+        QVERIFY(QDir().mkpath(target));
+
+        const QString script = Backend::deleteOrphanScript("workspace", target);
+        QVERIFY2(script.contains("sudo -n rm -rf"), qPrintable(script));
+        QVERIFY2(script.contains("Fix (admin): sudo rm -rf"), qPrintable(script));
+
+        const QString snapScript =
+            Backend::deleteOrphanScript("workspace-snapshot", wsBase + "/.snapshots/ghost");
+        QVERIFY2(snapScript.contains("sudo -n rm -rf"), qPrintable(snapScript));
+
+        const QString admin = Backend::adminDeleteScriptText("workspace", target);
+        QVERIFY2(admin.contains("btrfs subvolume show"), qPrintable(admin));
+        QVERIFY2(admin.contains("rm -rf \"$TARGET\""), qPrintable(admin));
+
+        Backend backend(wsBase);
+        QVERIFY(!backend.deleteOrphanAsAdmin("workspace", "/tmp/not-a-workspace").isEmpty());
     }
 
     void sessionRecordingConfigOverridesAndWrapBuilder()

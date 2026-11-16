@@ -31,6 +31,7 @@ class Backend : public QObject {
     Q_PROPERTY(QString systemPath READ systemPath NOTIFY systemPathChanged)
     Q_PROPERTY(QString defaultSystemPath READ defaultSystemPath CONSTANT)
     Q_PROPERTY(QString workspaceBase READ workspaceBase NOTIFY workspaceBaseChanged)
+    Q_PROPERTY(QString containerWorkspacePath READ containerWorkspacePath CONSTANT)
     Q_PROPERTY(QString osStoragePath READ osStoragePath NOTIFY osStoragePathChanged)
     Q_PROPERTY(QString defaultWorkspaceBase READ defaultWorkspaceBase CONSTANT)
     Q_PROPERTY(QString defaultOsStoragePath READ defaultOsStoragePath CONSTANT)
@@ -105,6 +106,8 @@ public:
                        int exitCode, const QString &startedAtIso, const QByteArray &logBytes);
     QVariantMap findEnvironment(const QString &name) const { return environmentByName(name); }
     QString workspacePathForEnv(const QString &name) const { return workspacePathFor(name); }
+    QString containerWorkspacePath() const { return QStringLiteral("/home/workspace"); }
+    QString containerWorkspacePathFor(const QString &name) const;
     QString stateDir() const { return m_stateDir; }
     QStringList diffExcludesList() const { return m_diffExcludes; }
     QString prepareEnvironmentScript(const QString &name);
@@ -262,6 +265,7 @@ public:
                                                  bool deleteWorkspaceFiles = true);
     Q_INVOKABLE void openOrphanFolder(const QString &path);
     Q_INVOKABLE QString deleteOrphan(const QString &kind, const QString &path);
+    Q_INVOKABLE QString deleteOrphanAsAdmin(const QString &kind, const QString &path);
     Q_INVOKABLE QString saveSessionRecordingSettings(bool enabled);
     Q_INVOKABLE void setEnvironmentRecordSessions(const QString &name, const QString &mode);
     Q_INVOKABLE void refreshRecordedSessions();
@@ -334,6 +338,7 @@ public:
                                                     const QStringList &wsSnapshots);
     static QVariantMap parseDuBytesOutput(const QString &output);
     static QString workspaceCreateSnippet(const QString &workspacePath);
+    static QString workspaceMountMigrationScript(const QString &envName);
     static QString workspaceSnapshotSnippet(const QString &workspacePath, const QString &snapDir,
                                             const QString &snapName);
     static QString workspaceDeleteSnapshotSnippet(const QString &snapPath, bool warnOnly = true);
@@ -556,6 +561,8 @@ public:
                                                   bool deleteWorkspaceFiles,
                                                   const QString &sessionsEnvDir = {});
     static QString deleteOrphanScript(const QString &kind, const QString &targetPath);
+    QString validateOrphanPath(const QString &kind, const QString &cleanPath) const;
+    static QString adminDeleteScriptText(const QString &kind, const QString &targetPath);
 
     bool recordSessions() const { return m_recordSessions; }
     QVariantList recordedSessions() const { return m_recordedSessions; }
