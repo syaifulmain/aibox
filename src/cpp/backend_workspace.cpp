@@ -1,5 +1,8 @@
 #include "backend.h"
 #include "backend_helpers.h"
+#include "rust_bridge.h"
+
+#include "aibox-ffi/src/workspace_diff.rs.h"
 
 #include <QClipboard>
 #include <QDateTime>
@@ -622,197 +625,59 @@ void Backend::removeExtraMount(const QString &name, const QString &deviceName) {
 }
 
 QStringList Backend::defaultDiffExcludes() {
-    return {
-        QStringLiteral(".git/"),
-        QStringLiteral("node_modules/"),
-        QStringLiteral("target/"),
-        QStringLiteral(".venv/"),
-        QStringLiteral("__pycache__/"),
-        QStringLiteral("build/"),
-        QStringLiteral(".aibox-paste/")
-    };
+    return aibox::ffi::fromRustVec(aibox::ffi::default_diff_excludes());
 }
 
 QStringList Backend::parseDiffExcludes(const QString &rawText) {
-    static const QRegularExpression sep(QStringLiteral("[,;\\r\\n]+"));
-    QStringList out;
-    for (const QString &part : rawText.split(sep, Qt::SkipEmptyParts)) {
-        const QString clean = part.trimmed();
-        if (!clean.isEmpty() && !out.contains(clean))
-            out.append(clean);
-    }
-    return out;
+    return aibox::ffi::fromRustVec(aibox::ffi::parse_diff_excludes(aibox::ffi::toRust(rawText)));
 }
 
 QStringList Backend::buildRsyncExcludeArgs(const QStringList &excludes) {
-    QStringList args;
-    for (const QString &raw : excludes) {
-        const QString clean = raw.trimmed();
-        if (!clean.isEmpty())
-            args.append(QStringLiteral("--exclude=") + clean);
-    }
-    return args;
+    const rust::Vec<rust::String> rExcludes = aibox::ffi::toRustVec(excludes);
+    return aibox::ffi::fromRustVec(aibox::ffi::build_rsync_exclude_args(
+        rust::Slice<const rust::String>(rExcludes.data(), rExcludes.size())));
 }
 
 bool Backend::isSafeRelativePath(const QString &relativePath) {
-    if (relativePath.isEmpty() || relativePath.startsWith(QLatin1Char('/')) ||
-        relativePath.contains(QLatin1Char('\0')))
-        return false;
-    const QStringList parts = relativePath.split(QLatin1Char('/'), Qt::SkipEmptyParts);
-    if (parts.isEmpty())
-        return false;
-    for (const QString &seg : parts) {
-        if (seg == QLatin1String(".") || seg == QLatin1String(".."))
-            return false;
-    }
-    return true;
+    return aibox::ffi::is_safe_relative_path(aibox::ffi::toRust(relativePath));
 }
 
 bool Backend::isLikelyBinaryData(const QByteArray &sample) {
-    return sample.left(8192).contains('\0');
+    return aibox::ffi::is_likely_binary_data(aibox::ffi::toRustBytes(sample));
 }
 
 QString Backend::capDiffLines(const QString &diffOutput, int maxLines, bool *outTruncated) {
-    const int limit = qMax(1, maxLines);
-    const QStringList lines = diffOutput.split(QLatin1Char('\n'));
-    if (lines.size() <= limit) {
-        if (outTruncated)
-            *outTruncated = false;
-        return diffOutput;
-    }
+    const auto res = aibox::ffi::cap_diff_lines(aibox::ffi::toRust(diffOutput), maxLines);
     if (outTruncated)
-        *outTruncated = true;
-    return lines.mid(0, limit).join(QLatin1Char('\n'));
+        *outTruncated = res.truncated;
+    return aibox::ffi::fromRust(res.text);
 }
 
 QVariantMap Backend::parseRsyncItemize(const QString &output, int maxEntries) {
-    static const QRegularExpression lineRe(
-        QStringLiteral("^(\\*deleting\\s+|[<>ch.*][fdLDS][^\\s]{9})\\s+(\\d+)\\s+(.+)$"));
-    const int cap = qMax(1, maxEntries);
-
-    QVariantList entries;
-    int addedCount = 0;
-    int modifiedCount = 0;
-    int deletedCount = 0;
-    bool truncated = false;
-
-    const QStringList lines = output.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    for (const QString &rawLine : lines) {
-        const QString line = rawLine.endsWith(QLatin1Char('\r')) ? rawLine.chopped(1) : rawLine;
-        const auto m = lineRe.match(line);
-        if (!m.hasMatch())
-            continue;
-
-        const QString code = m.captured(1);
-        const qint64 sizeBytes = m.captured(2).toLongLong();
-        QString relPath = m.captured(3);
-
-        if (relPath == QLatin1String("./") || relPath == QLatin1String("."))
-            continue;
-        if (code.startsWith(QLatin1String(".d")))
-            continue;
-
-        QString status;
-        QString entryType = QStringLiteral("file");
-        if (code.startsWith(QLatin1String("*deleting"))) {
-            status = QStringLiteral("added");
-            if (relPath.endsWith(QLatin1Char('/'))) {
-                entryType = QStringLiteral("dir");
-                relPath.chop(1);
-            }
-        } else {
-            const QChar typeChar = code.at(1);
-            if (typeChar == QLatin1Char('d')) {
-                entryType = QStringLiteral("dir");
-                if (relPath.endsWith(QLatin1Char('/')))
-                    relPath.chop(1);
-            } else if (typeChar == QLatin1Char('L')) {
-                entryType = QStringLiteral("symlink");
-            }
-            if (code.mid(2, 9) == QLatin1String("+++++++++"))
-                status = QStringLiteral("deleted");
-            else
-                status = QStringLiteral("modified");
-        }
-
-        if (relPath.isEmpty())
-            continue;
-
-        if (entries.size() >= cap) {
-            truncated = true;
-            break;
-        }
-
-        if (status == QLatin1String("added"))
-            ++addedCount;
-        else if (status == QLatin1String("deleted"))
-            ++deletedCount;
-        else
-            ++modifiedCount;
-
-        QVariantMap row;
-        row["path"] = relPath;
-        row["status"] = status;
-        row["type"] = entryType;
-        row["sizeBytes"] = sizeBytes;
-        row["sizeText"] = (entryType == QLatin1String("dir")) ? QStringLiteral("dir") : formatBytes(sizeBytes);
-        entries.append(row);
-    }
-
-    QVariantMap out;
-    out["entries"] = entries;
-    out["truncated"] = truncated;
-    out["addedCount"] = addedCount;
-    out["modifiedCount"] = modifiedCount;
-    out["deletedCount"] = deletedCount;
-    out["totalCount"] = entries.size();
-    return out;
+    return aibox::ffi::fromRustJson(
+               aibox::ffi::parse_rsync_itemize_json(aibox::ffi::toRust(output), maxEntries))
+        .toMap();
 }
 
 QStringList Backend::buildWorkspaceDiffArgs(const QString &snapPath, const QString &wsPath,
                                              const QStringList &excludes) {
-    QStringList args{
-        QStringLiteral("-a"),
-        QStringLiteral("-n"),
-        QStringLiteral("--delete"),
-        QStringLiteral("--itemize-changes"),
-        QStringLiteral("--out-format=%i %l %n")
-    };
-    args.append(buildRsyncExcludeArgs(excludes));
-    args.append(QDir::cleanPath(snapPath) + QLatin1Char('/'));
-    args.append(QDir::cleanPath(wsPath) + QLatin1Char('/'));
-    return args;
+    const rust::Vec<rust::String> rExcludes = aibox::ffi::toRustVec(excludes);
+    return aibox::ffi::fromRustVec(aibox::ffi::build_workspace_diff_args(
+        aibox::ffi::toRust(snapPath), aibox::ffi::toRust(wsPath),
+        rust::Slice<const rust::String>(rExcludes.data(), rExcludes.size())));
 }
 
 QVariantMap Backend::processWorkspaceDiffOutput(const QString &snapshotName, const QString &wsPath,
                                                 const QString &rsyncStdout, QVariantList *entriesOut) {
-    const QVariantMap parsed = parseRsyncItemize(rsyncStdout, 5000);
-    QVariantList entries = parsed.value("entries").toList();
-    for (int i = 0; i < entries.size(); ++i) {
-        QVariantMap row = entries.at(i).toMap();
-        if (row.value("status").toString() == QLatin1String("added") &&
-            row.value("type").toString() != QLatin1String("dir")) {
-            const QFileInfo fi(wsPath + QLatin1Char('/') + row.value("path").toString());
-            if (fi.isSymLink()) {
-                row["type"] = QStringLiteral("symlink");
-            } else if (fi.exists()) {
-                row["sizeBytes"] = fi.size();
-                row["sizeText"] = formatBytes(fi.size());
-            }
-            entries[i] = row;
-        }
-    }
+    const QVariantMap res = aibox::ffi::fromRustJson(
+                                aibox::ffi::process_workspace_diff_output_json(
+                                    aibox::ffi::toRust(snapshotName),
+                                    aibox::ffi::toRust(wsPath),
+                                    aibox::ffi::toRust(rsyncStdout)))
+                                .toMap();
     if (entriesOut)
-        *entriesOut = entries;
-    return QVariantMap{
-        {"snapshotName", snapshotName},
-        {"addedCount", parsed.value("addedCount").toInt()},
-        {"modifiedCount", parsed.value("modifiedCount").toInt()},
-        {"deletedCount", parsed.value("deletedCount").toInt()},
-        {"totalCount", parsed.value("totalCount").toInt()},
-        {"truncated", parsed.value("truncated").toBool()},
-        {"error", QString()}
-    };
+        *entriesOut = res.value(QStringLiteral("entries")).toList();
+    return res.value(QStringLiteral("summary")).toMap();
 }
 
 void Backend::loadWorkspaceDiff(const QString &name, const QString &snapshotName) {
@@ -965,49 +830,14 @@ void Backend::loadFileDiff(const QString &name, const QString &snapshotName,
     const QString wsPath = env.value("workspacePath").toString().isEmpty()
                                ? workspacePathFor(name)
                                : env.value("workspacePath").toString();
-    const QString snapFile = workspaceSnapshotDir(wsPath, name) + QLatin1Char('/') + snapshotName + QLatin1Char('/') + relativePath;
-    const QString wsFile = QDir::cleanPath(wsPath) + QLatin1Char('/') + relativePath;
 
-    const bool checkSnap = (status != QLatin1String("added"));
-    const bool checkWs = (status != QLatin1String("deleted"));
-    const QFileInfo snapInfo(snapFile);
-    const QFileInfo wsInfo(wsFile);
-
-    if ((checkSnap && snapInfo.isSymLink()) || (checkWs && wsInfo.isSymLink())) {
-        m_selectedDiffText = QStringLiteral("Symlink target:\n  snapshot: %1\n  current:  %2")
-                                 .arg(checkSnap && snapInfo.isSymLink() ? snapInfo.symLinkTarget() : QStringLiteral("—"),
-                                      checkWs && wsInfo.isSymLink() ? wsInfo.symLinkTarget() : QStringLiteral("—"));
-        m_selectedDiffInfo = relativePath;
-        emit selectedDiffChanged();
-        return;
-    }
-    if ((checkSnap && snapInfo.isDir()) || (checkWs && wsInfo.isDir())) {
-        m_selectedDiffText.clear();
-        m_selectedDiffInfo = tr("Directory entry — select a file to view its diff.");
-        emit selectedDiffChanged();
-        return;
-    }
-
-    constexpr qint64 kMaxPreviewBytes = 512 * 1024;
-    if ((checkSnap && snapInfo.size() > kMaxPreviewBytes) ||
-        (checkWs && wsInfo.size() > kMaxPreviewBytes)) {
-        const qint64 maxSz = qMax(checkSnap ? snapInfo.size() : 0, checkWs ? wsInfo.size() : 0);
-        m_selectedDiffText.clear();
-        m_selectedDiffInfo = tr("File exceeds 512 KB preview limit (%1).").arg(formatBytes(maxSz));
-        emit selectedDiffChanged();
-        return;
-    }
-
-    auto readSample = [](const QString &path) -> QByteArray {
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly))
-            return {};
-        return f.read(8192);
-    };
-    if ((checkSnap && isLikelyBinaryData(readSample(snapFile))) ||
-        (checkWs && isLikelyBinaryData(readSample(wsFile)))) {
-        m_selectedDiffText.clear();
-        m_selectedDiffInfo = tr("Binary file — text diff unavailable.");
+    const auto prep = aibox::ffi::prepare_file_diff_ffi(
+        aibox::ffi::toRust(name), aibox::ffi::toRust(snapshotName),
+        aibox::ffi::toRust(wsPath), aibox::ffi::toRust(relativePath),
+        aibox::ffi::toRust(status));
+    if (!prep.run_diff) {
+        m_selectedDiffText = aibox::ffi::fromRust(prep.text);
+        m_selectedDiffInfo = aibox::ffi::fromRust(prep.info);
         emit selectedDiffChanged();
         return;
     }
@@ -1022,30 +852,16 @@ void Backend::loadFileDiff(const QString &name, const QString &snapshotName,
     else
         m_fileDiffProcess->disconnect(this);
 
-    const QString leftArg = checkSnap ? snapFile : QStringLiteral("/dev/null");
-    const QString rightArg = checkWs ? wsFile : QStringLiteral("/dev/null");
-
     connect(m_fileDiffProcess, &QProcess::finished, this, [this, relativePath](int code, QProcess::ExitStatus) {
-        if (code != 0 && code != 1) {
-            m_selectedDiffText.clear();
-            m_selectedDiffInfo = tr("Could not generate diff for %1.").arg(relativePath);
-            emit selectedDiffChanged();
-            return;
-        }
-        bool truncated = false;
         const QString raw = QString::fromUtf8(m_fileDiffProcess->readAllStandardOutput());
-        m_selectedDiffText = capDiffLines(raw, 2000, &truncated);
-        m_selectedDiffInfo = truncated
-                                 ? tr("%1 (diff capped at 2000 lines)").arg(relativePath)
-                                 : relativePath;
+        const auto shaped = aibox::ffi::shape_file_diff_output_ffi(
+            code, aibox::ffi::toRust(raw), aibox::ffi::toRust(relativePath));
+        m_selectedDiffText = aibox::ffi::fromRust(shaped.text);
+        m_selectedDiffInfo = aibox::ffi::fromRust(shaped.info);
         emit selectedDiffChanged();
     });
 
-    m_fileDiffProcess->start(QStringLiteral("diff"),
-                             {QStringLiteral("-u"),
-                              QStringLiteral("--label"), QStringLiteral("snapshot"),
-                              QStringLiteral("--label"), QStringLiteral("current"),
-                              leftArg, rightArg});
+    m_fileDiffProcess->start(QStringLiteral("diff"), aibox::ffi::fromRustVec(prep.args));
 }
 
 QString Backend::restoreSingleFile(const QString &name, const QString &snapshotName,
@@ -1067,34 +883,14 @@ QString Backend::restoreSingleFile(const QString &name, const QString &snapshotN
     const QString wsPath = env.value("workspacePath").toString().isEmpty()
                                ? workspacePathFor(name)
                                : env.value("workspacePath").toString();
-    const QString snapFile = workspaceSnapshotDir(wsPath, name) + QLatin1Char('/') + snapshotName + QLatin1Char('/') + relativePath;
-    const QString wsFile = QDir::cleanPath(wsPath) + QLatin1Char('/') + relativePath;
 
-    const QFileInfo srcInfo(snapFile);
-    if (!srcInfo.exists() && !srcInfo.isSymLink())
-        return tr("File '%1' does not exist in snapshot '%2'.").arg(relativePath, snapshotName);
-    if (srcInfo.isDir() && !srcInfo.isSymLink())
-        return tr("Cannot single-restore a directory; use Snapshot Restore instead.");
+    const auto res = aibox::ffi::restore_single_file_ffi(
+        aibox::ffi::toRust(name), aibox::ffi::toRust(snapshotName),
+        aibox::ffi::toRust(wsPath), aibox::ffi::toRust(relativePath));
+    if (!res.ok)
+        return aibox::ffi::fromRust(res.message);
 
-    const QString parentDir = QFileInfo(wsFile).absolutePath();
-    if (!QDir().mkpath(parentDir))
-        return tr("Could not create parent directory: %1").arg(parentDir);
-
-    if (QFileInfo::exists(wsFile) || QFileInfo(wsFile).isSymLink()) {
-        if (!QFile::remove(wsFile))
-            return tr("Could not overwrite workspace file: %1").arg(wsFile);
-    }
-
-    if (srcInfo.isSymLink()) {
-        if (!QFile::link(srcInfo.symLinkTarget(), wsFile))
-            return tr("Could not restore symlink: %1").arg(relativePath);
-    } else {
-        if (!QFile::copy(snapFile, wsFile))
-            return tr("Could not copy file from snapshot: %1").arg(relativePath);
-        QFile::setPermissions(wsFile, srcInfo.permissions());
-    }
-
-    const QString logMsg = QStringLiteral("Restored %1 -> %2\n").arg(snapFile, wsFile);
+    const QString logMsg = aibox::ffi::fromRust(res.message);
     recordOperationHistory(tr("Restored file '%1' from snapshot '%2'").arg(relativePath, snapshotName),
                            name, QStringLiteral("success"), 0,
                            QDateTime::currentDateTimeUtc().toString(Qt::ISODate),

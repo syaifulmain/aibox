@@ -1630,6 +1630,139 @@ static QByteArray captureSnapshot() {
 
     return out;
 }
+
+static QByteArray captureDiff() {
+    QByteArray out;
+
+    out += jsonLine(QStringLiteral("Backend::defaultDiffExcludes"), QStringLiteral("default"),
+                    QJsonObject{}, QJsonArray::fromStringList(Backend::defaultDiffExcludes()));
+
+    const QList<QPair<const char *, QString>> parseCases = {
+        {"empty", QStringLiteral("")},
+        {"mixed_seps_dedup", QStringLiteral(" .git/ , dist/ ; *.log\r\ndist/\n  \nbuild/ ")},
+    };
+    for (const auto &c : parseCases) {
+        out += jsonLine(QStringLiteral("Backend::parseDiffExcludes"), QString::fromLatin1(c.first),
+                        QJsonObject{{QStringLiteral("rawText"), c.second}},
+                        QJsonArray::fromStringList(Backend::parseDiffExcludes(c.second)));
+    }
+
+    const QStringList excludeInput = {QStringLiteral(".git/"), QStringLiteral(" "), QStringLiteral("  build/  ")};
+    out += jsonLine(QStringLiteral("Backend::buildRsyncExcludeArgs"), QStringLiteral("trimmed"),
+                    QJsonObject{{QStringLiteral("excludes"), QJsonArray::fromStringList(excludeInput)}},
+                    QJsonArray::fromStringList(Backend::buildRsyncExcludeArgs(excludeInput)));
+
+    out += jsonLine(QStringLiteral("Backend::buildWorkspaceDiffArgs"), QStringLiteral("cleaned_paths"),
+                    QJsonObject{{QStringLiteral("snapPath"), QStringLiteral("/tmp/snaps/../snap1/")},
+                                {QStringLiteral("wsPath"), QStringLiteral("/tmp/ws/box1")},
+                                {QStringLiteral("excludes"), QJsonArray::fromStringList({QStringLiteral(".git/"), QStringLiteral("build/")})}},
+                    QJsonArray::fromStringList(Backend::buildWorkspaceDiffArgs(
+                        QStringLiteral("/tmp/snaps/../snap1/"), QStringLiteral("/tmp/ws/box1"),
+                        {QStringLiteral(".git/"), QStringLiteral("build/")})));
+
+    const QList<QPair<const char *, QString>> pathCases = {
+        {"valid_nested", QStringLiteral("src/main.cpp")},
+        {"valid_dots_in_name", QStringLiteral(".../.hidden/a..b.txt")},
+        {"empty", QStringLiteral("")},
+        {"abs_slash", QStringLiteral("/etc/passwd")},
+        {"parent_start", QStringLiteral("../secret.txt")},
+        {"parent_mid", QStringLiteral("a/../b")},
+        {"dot_start", QStringLiteral("./a")},
+        {"dot_mid", QStringLiteral("a/./b")},
+        {"only_slashes", QStringLiteral("///")},
+        {"double_slash_valid", QStringLiteral("a//b")},
+        {"nul_byte", QString::fromLatin1("a\0b", 3)},
+    };
+    for (const auto &c : pathCases) {
+        out += jsonLine(QStringLiteral("Backend::isSafeRelativePath"), QString::fromLatin1(c.first),
+                        QJsonObject{{QStringLiteral("relativePath"), c.second}},
+                        Backend::isSafeRelativePath(c.second));
+    }
+
+    const QByteArray nulAt8191 = QByteArray(8191, 'a') + QByteArray("\0", 1);
+    const QByteArray nulAt8192 = QByteArray(8192, 'a') + QByteArray("\0", 1);
+    const QList<QPair<const char *, QByteArray>> binCases = {
+        {"empty", QByteArray()},
+        {"ascii", QByteArrayLiteral("hello\nworld\n")},
+        {"utf8", QByteArrayLiteral("héllo 🌍\n")},
+        {"elf_nul", QByteArray("ELF\x00\x01\x02", 6)},
+        {"nul_at_8191", nulAt8191},
+        {"nul_at_8192", nulAt8192},
+    };
+    for (const auto &c : binCases) {
+        out += jsonLine(QStringLiteral("Backend::isLikelyBinaryData"), QString::fromLatin1(c.first),
+                        QJsonObject{{QStringLiteral("sampleHex"), QString::fromLatin1(c.second.toHex())}},
+                        Backend::isLikelyBinaryData(c.second));
+    }
+
+    const QList<std::tuple<const char *, QString, int>> capCases = {
+        {"under_cap", QStringLiteral("a\nb\nc"), 5},
+        {"exact_cap", QStringLiteral("a\nb\nc"), 3},
+        {"over_cap", QStringLiteral("a\nb\nc\nd"), 2},
+        {"trailing_newline_exact", QStringLiteral("a\nb\n"), 3},
+        {"trailing_newline_over", QStringLiteral("a\nb\n"), 2},
+        {"zero_clamped", QStringLiteral("a\nb"), 0},
+    };
+    for (const auto &c : capCases) {
+        bool truncated = false;
+        const QString capped = Backend::capDiffLines(std::get<1>(c), std::get<2>(c), &truncated);
+        out += jsonLine(QStringLiteral("Backend::capDiffLines"), QString::fromLatin1(std::get<0>(c)),
+                        QJsonObject{{QStringLiteral("diffOutput"), std::get<1>(c)},
+                                    {QStringLiteral("maxLines"), std::get<2>(c)}},
+                        QJsonObject{{QStringLiteral("text"), capped},
+                                    {QStringLiteral("truncated"), truncated}});
+    }
+
+    const QString itemizeFixture = QStringLiteral(
+        ".d..t...... 40 ./\r\n"
+        ".d..t...... 40 sub dir/\r\n"
+        "*deleting   0 added file with spaces.txt\n"
+        "*deleting   0 new dir/\n"
+        ">f.s....... 42 src/main file.cpp\n"
+        ">f+++++++++ 128 removed.txt\n"
+        "cd+++++++++ 0 old dir/\n"
+        "cL+++++++++ 12 deleted_link\n"
+        "cLc........ 8 changed_link\n"
+        "unmatched line\n");
+    for (const int maxEntries : {5000, 3, 0}) {
+        out += jsonLine(QStringLiteral("Backend::parseRsyncItemize"),
+                        QStringLiteral("cap_%1").arg(maxEntries),
+                        QJsonObject{{QStringLiteral("output"), itemizeFixture},
+                                    {QStringLiteral("maxEntries"), maxEntries}},
+                        QJsonValue::fromVariant(Backend::parseRsyncItemize(itemizeFixture, maxEntries)));
+    }
+
+    // processWorkspaceDiffOutput with real workspace files for added size/symlink enrichment
+    const QString wsWork = QStringLiteral("/tmp/aibox-golden-diff-ws");
+    QDir(wsWork).removeRecursively();
+    QDir().mkpath(wsWork + QStringLiteral("/new dir"));
+    {
+        QFile f(wsWork + QStringLiteral("/added file.txt"));
+        if (f.open(QIODevice::WriteOnly))
+            f.write("hello world");
+    }
+    QFile::link(QStringLiteral("added file.txt"), wsWork + QStringLiteral("/added_link"));
+
+    const QString procFixture = QStringLiteral(
+        "*deleting   0 added file.txt\n"
+        "*deleting   0 added_link\n"
+        "*deleting   0 new dir/\n"
+        "*deleting   0 missing_added.txt\n"
+        ">f.s....... 42 modified.txt\n"
+        ">f+++++++++ 10 deleted.txt\n");
+    QVariantList procEntries;
+    const QVariantMap procSummary = Backend::processWorkspaceDiffOutput(
+        QStringLiteral("snap-1"), wsWork, procFixture, &procEntries);
+    out += jsonLine(QStringLiteral("Backend::processWorkspaceDiffOutput"), QStringLiteral("enriched"),
+                    QJsonObject{{QStringLiteral("snapshotName"), QStringLiteral("snap-1")},
+                                {QStringLiteral("wsPath"), wsWork},
+                                {QStringLiteral("rsyncStdout"), procFixture}},
+                    QJsonObject{{QStringLiteral("summary"), QJsonObject::fromVariantMap(procSummary)},
+                                {QStringLiteral("entries"), QJsonArray::fromVariantList(procEntries)}});
+    QDir(wsWork).removeRecursively();
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1664,6 +1797,7 @@ int main(int argc, char *argv[]) {
         {"secrets", &GoldenCapture::captureSecrets},
         {"session", &GoldenCapture::captureSession},
         {"snapshot", &GoldenCapture::captureSnapshot},
+        {"diff", &GoldenCapture::captureDiff},
     };
 
     bool matched = onlyModule.isEmpty();

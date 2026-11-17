@@ -8,3 +8,4 @@ pub mod settings;
 pub mod snapshot;
 pub mod theme;
 pub mod util;
+pub mod workspace_diff;

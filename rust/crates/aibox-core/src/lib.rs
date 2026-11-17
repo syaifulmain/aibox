@@ -6,6 +6,7 @@ pub mod session;
 pub mod snapshot;
 pub mod theme;
 pub mod util;
+pub mod workspace;
 
 pub fn core_version() -> &'static str {
     env!("CARGO_PKG_VERSION")

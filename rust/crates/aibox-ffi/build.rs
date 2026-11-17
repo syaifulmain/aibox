@@ -10,6 +10,7 @@ fn main() {
         "src/snapshot.rs",
         "src/theme.rs",
         "src/util.rs",
+        "src/workspace_diff.rs",
     ];
     cxx_build::bridges(bridges)
         .std("c++17")

@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P07a — Workspace Change Review (rsync diff)
+- **Rust core (`rust/crates/aibox-core/src/workspace/diff.rs`)**: ported workspace diff excludes (`default_diff_excludes`, `parse_diff_excludes`, `build_rsync_exclude_args`), rsync diff argument building (`build_workspace_diff_args`), rsync `--itemize-changes` parsing and workspace enrichment (`parse_rsync_itemize`, `process_workspace_diff_output`), path-traversal guard (`is_safe_relative_path`), binary detection (`is_likely_binary_data`), diff line capping (`cap_diff_lines`), file diff pre-checks/shaping (`prepare_file_diff`, `shape_file_diff_output`), and single-file restore (`restore_single_file`), with 5 new Rust unit tests.
+- **FFI bridge & C++ facade (`rust/crates/aibox-ffi/src/workspace_diff.rs`, `src/cpp/backend_workspace.cpp`)**: bridged workspace diff functions via `cxx` and delegated `backend_workspace.cpp` diff/restore logic to Rust while keeping `QProcess` async execution, `m_diffTimeoutTimer`, demo mode, and all `Backend` signatures unchanged.
+- **Golden fixtures (`tests/golden/diff.jsonl`, `tests/golden_capture/main.cpp`, `rust/crates/aibox-core/tests/golden.rs`)**: captured 32 diff golden cases from C++ and enabled `"diff"` in `golden.rs`.
+
 ### User-Local Passwordless Installer (`./bin/install`)
 - **Installer (`bin/install`, `bin/uninstall`, `bin/setup-system`)**: `./bin/install` now checks required packages via `pacman -T` and `cargo` (including `~/.cargo/bin/cargo`) without root, invoking `sudo pacman -S --needed` only if a dependency is actually missing; it then builds `build/aibox` via `./bin/build` and installs the binary, `.desktop` launcher entry (`Exec=$HOME/.local/bin/aibox %f`), SVG icon, and license directly under `~/.local/` (`XDG_BIN_HOME` / `XDG_DATA_HOME`) without `sudo`. Passing `--system` preserves the `makepkg -fsic --noconfirm` Arch package path when needed. `./bin/uninstall` removes the `~/.local/` files as well as any legacy system package, and `./bin/setup-system` now includes all build/runtime packages.
 - **Docs (`AGENTS.md`, `README.md`, `CATALOG.md`)**: updated installation workflow documentation to reflect user-local passwordless installation.
