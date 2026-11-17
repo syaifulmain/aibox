@@ -14,7 +14,7 @@
         <file alias="components/SelectCard.qml">qml/components/SelectCard.qml</file>
         <file alias="components/SegmentedTabs.qml">qml/components/SegmentedTabs.qml</file>
         <file alias="components/CheckRow.qml">qml/components/CheckRow.qml</file>
-        <file alias="components/CopyValueRow.qml">qml/components/CopyValueRow.qml</file>
+        <file alias="components/MenuRow.qml">qml/components/MenuRow.qml</file>
         <file alias="components/ResourceMeterCard.qml">qml/components/ResourceMeterCard.qml</file>
         <file alias="components/ActionButton.qml">qml/components/ActionButton.qml</file>
         <file alias="components/ModalHeader.qml">qml/components/ModalHeader.qml</file>
@@ -24,6 +24,7 @@
         <file alias="dialogs/CreateDialog.qml">qml/dialogs/CreateDialog.qml</file>
         <file alias="dialogs/EditQuotasDialog.qml">qml/dialogs/EditQuotasDialog.qml</file>
         <file alias="dialogs/EgressDialog.qml">qml/dialogs/EgressDialog.qml</file>
+        <file alias="dialogs/EnvironmentActionsDialog.qml">qml/dialogs/EnvironmentActionsDialog.qml</file>
         <file alias="dialogs/HelpOverlay.qml">qml/dialogs/HelpOverlay.qml</file>
         <file alias="dialogs/HistoryDialog.qml">qml/dialogs/HistoryDialog.qml</file>
         <file alias="dialogs/MountsDialog.qml">qml/dialogs/MountsDialog.qml</file>
@@ -31,13 +32,13 @@
         <file alias="dialogs/RestoreDialog.qml">qml/dialogs/RestoreDialog.qml</file>
         <file alias="dialogs/SecretsDialog.qml">qml/dialogs/SecretsDialog.qml</file>
         <file alias="dialogs/StaleReportDialog.qml">qml/dialogs/StaleReportDialog.qml</file>
+        <file alias="dialogs/ToolsDialog.qml">qml/dialogs/ToolsDialog.qml</file>
         <file alias="dialogs/WipeDialog.qml">qml/dialogs/WipeDialog.qml</file>
         <file alias="panels/AppHeader.qml">qml/panels/AppHeader.qml</file>
         <file alias="panels/MainContent.qml">qml/panels/MainContent.qml</file>
         <file alias="panels/EnvironmentList.qml">qml/panels/EnvironmentList.qml</file>
         <file alias="panels/EnvironmentInspector.qml">qml/panels/EnvironmentInspector.qml</file>
         <file alias="panels/NetworkModeCard.qml">qml/panels/NetworkModeCard.qml</file>
-        <file alias="panels/NetworkMonitorCard.qml">qml/panels/NetworkMonitorCard.qml</file>
         <file alias="panels/SnapshotsCard.qml">qml/panels/SnapshotsCard.qml</file>
         <file alias="panels/OsCatalogPanel.qml">qml/panels/OsCatalogPanel.qml</file>
         <file alias="panels/settings/LocationsSection.qml">qml/panels/settings/LocationsSection.qml</file>

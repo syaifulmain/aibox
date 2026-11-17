@@ -6,7 +6,7 @@ ModalDialog {
     id: cloneDialogRoot
     property QtObject app: null
     open: app.cloneVisible
-    cardWidth: Math.min(parent.width - Style.modalGutterWide, 520)
+    cardWidth: Math.min(parent.width - Style.modalGutter, 520)
     contentSpacing: Style.space14
     onDismissed: {
         if (!backend.busy)

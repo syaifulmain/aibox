@@ -66,6 +66,10 @@ QtObject {
     readonly property int controlHeightXxs: 24
 
     readonly property int headerHeight: 54
+    readonly property int menuRowHeight: 50
+    readonly property int listRowHeight: 68
+    readonly property int rowHeight: 36
+    readonly property int iconTile: 36
     readonly property int badgeHeight: 18
     readonly property int badgeHeightMd: 20
     readonly property int badgeHeightLg: 22

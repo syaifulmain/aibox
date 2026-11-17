@@ -8,9 +8,9 @@ ModalDialog {
     id: createDialogRoot
     property QtObject app: null
     open: app.createVisible
-    cardWidth: Math.min(parent.width - Style.modalGutterWide, 680)
-    cardHeight: Math.min(parent.height - Style.modalEdgeTight, contentHeight + Style.modalPaddingTight * 2)
-    padding: Style.modalPaddingTight
+    cardWidth: Math.min(parent.width - Style.modalGutter, 680)
+    cardHeight: Math.min(parent.height - Style.modalEdge, contentHeight + Style.modalPadding * 2)
+    padding: Style.modalPadding
     onDismissed: {
         if (!backend.busy)
             app.createVisible = false

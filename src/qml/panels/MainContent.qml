@@ -82,12 +82,6 @@ Item {
                         shortcutHint: "2"
                         onClicked: mainContentRoot.app.activeTab = 1
                     }
-
-                    ActionButton {
-                        label: qsTr("Stale & Orphans")
-                        shortcutHint: "U"
-                        onClicked: mainContentRoot.app.openStaleReportDialog()
-                    }
                 }
             }
         }

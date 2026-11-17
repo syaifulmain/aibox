@@ -31,13 +31,6 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
-
-            Text {
-                text: qsTr("↑/↓ select · Space enter")
-                color: theme.muted
-                font.family: Style.fontMono
-                font.pixelSize: Style.font10
-            }
         }
 
         ListView {
@@ -53,7 +46,7 @@ Rectangle {
                 required property var modelData
                 required property int index
                 width: envListView.width
-                height: 68
+                height: Style.listRowHeight
 
                 readonly property bool selected: backend.selectedIndex === index
                 readonly property real diskRatio: (modelData.diskQuotaBytes || 0) > 0
@@ -116,49 +109,16 @@ Rectangle {
                             Layout.fillWidth: true
                             spacing: Style.space12
 
-                            RowLayout {
-                                spacing: Style.space5
-
-                                Text {
-                                    text: qsTr("DISK")
-                                    color: theme.muted
-                                    font.family: Style.fontMono
-                                    font.pixelSize: Style.font8
-                                    font.letterSpacing: 1
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
-
-                                Text {
-                                    text: app.sizePair(modelData.diskUsage, modelData.diskLimit)
-                                    color: envRow.diskRatio >= 0.9 ? theme.red
-                                         : (envRow.diskRatio >= 0.75 ? theme.yellow : theme.foreground)
-                                    opacity: envRow.diskRatio >= 0.75 ? 1 : Style.opacityDeemphasized
-                                    font.family: Style.fontMono
-                                    font.pixelSize: Style.font10
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
-                            }
-
-                            RowLayout {
-                                spacing: Style.space5
-
-                                Text {
-                                    text: qsTr("RAM")
-                                    color: theme.muted
-                                    font.family: Style.fontMono
-                                    font.pixelSize: Style.font8
-                                    font.letterSpacing: 1
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
-
-                                Text {
-                                    text: app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
-                                    color: theme.foreground
-                                    opacity: Style.opacityDeemphasized
-                                    font.family: Style.fontMono
-                                    font.pixelSize: Style.font10
-                                    Layout.alignment: Qt.AlignVCenter
-                                }
+                            Text {
+                                text: app.sizePair(modelData.diskUsage, modelData.diskLimit)
+                                      + "  ·  "
+                                      + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
+                                color: envRow.diskRatio >= 0.9 ? theme.red
+                                     : (envRow.diskRatio >= 0.75 ? theme.yellow : theme.foreground)
+                                opacity: envRow.diskRatio >= 0.75 ? 1 : Style.opacityDeemphasized
+                                font.family: Style.fontMono
+                                font.pixelSize: Style.font10
+                                Layout.alignment: Qt.AlignVCenter
                             }
 
                             Text {
@@ -183,14 +143,6 @@ Rectangle {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: backend.selectedIndex = index
                         onDoubleClicked: backend.enterEnvironment(modelData.name)
-                        ToolTip.delay: 700
-                        ToolTip.visible: envRowMouse.containsMouse
-                        ToolTip.text: qsTr("Disk %1 / %2 · RAM %3 / %4 · %5")
-                                          .arg(modelData.diskUsage || "—")
-                                          .arg(modelData.diskLimit || "—")
-                                          .arg(modelData.memoryUsage || "—")
-                                          .arg(modelData.memoryLimit || "—")
-                                          .arg(envRow.networkLabel)
                     }
                 }
             }
@@ -200,7 +152,7 @@ Rectangle {
         Rectangle {
             visible: backend.poolInfo.valid || false
             Layout.fillWidth: true
-            implicitHeight: poolSidebarRow.implicitHeight + Style.space12
+            implicitHeight: poolSidebarCol.implicitHeight + Style.space12
             radius: Math.min(Style.radius4, theme.radius)
             color: Style.surfaceInput
             border.width: Style.hairline
@@ -208,42 +160,80 @@ Rectangle {
                           ? theme.red
                           : (backend.poolInfo.alertLevel === 1 ? Style.warning : Style.borderSubtle)
 
-            RowLayout {
-                id: poolSidebarRow
+            ColumnLayout {
+                id: poolSidebarCol
                 anchors.fill: parent
                 anchors.margins: Style.space6
                 anchors.leftMargin: Style.space10
                 anchors.rightMargin: Style.space10
-                spacing: Style.space6
+                spacing: Style.space4
 
-                Text {
+                RowLayout {
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    text: qsTr("Pool %1: %2 / %3 (%4%)")
-                              .arg(backend.poolInfo.name || "default")
-                              .arg(backend.poolInfo.usedText || "0 MiB")
-                              .arg(backend.poolInfo.totalText || "0 MiB")
-                              .arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
-                    color: backend.poolInfo.alertLevel === 2
-                           ? theme.red
-                           : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.muted)
-                    font.family: Style.fontMono
-                    font.pixelSize: Style.font10
+                    spacing: Style.space8
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: qsTr("Storage Pool")
+                        color: theme.muted
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.font10
+                    }
+
+                    Text {
+                        text: (backend.poolInfo.usedPercent !== undefined
+                               ? backend.poolInfo.usedPercent
+                               : 0) + "%"
+                        color: backend.poolInfo.alertLevel === 2
+                               ? theme.red
+                               : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.accent)
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
+                        font.weight: Font.Medium
+                    }
+
+                    Text {
+                        text: qsTr("Manage")
+                        color: theme.accent
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.font10
+                    }
                 }
 
-                Text {
-                    visible: (backend.poolInfo.allocatedBytes || 0) > 0
-                    text: qsTr("Alloc %1").arg(backend.poolInfo.allocatedText || "0 MiB")
-                    color: (backend.poolInfo.overcommitted || false) ? Style.warning : theme.muted
-                    font.family: Style.fontMono
-                    font.pixelSize: Style.font10
+                MeterBar {
+                    Layout.fillWidth: true
+                    implicitHeight: 3
+                    value: backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0
+                    minFillWidth: Style.space4
+                    fillColor: backend.poolInfo.alertLevel === 2
+                               ? theme.red
+                               : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.accent)
                 }
 
-                Text {
-                    text: qsTr("Manage")
-                    color: theme.accent
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font10
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space6
+
+                    Text {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: qsTr("%1 / %2 used")
+                                  .arg(backend.poolInfo.usedText || "0 MiB")
+                                  .arg(backend.poolInfo.totalText || "0 MiB")
+                        color: theme.muted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
+                    }
+
+                    Text {
+                        visible: (backend.poolInfo.allocatedBytes || 0) > 0
+                        elide: Text.ElideRight
+                        text: qsTr("Allocated %1").arg(backend.poolInfo.allocatedText || "0 MiB")
+                        color: (backend.poolInfo.overcommitted || false) ? Style.warning : theme.muted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
+                    }
                 }
             }
 
@@ -252,13 +242,6 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: app.openPoolSettings()
             }
-        }
-
-        ActionButton {
-            Layout.fillWidth: true
-            label: qsTr("Stale & Orphans Report")
-            shortcutHint: "U"
-            onClicked: app.openStaleReportDialog()
         }
     }
 }

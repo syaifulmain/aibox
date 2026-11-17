@@ -2951,34 +2951,6 @@ exit 0
         QVERIFY(remainingBytes <= 4000);
     }
 
-    void parseNetworkProbeOutputReadsPingGatewayAndLoss()
-    {
-        const QString output = QStringLiteral(
-            "GW=10.143.44.1\n"
-            "PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.\n"
-            "\n--- 1.1.1.1 ping statistics ---\n"
-            "3 packets transmitted, 3 received, 0% packet loss, time 2003ms\n"
-            "rtt min/avg/max/mdev = 21.123/30.456/38.789/4.321 ms\n");
-
-        const QVariantMap parsed = Backend::parseNetworkProbeOutput(output);
-        QCOMPARE(parsed.value("gateway").toString(), QString("10.143.44.1"));
-        QCOMPARE(parsed.value("pingMs").toDouble(), 30.456);
-        QCOMPARE(parsed.value("packetLossPercent").toDouble(), 0.0);
-    }
-
-    void parseNetworkProbeOutputHandlesBlockedNetworkAndHexGateway()
-    {
-        const QString output = QStringLiteral(
-            "GW=0101A8C0\n"
-            "--- 1.1.1.1 ping statistics ---\n"
-            "3 packets transmitted, 0 received, 100% packet loss, time 2002ms\n");
-
-        const QVariantMap parsed = Backend::parseNetworkProbeOutput(output);
-        QCOMPARE(parsed.value("gateway").toString(), QString("192.168.1.1"));
-        QCOMPARE(parsed.value("pingMs").toDouble(), -1.0);
-        QCOMPARE(parsed.value("packetLossPercent").toDouble(), 100.0);
-    }
-
     void networkCountersProduceRatesAndTotals()
     {
         auto buildJson = [](qint64 rx, qint64 tx) {
@@ -3024,43 +2996,6 @@ exit 0
         QCOMPARE(secondEnv.value("netTxRateText").toString(), QString("512 B/s"));
     }
 
-    void networkStatsFollowEnvironmentState()
-    {
-        QVariantMap env;
-        env["name"] = QStringLiteral("net-box");
-        env["running"] = true;
-        env["networkMode"] = QStringLiteral("online");
-        env["ipv4"] = QStringLiteral("10.143.44.55");
-        env["netRxRateText"] = QStringLiteral("149.7 KB/s");
-        env["netTxRateText"] = QStringLiteral("13.9 KB/s");
-        env["netRxTotalText"] = QStringLiteral("36.33 GB");
-        env["netTxTotalText"] = QStringLiteral("6.86 GB");
-
-        const QVariantMap probe = QVariantMap{
-            {"gateway", QStringLiteral("10.143.44.1")},
-            {"pingMs", 30.0},
-            {"packetLossPercent", 0.0}
-        };
-        const QVariantMap stats = Backend::networkStatsFromEnvironment(env, probe);
-        QCOMPARE(stats.value("active").toBool(), true);
-        QCOMPARE(stats.value("ip").toString(), QString("10.143.44.55"));
-        QCOMPARE(stats.value("gateway").toString(), QString("10.143.44.1"));
-        QCOMPARE(stats.value("pingMs").toDouble(), 30.0);
-        QCOMPARE(stats.value("rxRateText").toString(), QString("149.7 KB/s"));
-
-        env["networkMode"] = QStringLiteral("offline");
-        const QVariantMap offline = Backend::networkStatsFromEnvironment(env, probe);
-        QCOMPARE(offline.value("active").toBool(), false);
-        QCOMPARE(offline.value("pingMs").toDouble(), -1.0);
-        QCOMPARE(offline.value("packetLossPercent").toDouble(), -1.0);
-
-        env["networkMode"] = QStringLiteral("online");
-        env["running"] = false;
-        const QVariantMap stopped = Backend::networkStatsFromEnvironment(env, probe);
-        QCOMPARE(stopped.value("active").toBool(), false);
-        QCOMPARE(stopped.value("gateway").toString(), QString("10.143.44.1"));
-        QCOMPARE(stopped.value("pingMs").toDouble(), -1.0);
-    }
 
 private:
     static void writeExecutable(const QString &path, const QByteArray &contents)

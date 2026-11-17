@@ -73,8 +73,8 @@ ModalDialog {
                     spacing: Style.space10
 
                     Rectangle {
-                        width: 30
-                        height: 30
+                        width: Style.iconTile
+                        height: Style.iconTile
                         radius: Math.min(Style.radius5, theme.radius)
                         color: Style.surfaceSelected
                         border.width: Style.hairline
@@ -82,28 +82,18 @@ ModalDialog {
 
                         SlidersIcon {
                             anchors.centerIn: parent
-                            width: 16
-                            height: 16
+                            width: 18
+                            height: 18
                             color: theme.accent
                         }
                     }
 
-                    ColumnLayout {
-                        spacing: Style.space1
-
-                        Text {
-                            text: qsTr("Configuration")
-                            color: theme.foreground
-                            font.family: Style.fontSans
-                            font.pixelSize: Style.font14
-                            font.weight: Font.Medium
-                        }
-                        Text {
-                            text: qsTr("AIBox settings")
-                            color: theme.muted
-                            font.family: Style.fontSans
-                            font.pixelSize: Style.font10
-                        }
+                    Text {
+                        text: qsTr("Settings")
+                        color: theme.foreground
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.font14
+                        font.weight: Font.Medium
                     }
                 }
 
@@ -117,53 +107,43 @@ ModalDialog {
 
                 Repeater {
                     model: [
-                        { title: qsTr("Locations"), detail: qsTr("Workspace & OS images"), step: "01" },
-                        { title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth"), step: "02" },
-                        { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove"), step: "03" },
-                        { title: qsTr("Create Options"), detail: qsTr("Presets & quotas"), step: "04" },
-                        { title: qsTr("Safety"), detail: qsTr("Auto-snapshots"), step: "05" }
+                        { title: qsTr("Locations"), detail: qsTr("Workspace & OS images") },
+                        { title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth") },
+                        { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove") },
+                        { title: qsTr("Create Options"), detail: qsTr("Presets & quotas") },
+                        { title: qsTr("Safety"), detail: qsTr("Auto-snapshots") }
                     ]
 
                     delegate: Rectangle {
                         required property var modelData
                         required property int index
                         Layout.fillWidth: true
-                        height: 52
+                        height: Style.menuRowHeight
                         radius: Math.min(Style.radius5, theme.radius)
                         color: app.settingsSection === index ? Style.surfaceSelected : "transparent"
                         border.width: app.settingsSection === index ? Style.hairline : 0
                         border.color: theme.accent
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Style.space10
-                            anchors.rightMargin: Style.space10
-                            spacing: Style.space10
+                        ColumnLayout {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: Style.space12
+                            anchors.rightMargin: Style.space12
+                            spacing: Style.space1
 
                             Text {
-                                text: modelData.step
-                                color: app.settingsSection === index ? theme.accent : theme.muted
-                                font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                text: modelData.title
+                                color: app.settingsSection === index ? theme.foreground : theme.muted
+                                font.family: Style.fontSans
+                                font.pixelSize: Style.font12
+                                font.weight: app.settingsSection === index ? Font.Medium : Font.Normal
                             }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Style.space1
-
-                                Text {
-                                    text: modelData.title
-                                    color: app.settingsSection === index ? theme.foreground : theme.muted
-                                    font.family: Style.fontSans
-                                    font.pixelSize: Style.font12
-                                    font.weight: app.settingsSection === index ? Font.Medium : Font.Normal
-                                }
-                                Text {
-                                    text: modelData.detail
-                                    color: theme.muted
-                                    font.family: Style.fontSans
-                                    font.pixelSize: Style.font10
-                                }
+                            Text {
+                                text: modelData.detail
+                                color: theme.muted
+                                font.family: Style.fontSans
+                                font.pixelSize: Style.font10
                             }
                         }
 
@@ -176,22 +156,6 @@ ModalDialog {
                 }
 
                 Item { Layout.fillHeight: true }
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Config file")
-                    color: theme.muted
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font10
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: backend.configFilePath
-                    color: theme.muted
-                    font.family: Style.fontMono
-                    font.pixelSize: Style.font9
-                    elide: Text.ElideMiddle
-                }
             }
         }
 

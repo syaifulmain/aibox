@@ -35,76 +35,29 @@ Rectangle {
                 ColumnLayout {
                     spacing: Style.space4
                     Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
 
-                    RowLayout {
-                        spacing: Style.space10
-                        Layout.alignment: Qt.AlignVCenter
-
-                        Text {
-                            text: backend.selectedEnvironment.name || ""
-                            color: theme.foreground
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font18
-                            font.weight: Font.Medium
-                            elide: Text.ElideRight
-                            Layout.maximumWidth: 340
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-
-                        TagBadge {
-                            visible: backend.selectedEnvironment.isTemplate || false
-                            text: qsTr("TEMPLATE")
-                            tone: "accent"
-                            badgeHeight: Style.badgeHeightLg
-                            badgeRadius: Style.radius3
-                            textSize: Style.font10
-                            textWeight: Font.Medium
-                            horizontalPadding: Style.space14
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-
-                        TagBadge {
-                            text: backend.selectedEnvironment.status || ""
-                            tone: (backend.selectedEnvironment.running || false) ? "success" : "neutral"
-                            fillColor: (backend.selectedEnvironment.running || false) ? Style.successSurface : Style.surfaceInput
-                            dotVisible: true
-                            badgeHeight: Style.badgeHeightLg
-                            badgeRadius: Style.radius3
-                            textSize: Style.font10
-                            textWeight: Font.Medium
-                            horizontalPadding: Style.space16
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-
-                        TagBadge {
-                            visible: (backend.selectedEnvironment.secretNames || []).length > 0
-                            text: qsTr("SECRETS: %1").arg((backend.selectedEnvironment.secretNames || []).length)
-                            tone: "accent"
-                            fillColor: Style.surfaceInput
-                            interactive: true
-                            badgeHeight: Style.badgeHeightLg
-                            badgeRadius: Style.radius3
-                            textSize: Style.font10
-                            textWeight: Font.Medium
-                            horizontalPadding: Style.space14
-                            Layout.alignment: Qt.AlignVCenter
-                            onClicked: app.openSecretsDialog()
-                        }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: backend.selectedEnvironment.name || ""
+                        color: theme.foreground
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font18
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
                     }
 
                     Text {
-                        readonly property string pidStr: backend.selectedEnvironment.processLimit || ""
-                        readonly property string ioStr: backend.selectedEnvironment.diskWriteLimit || backend.selectedEnvironment.diskReadLimit || ""
-                        readonly property string limitSuffix: (pidStr.length > 0 ? "  ·  Pids " + pidStr : "")
-                                                              + (ioStr.length > 0 ? "  ·  I/O " + ioStr : "")
-                        text: (backend.selectedEnvironment.osName || "") + "  ·  " + (backend.selectedEnvironment.preset || "") + limitSuffix
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: (backend.selectedEnvironment.osName || "") + "  ·  " + (backend.selectedEnvironment.preset || "")
                         color: theme.muted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                     }
                 }
-
-                Item { Layout.fillWidth: true }
 
                 ActionButton {
                     label: (backend.selectedEnvironment.isTemplate || false)
@@ -141,49 +94,21 @@ Rectangle {
                 }
 
                 ActionButton {
-                    label: qsTr("Clone")
-                    shortcutHint: "D"
-                    minWidth: 86
+                    label: qsTr("More Actions")
+                    minWidth: 118
                     disabled: backend.busy
                     Layout.alignment: Qt.AlignVCenter
-                    onClicked: app.openCloneDialog(backend.selectedEnvironment.name || "")
+                    onClicked: app.openEnvironmentActions()
                 }
 
                 ActionButton {
-                    label: qsTr("Quotas")
-                    shortcutHint: "E"
-                    minWidth: 92
-                    disabled: backend.busy
+                    visible: (backend.selectedEnvironment.secretNames || []).length > 0
+                    label: qsTr("Secrets (%1)").arg((backend.selectedEnvironment.secretNames || []).length)
+                    shortcutHint: "A"
+                    variant: "accent"
+                    minWidth: 108
                     Layout.alignment: Qt.AlignVCenter
-                    onClicked: app.openEditQuotasDialog()
-                }
-
-                ActionButton {
-                    label: (backend.selectedEnvironment.isTemplate || false) ? qsTr("Unmark Template") : qsTr("Template")
-                    shortcutHint: "T"
-                    variant: (backend.selectedEnvironment.isTemplate || false) ? "accent" : ""
-                    minWidth: 105
-                    disabled: backend.busy
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: backend.setEnvironmentTemplate(backend.selectedEnvironment.name || "", !(backend.selectedEnvironment.isTemplate || false))
-                }
-
-                ActionButton {
-                    label: qsTr("Copy AI Command")
-                    shortcutHint: "C"
-                    minWidth: 142
-                    disabled: backend.selectedEnvironment.isTemplate || false
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: backend.copyAiCommand(backend.selectedEnvironment.name || "")
-                }
-
-                ActionButton {
-                    label: qsTr("Paste Image")
-                    shortcutHint: "I"
-                    minWidth: 112
-                    disabled: backend.selectedEnvironment.isTemplate || false
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: backend.pasteImageToWorkspace(backend.selectedEnvironment.name || "")
+                    onClicked: app.openSecretsDialog()
                 }
 
                 Item { Layout.fillWidth: true }
@@ -235,12 +160,11 @@ Rectangle {
 
                 ResourceMeterCard {
                     Layout.fillWidth: true
-                    title: qsTr("CPU Usage") + " · " + (backend.selectedEnvironment.cpuLimit || "—")
-                    value: (backend.selectedEnvironment.cpuUsage || "0%") + " · " + (backend.selectedEnvironment.cpuLimit || "—")
+                    title: qsTr("CPU Usage")
+                    value: (backend.selectedEnvironment.cpuUsage || "0%") + " / " + (backend.selectedEnvironment.cpuLimit || "—")
                     badge: backend.selectedEnvironment.cpuUsage || "0%"
                     percent: backend.selectedEnvironment.cpuPercent !== undefined ? backend.selectedEnvironment.cpuPercent : 0
-                    isCpu: true
-                    cores: backend.selectedEnvironment.cpuCorePercents || [0, 0, 0, 0]
+                    hasBar: true
                     active: backend.selectedEnvironment.running || false
                 }
             }
@@ -388,57 +312,9 @@ Rectangle {
                 app: root.app
             }
 
-            NetworkMonitorCard {
-                app: root.app
-            }
-
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app
-            }
-
-            // Headless GUI test runner
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 54
-                radius: Math.min(Style.radius4, theme.radius)
-                color: Style.surfaceInput
-                border.width: Style.hairline
-                border.color: Style.borderSubtle
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
-                    spacing: Style.space10
-
-                    Text {
-                        text: qsTr("Virtual Display:")
-                        color: theme.muted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font12
-                    }
-
-                    FlatInput {
-                        id: headlessInput
-                        Layout.fillWidth: true
-                        placeholder: qsTr("Command for 1920x1080 Xvfb screen (e.g. flutter test, npm test, pytest)")
-                        onAccepted: {
-                            if (!backend.busy && headlessInput.text.length > 0)
-                                backend.runHeadlessCommand(backend.selectedEnvironment.name || "", headlessInput.text)
-                        }
-                    }
-
-                    ActionButton {
-                        minWidth: 120
-                        label: qsTr("Run Headless")
-                        disabled: backend.busy
-                        onClicked: {
-                            if (headlessInput.text.length > 0)
-                                backend.runHeadlessCommand(backend.selectedEnvironment.name || "", headlessInput.text)
-                        }
-                    }
-                }
             }
         }
     }

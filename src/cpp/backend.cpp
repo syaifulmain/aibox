@@ -81,9 +81,6 @@ Backend::Backend(const QString &path, PathMode mode, QObject *parent)
         }
     });
 
-    m_netProbeTimer.setInterval(10000);
-    connect(&m_netProbeTimer, &QTimer::timeout, this, &Backend::refreshNetworkStats);
-
     loadConfig();
     reloadSecrets();
     rebuildOsCatalog();
@@ -129,10 +126,6 @@ Backend::~Backend() {
     if (m_refreshProcess && m_refreshProcess->state() != QProcess::NotRunning) {
         m_refreshProcess->kill();
         m_refreshProcess->waitForFinished(500);
-    }
-    if (m_netProbeProcess && m_netProbeProcess->state() != QProcess::NotRunning) {
-        m_netProbeProcess->kill();
-        m_netProbeProcess->waitForFinished(500);
     }
     if (m_enterPrepareProcess && m_enterPrepareProcess->state() != QProcess::NotRunning) {
         m_enterPrepareProcess->kill();
@@ -632,7 +625,6 @@ void Backend::setSelectedIndex(int index) {
         return;
     m_selectedIndex = index;
     emit selectedIndexChanged();
-    updateNetworkStats(true);
     if (!m_demoMode)
         refreshSelectedSnapshotSizes();
 }
@@ -852,7 +844,6 @@ void Backend::refresh() {
             evaluateAllWatchdogs();
             evaluateIdleAutoStops();
             refreshSelectedSnapshotSizes();
-            updateNetworkStats();
 
             const QVariantList newCatalog = catalogForEntries(m_osEntries, imgJson, m_downloadingOsId, m_osStoragePath);
             if (newCatalog != m_osCatalog) {

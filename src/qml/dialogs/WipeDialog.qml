@@ -6,7 +6,7 @@ ModalDialog {
     id: wipeDialogRoot
     property QtObject app: null
     open: app.wipeVisible
-    cardWidth: Math.min(parent.width - Style.modalGutterWide, 500)
+    cardWidth: Math.min(parent.width - Style.modalGutter, 500)
     contentSpacing: Style.space14
     borderColor: theme.red
     onDismissed: app.wipeVisible = false

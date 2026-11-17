@@ -44,7 +44,7 @@ ColumnLayout {
         delegate: Rectangle {
             required property var modelData
             width: osListView.width
-            height: 74
+            height: Style.listRowHeight
             radius: Math.min(Style.radius4, theme.radius)
             color: Style.surfaceCard
             border.width: Style.hairline
@@ -58,8 +58,8 @@ ColumnLayout {
 
                 // Cached / download state icon
                 Rectangle {
-                    width: 36
-                    height: 36
+                    width: Style.iconTile
+                    height: Style.iconTile
                     radius: Math.min(Style.radius4, theme.radius)
                     color: modelData.downloaded ? Style.successSurface : Style.surfaceInput
                     border.width: Style.hairline

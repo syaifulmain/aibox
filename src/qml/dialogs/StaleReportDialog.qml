@@ -8,8 +8,8 @@ ModalDialog {
     property QtObject app: null
     open: app.staleReportVisible
     zOrder: 28
-    cardWidth: Math.min(860, parent.width - Style.modalGutter)
-    cardHeight: Math.min(640, parent.height - Style.modalEdge)
+    cardWidth: Math.min(parent.width - Style.modalGutter, 860)
+    cardHeight: Math.min(parent.height - Style.modalEdge, 640)
     onDismissed: app.staleReportVisible = false
 
     ModalHeader {

@@ -29,17 +29,6 @@ Rectangle {
                 font.pixelSize: Style.font15
                 font.weight: Font.Medium
             }
-            Text {
-                text: "·"
-                color: theme.muted
-                font.pixelSize: Style.font14
-            }
-            Text {
-                text: qsTr("Isolated Linux OS Manager")
-                color: theme.muted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-            }
         }
 
         // Main tab switcher
@@ -48,7 +37,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             tabs: [
                 { label: qsTr("%n Environments", "", backend.environments.length), key: "1", value: 0 },
-                { label: qsTr("OS Images & Downloads"), key: "2", value: 1 }
+                { label: qsTr("OS Images"), key: "2", value: 1 }
             ]
             currentValue: app.activeTab
             mediumWhenSelected: true
@@ -62,33 +51,13 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
 
             ActionButton {
-                label: qsTr("Secrets")
-                shortcutHint: "A"
-                minWidth: 96
+                label: qsTr("Tools")
+                minWidth: 92
                 disabled: backend.firstRun
                 Layout.alignment: Qt.AlignVCenter
-                onClicked: app.openSecretsDialog()
-            }
-
-            ActionButton {
-                label: qsTr("Backups")
-                shortcutHint: "B"
-                minWidth: 96
-                disabled: backend.firstRun
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: app.openBackupsDialog()
-            }
-
-            ActionButton {
-                label: backend.recentFailedHistoryCount > 0
-                       ? qsTr("History (%1!)").arg(backend.recentFailedHistoryCount)
-                       : qsTr("History")
-                shortcutHint: "H"
-                variant: backend.recentFailedHistoryCount > 0 ? "danger" : ""
-                minWidth: 96
-                disabled: backend.firstRun
-                Layout.alignment: Qt.AlignVCenter
-                onClicked: app.openHistoryDialog()
+                onClicked: app.toolsVisible = true
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Secrets, backups, history and cleanup")
             }
 
             ActionButton {

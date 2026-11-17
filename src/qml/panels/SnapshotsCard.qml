@@ -28,17 +28,21 @@ Rectangle {
             spacing: Style.space10
 
             ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 spacing: Style.space2
 
                 Text {
-                    text: qsTr("Btrfs Snapshots (Instant Rollback)")
+                    text: qsTr("Btrfs Snapshots")
                     color: theme.foreground
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
                 }
                 Text {
-                    text: qsTr("Auto-snapshot runs before Enter & Start (keeps last %1)").arg(backend.autoSnapshotKeep)
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    text: qsTr("Before Enter & Start")
                     color: theme.muted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
@@ -46,46 +50,6 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
-
-            ActionButton {
-                minWidth: 112
-                label: (backend.selectedEnvironment.autoStopOnCritical || false)
-                       ? qsTr("Auto-stop: ON")
-                       : qsTr("Auto-stop: OFF")
-                variant: (backend.selectedEnvironment.autoStopOnCritical || false) ? "danger" : ""
-                disabled: backend.busy
-                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                onClicked: backend.setEnvironmentAutoStop(
-                    backend.selectedEnvironment.name || "",
-                    !(backend.selectedEnvironment.autoStopOnCritical || false))
-            }
-
-            ActionButton {
-                minWidth: 86
-                visible: backend.selectedEnvironment.workspaceIsSubvolume || false
-                label: (backend.selectedEnvironment.workspaceSnapshotEnabled !== false)
-                       ? qsTr("WS: ON")
-                       : qsTr("WS: OFF")
-                variant: (backend.selectedEnvironment.workspaceSnapshotEnabled !== false) ? "accent" : ""
-                disabled: backend.busy
-                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                onClicked: backend.setEnvironmentWorkspaceSnapshot(
-                    backend.selectedEnvironment.name || "",
-                    !(backend.selectedEnvironment.workspaceSnapshotEnabled !== false))
-            }
-
-            ActionButton {
-                minWidth: 92
-                label: (backend.selectedEnvironment.autoSnapshotEnabled !== false)
-                       ? qsTr("Auto: ON")
-                       : qsTr("Auto: OFF")
-                variant: (backend.selectedEnvironment.autoSnapshotEnabled !== false) ? "accent" : ""
-                disabled: backend.busy
-                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                onClicked: backend.setEnvironmentAutoSnapshot(
-                    backend.selectedEnvironment.name || "",
-                    !(backend.selectedEnvironment.autoSnapshotEnabled !== false))
-            }
 
             FlatInput {
                 id: snapNameInput
@@ -113,103 +77,52 @@ Rectangle {
             }
         }
 
-        // Per-environment idle auto-stop policy
+        // Compact snapshot and safety policies
         RowLayout {
-            id: idlePolicyRow
             Layout.fillWidth: true
             spacing: Style.space8
 
-            readonly property string curIdleOv: backend.selectedEnvironment.idleStopOverride || "inherit"
-            readonly property bool curIgnorePorts: backend.selectedEnvironment.idleStopIgnorePorts || false
-            readonly property int globalIdleMin: backend.idleStopMinutes
-
-            Text {
-                text: qsTr("Idle Auto-Stop:")
-                color: theme.muted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-
-            Repeater {
-                model: [
-                    { val: "inherit", lbl: idlePolicyRow.globalIdleMin > 0 ? qsTr("Inherit (%1m)").arg(idlePolicyRow.globalIdleMin) : qsTr("Inherit (Off)") },
-                    { val: "off", lbl: qsTr("Off") },
-                    { val: "15", lbl: "15m" },
-                    { val: "30", lbl: "30m" },
-                    { val: "60", lbl: "60m" },
-                    { val: "120", lbl: "120m" }
-                ]
-                delegate: SelectChip {
-                    required property var modelData
-                    readonly property string normOv: backend.selectedEnvironment.idleStopOverride || "inherit"
-                    text: modelData.lbl
-                    selected: normOv === modelData.val || (modelData.val === "inherit" && normOv.length === 0)
-                    mono: true
-                    textSize: Style.font10
-                    fillColor: Style.surfaceCard
-                    chipHeight: Style.controlHeightXs
-                    horizontalPadding: Style.space14
-                    interactive: !backend.busy
-                    onClicked: backend.setEnvironmentIdleStop(
-                        backend.selectedEnvironment.name || "",
-                        modelData.val,
-                        backend.selectedEnvironment.idleStopIgnorePorts || false)
-                }
+            SelectChip {
+                readonly property bool policyOn: backend.selectedEnvironment.autoSnapshotEnabled !== false
+                text: policyOn ? qsTr("Auto-snapshot: ON") : qsTr("Auto-snapshot: OFF")
+                selected: policyOn
+                mono: false
+                textSize: Style.font10
+                chipHeight: Style.controlHeightXs
+                horizontalPadding: Style.space12
+                interactive: !backend.busy
+                onClicked: backend.setEnvironmentAutoSnapshot(
+                    backend.selectedEnvironment.name || "", !policyOn)
             }
 
             SelectChip {
-                readonly property bool allowPorts: backend.selectedEnvironment.idleStopIgnorePorts || false
-                text: allowPorts ? qsTr("Ignore ports: ON") : qsTr("Ignore ports: OFF")
-                selected: allowPorts
-                mono: true
+                readonly property bool policyOn: backend.selectedEnvironment.workspaceSnapshotEnabled !== false
+                visible: backend.selectedEnvironment.workspaceIsSubvolume || false
+                text: policyOn ? qsTr("Workspace: ON") : qsTr("Workspace: OFF")
+                selected: policyOn
+                mono: false
                 textSize: Style.font10
-                fillColor: Style.surfaceCard
                 chipHeight: Style.controlHeightXs
-                horizontalPadding: Style.space14
+                horizontalPadding: Style.space12
                 interactive: !backend.busy
-                onClicked: backend.setEnvironmentIdleStop(
-                    backend.selectedEnvironment.name || "",
-                    backend.selectedEnvironment.idleStopOverride || "inherit",
-                    !(backend.selectedEnvironment.idleStopIgnorePorts || false))
+                onClicked: backend.setEnvironmentWorkspaceSnapshot(
+                    backend.selectedEnvironment.name || "", !policyOn)
             }
 
-            Item { Layout.fillWidth: true }
-        }
-
-        // Per-environment session recording policy
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space8
-            visible: !(backend.selectedEnvironment.isTemplate || false)
-
-            Text {
-                text: qsTr("Session Recording:")
-                color: theme.muted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-
-            Repeater {
-                model: [
-                    { val: "inherit", label: backend.recordSessions ? qsTr("Inherit (On)") : qsTr("Inherit (Off)") },
-                    { val: "true", label: qsTr("On") },
-                    { val: "false", label: qsTr("Off") }
-                ]
-                delegate: SelectChip {
-                    required property var modelData
-                    readonly property string curOv: (backend.selectedEnvironment.recordOverride || "").toLowerCase()
-                    text: modelData.label
-                    selected: (modelData.val === "inherit" && (curOv === "" || curOv === "inherit")) || (curOv === modelData.val)
-                    mono: true
-                    textSize: Style.font10
-                    fillColor: Style.surfaceCard
-                    chipHeight: Style.controlHeightXs
-                    horizontalPadding: Style.space14
-                    interactive: !backend.busy
-                    onClicked: backend.setEnvironmentRecordSessions(
-                        backend.selectedEnvironment.name || "",
-                        modelData.val)
-                }
+            SelectChip {
+                readonly property bool policyOn: backend.selectedEnvironment.autoStopOnCritical || false
+                text: policyOn ? qsTr("Auto-stop critical: ON") : qsTr("Auto-stop critical: OFF")
+                selected: policyOn
+                mono: false
+                textSize: Style.font10
+                selectedFill: Style.dangerSurface
+                selectedBorderColor: theme.red
+                selectedTextColor: theme.red
+                chipHeight: Style.controlHeightXs
+                horizontalPadding: Style.space12
+                interactive: !backend.busy
+                onClicked: backend.setEnvironmentAutoStop(
+                    backend.selectedEnvironment.name || "", !policyOn)
             }
 
             Item { Layout.fillWidth: true }
@@ -276,7 +189,7 @@ Rectangle {
                 required property string modelData
                 readonly property bool hasWsHalf: (backend.selectedEnvironment.workspaceSnapshots || []).indexOf(modelData) >= 0
                 width: snapListView.width
-                height: 36
+                height: Style.rowHeight
                 radius: Math.min(Style.radius3, theme.radius)
                 color: Style.surfaceCard
                 border.width: Style.hairline
@@ -310,6 +223,8 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideRight
                         text: modelData
                         color: theme.foreground
                         font.family: Style.fontMono
@@ -385,7 +300,7 @@ Rectangle {
                 delegate: Rectangle {
                     required property string modelData
                     Layout.fillWidth: true
-                    height: 32
+                    height: Style.rowHeight
                     radius: Math.min(Style.radius3, theme.radius)
                     color: Style.surfaceCard
                     border.width: Style.hairline
@@ -404,6 +319,8 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
                             text: modelData
                             color: theme.foreground
                             font.family: Style.fontMono

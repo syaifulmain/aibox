@@ -11,7 +11,7 @@ ApplicationWindow {
     id: win
     width: 1080
     height: 720
-    minimumWidth: 860
+    minimumWidth: 960
     minimumHeight: 560
     visible: true
     title: qsTr("AIBox")
@@ -23,6 +23,8 @@ ApplicationWindow {
 
     property int activeTab: 0
     property bool helpVisible: false
+    property bool toolsVisible: false
+    property bool envActionsVisible: false
     property bool createVisible: false
     property bool cloneVisible: false
     property bool wipeVisible: false
@@ -131,7 +133,7 @@ ApplicationWindow {
     property string secretFormError: ""
     property var secretRevealMap: ({})
 
-    readonly property bool anyModalOpen: helpVisible || createVisible || cloneVisible || wipeVisible || restoreDialogVisible || changeReviewVisible || secretsVisible || staleReportVisible || settingsVisible || historyVisible || egressVisible || portsVisible || mountsVisible || editQuotasVisible || backupsVisible || backend.firstRun
+    readonly property bool anyModalOpen: helpVisible || toolsVisible || envActionsVisible || createVisible || cloneVisible || wipeVisible || restoreDialogVisible || changeReviewVisible || secretsVisible || staleReportVisible || settingsVisible || historyVisible || egressVisible || portsVisible || mountsVisible || editQuotasVisible || backupsVisible || backend.firstRun
 
     function openStaleReportDialog() {
         win.staleActionError = ""
@@ -333,6 +335,12 @@ ApplicationWindow {
         win.cloneVisible = true
     }
 
+    function openEnvironmentActions() {
+        if ((backend.selectedEnvironment.name || "").length === 0)
+            return
+        win.envActionsVisible = true
+    }
+
     function syncSelectedNetworkDraft() {
         const env = backend.selectedEnvironment
         win.netAllowlistDraft = env.networkAllowlist || ""
@@ -525,6 +533,10 @@ ApplicationWindow {
                 return
             } else if (win.helpVisible) {
                 win.helpVisible = false
+            } else if (win.toolsVisible) {
+                win.toolsVisible = false
+            } else if (win.envActionsVisible) {
+                win.envActionsVisible = false
             } else if (win.portsVisible) {
                 win.portsVisible = false
             } else if (win.mountsVisible) {
@@ -600,7 +612,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "3"
         context: Qt.ApplicationShortcut
-        enabled: !backend.firstRun && !backend.busy && !win.createVisible && !win.cloneVisible && !win.wipeVisible && !win.restoreDialogVisible && !win.changeReviewVisible && !win.secretsVisible && !win.staleReportVisible && !win.helpVisible && !win.historyVisible && !win.egressVisible && !win.portsVisible && !win.mountsVisible && !win.editQuotasVisible && !win.backupsVisible
+        enabled: !backend.firstRun && !backend.busy && !win.toolsVisible && !win.envActionsVisible && !win.createVisible && !win.cloneVisible && !win.wipeVisible && !win.restoreDialogVisible && !win.changeReviewVisible && !win.secretsVisible && !win.staleReportVisible && !win.helpVisible && !win.historyVisible && !win.egressVisible && !win.portsVisible && !win.mountsVisible && !win.editQuotasVisible && !win.backupsVisible
         onActivated: {
             if (win.settingsVisible)
                 win.settingsVisible = false
@@ -796,6 +808,20 @@ ApplicationWindow {
         }
 
         // ======================================================================
+        // MODAL 1C: SECONDARY ENVIRONMENT ACTIONS
+        // ======================================================================
+        EnvironmentActionsDialog {
+            app: win
+        }
+
+        // ======================================================================
+        // MODAL 1D: TOOLS MENU (SECRETS, BACKUPS, HISTORY, ORPHANS)
+        // ======================================================================
+        ToolsDialog {
+            app: win
+        }
+
+        // ======================================================================
         // MODAL 2: WIPE / DELETE CONFIRMATION DIALOG
         // ======================================================================
         WipeDialog {
@@ -839,7 +865,7 @@ ApplicationWindow {
             open: backend.firstRun
             scrimColor: Style.scrimStrong
             zOrder: 100
-            cardWidth: Math.min(parent.width - Style.modalGutterWide, 600)
+            cardWidth: Math.min(parent.width - Style.modalGutter, 600)
             contentSpacing: Style.space14
 
             readonly property string resolvedPreview: {

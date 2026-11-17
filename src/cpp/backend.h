@@ -83,7 +83,6 @@ class Backend : public QObject {
     Q_PROPERTY(QString secretsError READ secretsError NOTIFY secretsChanged)
     Q_PROPERTY(QString secretsStorePath READ secretsStorePath CONSTANT)
     Q_PROPERTY(QVariantMap poolInfo READ poolInfo NOTIFY poolInfoChanged)
-    Q_PROPERTY(QVariantMap networkStats READ networkStats NOTIFY networkStatsChanged)
 
 public:
     enum class PathMode {
@@ -252,7 +251,6 @@ public:
     Q_INVOKABLE QString readOperationLog(const QString &id) const;
     Q_INVOKABLE void clearOperationHistory();
     Q_INVOKABLE void acknowledgeOperationHistory();
-    Q_INVOKABLE void runHeadlessCommand(const QString &name, const QString &command);
     Q_INVOKABLE void copyAiCommand(const QString &name);
     Q_INVOKABLE QString pasteImageToWorkspace(const QString &name);
     Q_INVOKABLE bool copyText(const QString &text, const QString &label = QString());
@@ -282,7 +280,6 @@ public:
 
     Q_INVOKABLE void downloadOsImage(const QString &osId);
     Q_INVOKABLE void removeOsImage(const QString &osId);
-    Q_INVOKABLE void refreshNetworkStats();
 
     // Configuration menu actions. Methods returning QString return an empty
     // string on success, or a human-readable validation/IO error for the UI.
@@ -455,10 +452,6 @@ public:
     static IdleDecisionResult evaluateIdleDecision(const IdleDecisionInput &input);
     static QSet<QString> parseActiveIncusExecEnvs(const QString &pgrepOutput);
 
-    // Network monitor helpers
-    static QVariantMap parseNetworkProbeOutput(const QString &output);
-    static QVariantMap networkStatsFromEnvironment(const QVariantMap &env, const QVariantMap &probe = {});
-
     // Operation history helpers (G4)
     static QByteArray truncateLogTail(const QByteArray &data, qint64 maxBytes = 204800);
 
@@ -594,7 +587,6 @@ public:
     static QVariantList scanRecordedSessions(const QString &sessionsDir);
 
     QVariantMap poolInfo() const { return m_poolInfo; }
-    QVariantMap networkStats() const { return m_networkStats; }
     void setPoolStateForTest(const StoragePoolInfo &pool, const QByteArray &incusListJson);
 
 signals:
@@ -627,7 +619,6 @@ signals:
     void selectedDiffChanged();
     void secretsChanged();
     void poolInfoChanged();
-    void networkStatsChanged();
     void environmentCreated(const QString &name);
 
 private:
@@ -651,7 +642,6 @@ private:
                                 const QString &reason = {});
     void evaluateAllWatchdogs();
     void evaluateIdleAutoStops();
-    void updateNetworkStats(bool restartProbe = false);
     void applyCachedSnapshotSizes(QVariantList &envs) const;
     void refreshSelectedSnapshotSizes();
     void seedProvisionScripts() const;
@@ -797,14 +787,7 @@ private:
     int m_lastPoolUnboundedCount = 0;
     QByteArray m_lastListJson;
     bool m_demoMode = false;
-    QVariantMap m_networkStats;
     QHash<QString, QPair<qint64, qint64>> m_lastNetCounters;
-    QProcess *m_netProbeProcess = nullptr;
-    QTimer m_netProbeTimer;
-    QString m_netProbeEnv;
-    QString m_netGateway;
-    double m_netPingMs = -1.0;
-    double m_netPacketLoss = -1.0;
     QProcess *m_enterPrepareProcess = nullptr;
     QProcess *m_enterSecretProcess = nullptr;
     QString m_enterEnvName;

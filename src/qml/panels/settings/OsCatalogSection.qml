@@ -305,7 +305,7 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: qsTr("Removing an entry only removes it from the catalog. Cached image files are kept until you remove them in OS Images & Downloads.")
+            text: qsTr("Removing an entry only removes it from the catalog. Cached image files are kept until you remove them in OS Images.")
             color: theme.muted
             font.family: Style.fontSans
             font.pixelSize: Style.font10

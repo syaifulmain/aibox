@@ -14,17 +14,10 @@ ModalDialog {
     contentSpacing: Style.space14
     onDismissed: app.historyVisible = false
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Style.space10
-
-        Text {
-            text: app.historyTab === 0 ? qsTr("Operation History") : qsTr("Recorded Sessions")
-            color: theme.foreground
-            font.family: Style.fontSans
-            font.pixelSize: Style.font16
-            font.weight: Font.Medium
-        }
+    ModalHeader {
+        title: qsTr("History")
+        subtitle: qsTr("Operation logs and recorded terminal sessions")
+        onClosed: app.historyVisible = false
 
         // Segmented switcher: Tasks / Sessions
         SegmentedTabs {
@@ -46,13 +39,11 @@ ModalDialog {
             }
         }
 
-        Item { Layout.fillWidth: true }
-
         ActionButton {
             visible: app.historyTab === 0
-            label: qsTr("Clear History")
+            label: qsTr("Clear")
             danger: true
-            minWidth: 112
+            minWidth: 80
             disabled: backend.operationHistory.length === 0
             onClicked: {
                 backend.clearOperationHistory()
@@ -63,25 +54,12 @@ ModalDialog {
 
         ActionButton {
             visible: app.historyTab === 1
-            label: qsTr("Replay in terminal")
+            label: qsTr("Replay")
             variant: "primary"
-            minWidth: 146
+            minWidth: 88
             disabled: !app.selectedSessionHasTiming
             onClicked: backend.replayRecordedSession(app.selectedSessionLogPath, app.selectedSessionTimingPath)
         }
-
-        ActionButton {
-            label: qsTr("Close")
-            shortcutHint: "Esc"
-            minWidth: 88
-            onClicked: app.historyVisible = false
-        }
-    }
-
-    Rectangle {
-        Layout.fillWidth: true
-        height: Style.hairline
-        color: Style.borderSubtle
     }
 
     // Tasks tab

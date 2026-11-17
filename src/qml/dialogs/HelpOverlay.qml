@@ -6,7 +6,7 @@ ModalDialog {
     id: helpOverlayRoot
     property QtObject app: null
     open: app.helpVisible
-    cardWidth: Math.min(parent.width - Style.modalGutterWide, 480)
+    cardWidth: Math.min(parent.width - Style.modalGutter, 480)
     contentSpacing: Style.space10
     onDismissed: app.helpVisible = false
 

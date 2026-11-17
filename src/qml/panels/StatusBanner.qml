@@ -41,16 +41,6 @@ Rectangle {
                 font.pixelSize: Style.font12
             }
 
-            Text {
-                visible: backend.busy && backend.taskLog.length > 0
-                Layout.maximumWidth: 340
-                elide: Text.ElideLeft
-                text: backend.taskLog
-                color: theme.muted
-                font.family: Style.fontMono
-                font.pixelSize: Style.font11
-            }
-
             ActionButton {
                 visible: backend.busy
                 implicitHeight: Style.controlHeightXs

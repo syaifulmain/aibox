@@ -191,11 +191,6 @@ void Backend::loadDemoData() {
     }
     m_environments = demoEnvs;
     m_count = m_environments.size();
-    m_netProbeEnv = QStringLiteral("flutter-pos");
-    m_netGateway = QStringLiteral("10.143.44.1");
-    m_netPingMs = 30.0;
-    m_netPacketLoss = 0.0;
-    updateNetworkStats();
 
     m_operationHistory = {
         QVariantMap{
