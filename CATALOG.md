@@ -6,13 +6,13 @@ This document tracks all host system configurations, project files, architecture
 
 ## 1. Host System Modifications (Omarchy / Arch Linux)
 
-All host-level configurations are automated in [bin/setup-system](file:///home/user/Program/aibox/bin/setup-system) and can be reverted cleanly using [bin/uninstall](file:///home/user/Program/aibox/bin/uninstall).
+All host-level configurations are automated in [bin/setup-system](bin/setup-system) and can be reverted cleanly using [bin/uninstall](bin/uninstall).
 
 | System Component | Path / Name | Purpose |
 | :--- | :--- | :--- |
 | **System Packages** | `incus`, `dnsmasq`, `xorg-xhost`, `acl`, `qemu-system-x86`, `edk2-ovmf` | System container & VM manager, local DHCP/DNS server, X11/Wayland display bridge, and POSIX ACL utilities. |
 | **Subordinate UID/GID** | `/etc/subuid` & `/etc/subgid` (`root:1000000:1000000000`) | Maps container `root` to an unprivileged UID range on the Host so autonomous AI agents cannot damage the host OS. |
-| **User Groups** | `incus-admin`, `kvm`, `render`, `video` (for user `user`) | Grants passwordless access to Incus, hardware virtualization (`/dev/kvm`), and Intel Iris Xe GPU acceleration (`/dev/dri`). |
+| **User Groups** | `incus-admin`, `kvm`, `render`, `video` (for the current user) | Grants passwordless access to Incus, hardware virtualization (`/dev/kvm`), and Intel Iris Xe GPU acceleration (`/dev/dri`). |
 | **Systemd Drop-in ACL** | `/etc/systemd/system/incus.service.d/acl.conf` | Automatically applies read/write ACL permissions on `/var/lib/incus/unix.socket` when `incus.service` starts. |
 | **Btrfs Storage Pool** | `default` (`/var/lib/incus/storage-pools/default`) | Native Btrfs subvolume storage pool with **Btrfs Quotas** enabled for strict per-environment disk size limits and <1s copy-on-write snapshots. |
 | **Network Bridge** | `incusbr0` (`10.143.44.1/24`, IPv4 NAT enabled, IPv6 disabled) | Managed private bridge providing automatic DHCP IPv4 addresses and internet access to all environments. |
@@ -32,45 +32,51 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 | File / Path | Category | Description |
 | :--- | :--- | :--- |
-| [aibox.pro](file:///home/user/Program/aibox/aibox.pro) | Build Config | `qmake6` project file defining Qt6 modules, C++ sources, and compiled resources. |
-| [src/cpp/main.cpp](file:///home/user/Program/aibox/src/cpp/main.cpp) | Source (C++) | Application entry point dispatching headless CLI (`Cli::run` under `QCoreApplication`), session redaction, and QML GUI (`QGuiApplication` + `QQmlApplicationEngine`). |
-| [src/cpp/cli.h](file:///home/user/Program/aibox/src/cpp/cli.h) & [cli.cpp](file:///home/user/Program/aibox/src/cpp/cli.cpp) | Source (C++) | Headless CLI parser, help/usage formatter, and subcommand dispatcher (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) sharing `Backend` script builders and task lock. |
-| [src/cpp/backend.h](file:///home/user/Program/aibox/src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
-| [src/cpp/backend.cpp](file:///home/user/Program/aibox/src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
-| [src/cpp/backend_helpers.h](file:///home/user/Program/aibox/src/cpp/backend_helpers.h) | Source (C++) | Shared inline helpers used by every backend module: size/rate formatting, container path constant, pool info mapping, ACL snippet builder, terminal launcher. |
-| [src/cpp/backend_env.cpp](file:///home/user/Program/aibox/src/cpp/backend_env.cpp) | Source (C++) | Incus JSON parsing (including per-environment workspace device paths), create/clone/start/stop/prepare, resource updates, and headless exec argument builders. |
-| [src/cpp/backend_config.cpp](file:///home/user/Program/aibox/src/cpp/backend_config.cpp) | Source (C++) | Settings persistence: locations, storage, presets, OS catalog entries, create options, first-run completion, resets. |
-| [src/cpp/backend_network.cpp](file:///home/user/Program/aibox/src/cpp/backend_network.cpp) | Source (C++) | Allowlist ACL resolution, network modes, egress log, port forwards. |
-| [src/cpp/backend_snapshot.cpp](file:///home/user/Program/aibox/src/cpp/backend_snapshot.cpp) | Source (C++) | Snapshot sizes, Btrfs workspace snapshot/restore/prune, auto-snapshot policy, wipe actions. |
-| [src/cpp/backend_secret.cpp](file:///home/user/Program/aibox/src/cpp/backend_secret.cpp) | Source (C++) | Host secrets store, per-environment injection, and session log redaction. |
-| [src/cpp/backend_session.cpp](file:///home/user/Program/aibox/src/cpp/backend_session.cpp) | Source (C++) | Operation history, session recording, ANSI handling, replay. |
-| [src/cpp/backend_backup.cpp](file:///home/user/Program/aibox/src/cpp/backend_backup.cpp) | Source (C++) | Export/import archives, archive scanning, free-space checks, stale and orphan audits. |
-| [src/cpp/backend_workspace.cpp](file:///home/user/Program/aibox/src/cpp/backend_workspace.cpp) | Source (C++) | Workspace diff and restore, extra mounts, localhost SFTP root-file access, clipboard image bridge. |
-| [src/cpp/backend_health.cpp](file:///home/user/Program/aibox/src/cpp/backend_health.cpp) | Source (C++) | Watchdog thresholds and hysteresis, idle auto-stop decisions, storage pool info, `aibox check` health checks. |
-| [src/cpp/backend_provision.cpp](file:///home/user/Program/aibox/src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, provisioning bundles, image cache handling. |
-| [src/cpp/backend_demo.cpp](file:///home/user/Program/aibox/src/cpp/backend_demo.cpp) | Source (C++) | Demo data used for previews and screenshots. |
-| [src/cpp/theme.h](file:///home/user/Program/aibox/src/cpp/theme.h) & [theme.cpp](file:///home/user/Program/aibox/src/cpp/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
-| [src/cpp/translator.h](file:///home/user/Program/aibox/src/cpp/translator.h) & [translator.cpp](file:///home/user/Program/aibox/src/cpp/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
-| [src/qml/Main.qml](file:///home/user/Program/aibox/src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
-| [src/qml/components/](file:///home/user/Program/aibox/src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
-| [src/qml/dialogs/](file:///home/user/Program/aibox/src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
-| [src/qml/panels/](file:///home/user/Program/aibox/src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
-| [src/resources.qrc](file:///home/user/Program/aibox/src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
-| [src/i18n/en.json](file:///home/user/Program/aibox/src/i18n/en.json) & [da.json](file:///home/user/Program/aibox/src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
-| [tests/aibox_tests.pro](file:///home/user/Program/aibox/tests/aibox_tests.pro) & [aibox_tests.cpp](file:///home/user/Program/aibox/tests/aibox_tests.cpp) | Unit Tests | 73 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, provisioning bundles, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), network counter rates, `Theme`, and `Translator`. |
-| [pkgbuild/PKGBUILD](file:///home/user/Program/aibox/pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
-| [pkgbuild/aibox.desktop](file:///home/user/Program/aibox/pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
-| [pkgbuild/aibox.svg](file:///home/user/Program/aibox/pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
-| [bin/setup-system](file:///home/user/Program/aibox/bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
-| [bin/build](file:///home/user/Program/aibox/bin/build) | Script | Compiles the application into `build/aibox`. |
-| [bin/test](file:///home/user/Program/aibox/bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
-| [bin/install](file:///home/user/Program/aibox/bin/install) | Script | Standard installation entry point; builds the application and installs the Arch Linux package via `makepkg -fsic --noconfirm`. |
-| [bin/uninstall](file:///home/user/Program/aibox/bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus, UFW rules, and all containers). |
-| [AGENTS.md](file:///home/user/Program/aibox/AGENTS.md) | Agent Policy | Mandatory workflow, repository layout, style rules, and maintenance guidance for human and AI contributors (English, no emoji). |
+| [aibox.pro](aibox.pro) | Build Config | `qmake6` project file defining Qt6 modules, C++ sources, and compiled resources. |
+| [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | Application entry point dispatching headless CLI (`Cli::run` under `QCoreApplication`), session redaction, and QML GUI (`QGuiApplication` + `QQmlApplicationEngine`). |
+| [src/cpp/cli.h](src/cpp/cli.h) & [cli.cpp](src/cpp/cli.cpp) | Source (C++) | Headless CLI parser, help/usage formatter, and subcommand dispatcher (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) sharing `Backend` script builders and task lock. |
+| [src/cpp/backend.h](src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
+| [src/cpp/backend.cpp](src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
+| [src/cpp/backend_helpers.h](src/cpp/backend_helpers.h) | Source (C++) | Shared inline helpers used by every backend module: size/rate formatting, container path constant, pool info mapping, ACL snippet builder, terminal launcher. |
+| [src/cpp/backend_env.cpp](src/cpp/backend_env.cpp) | Source (C++) | Incus JSON parsing (including per-environment workspace device paths), create/clone/start/stop/prepare, resource updates, and headless exec argument builders. |
+| [src/cpp/backend_config.cpp](src/cpp/backend_config.cpp) | Source (C++) | Settings persistence: locations, storage, presets, OS catalog entries, create options, first-run completion, resets. |
+| [src/cpp/backend_network.cpp](src/cpp/backend_network.cpp) | Source (C++) | Allowlist ACL resolution, network modes, egress log, port forwards. |
+| [src/cpp/backend_snapshot.cpp](src/cpp/backend_snapshot.cpp) | Source (C++) | Snapshot sizes, Btrfs workspace snapshot/restore/prune, auto-snapshot policy, wipe actions. |
+| [src/cpp/backend_secret.cpp](src/cpp/backend_secret.cpp) | Source (C++) | Host secrets store, per-environment injection, and session log redaction. |
+| [src/cpp/backend_session.cpp](src/cpp/backend_session.cpp) | Source (C++) | Operation history, session recording, ANSI handling, replay. |
+| [src/cpp/backend_backup.cpp](src/cpp/backend_backup.cpp) | Source (C++) | Export/import archives, archive scanning, free-space checks, stale and orphan audits. |
+| [src/cpp/backend_workspace.cpp](src/cpp/backend_workspace.cpp) | Source (C++) | Workspace diff and restore, extra mounts, localhost SFTP root-file access, clipboard image bridge. |
+| [src/cpp/backend_health.cpp](src/cpp/backend_health.cpp) | Source (C++) | Watchdog thresholds and hysteresis, idle auto-stop decisions, storage pool info, `aibox check` health checks. |
+| [src/cpp/backend_provision.cpp](src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, provisioning bundles, image cache handling. |
+| [src/cpp/backend_demo.cpp](src/cpp/backend_demo.cpp) | Source (C++) | Demo data used for previews and screenshots. |
+| [src/cpp/theme.h](src/cpp/theme.h) & [theme.cpp](src/cpp/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
+| [src/cpp/translator.h](src/cpp/translator.h) & [translator.cpp](src/cpp/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
+| [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
+| [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
+| [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
+| [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
+| [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
+| [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
+| [tests/aibox_tests.pro](tests/aibox_tests.pro) & [aibox_tests.cpp](tests/aibox_tests.cpp) | Unit Tests | 73 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, provisioning bundles, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), network counter rates, `Theme`, and `Translator`. |
+| [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
+| [pkgbuild/aibox.desktop](pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
+| [pkgbuild/aibox.svg](pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
+| [bin/setup-system](bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
+| [bin/build](bin/build) | Script | Compiles the application into `build/aibox`. |
+| [bin/test](bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
+| [bin/install](bin/install) | Script | Standard installation entry point; builds the application and installs the Arch Linux package via `makepkg -fsic --noconfirm`. |
+| [bin/uninstall](bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus, UFW rules, and all containers). |
+| [AGENTS.md](AGENTS.md) | Agent Policy | Mandatory workflow, repository layout, style rules, and maintenance guidance for human and AI contributors (English, no emoji). |
 
 ---
 
 ## 3. Changelog
+
+### Iteration 50 — Privacy Cleanup of Local Username
+- **Repository Metadata (`LICENSE`)**: the copyright holder is now `Muhamad Syaifullah`, replacing the local device username.
+- **Documentation (`CATALOG.md`)**: absolute `file:///home/<user>/...` links became repository-relative links, so the file no longer records the author's home directory. The host setup table now refers to the current user instead of a fixed username.
+- **Health Checks (`src/cpp/backend_health.cpp`)**: the implicit user fallback no longer hardcodes a personal account. It reads `USER`, then `LOGNAME`, and otherwise reports that the account could not be inspected.
+- **Demo Data & Tests (`src/cpp/backend_demo.cpp`, `tests/aibox_tests.cpp`)**: example home paths and fixture users are now generic (`/home/user`, `testuser`). `./bin/test` passes all 73 tests.
 
 ### Iteration 49 — UI Simplification & Consolidation
 - **Header (`src/qml/panels/AppHeader.qml`, `src/qml/dialogs/ToolsDialog.qml`)**: Secrets, Backups, History, and Stale & Orphans now open from one **Tools** button. The direct `A`, `B`, `H`, and `U` shortcuts keep working, and the help overlay still lists them. The long product subtitle was removed and the second tab is now **OS Images**.
@@ -445,7 +451,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 * **Backend & Tests**: Added JSON configuration load/save with `QSaveFile`, dynamic catalog builders, 7 new offscreen tests (20 total), and new keyboard shortcut help entry.
 
 ### Iteration 6 — Mandatory System Update Rule for AI Agents & Clean Package Rebuild
-* **Agent Guidelines & Permanent Rules ([AGENTS.md](file:///home/user/Program/aibox/AGENTS.md))**: Added workspace rules and global rules enforcing that any AI agent adding a feature, modifying the UI, or fixing bugs must build (`./bin/build`), test (`./bin/test`), build the Arch package (`makepkg -f`), and update the system (`./bin/install`) so the device is always up to date.
+* **Agent Guidelines & Permanent Rules ([AGENTS.md](AGENTS.md))**: Added workspace rules and global rules enforcing that any AI agent adding a feature, modifying the UI, or fixing bugs must build (`./bin/build`), test (`./bin/test`), build the Arch package (`makepkg -f`), and update the system (`./bin/install`) so the device is always up to date.
 * **Symlink Interoperability**: Created `GEMINI.md` and `CLAUDE.md` symlinks pointing to `AGENTS.md` for cross-tool compatibility.
 * **Full Rebuild & Test Verification**: Clean recompiled `build/aibox`, verified all 13 offscreen Qt tests passed, and prepared the Arch Linux package in `pkgbuild/`.
 
@@ -461,7 +467,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
   * Added `minWidth` constraints across action button categories to eliminate visual jumping during state toggles.
 
 ### Iteration 4 — Full English Standardization
-* Standardized all project documentation ([README.md](file:///home/user/Program/aibox/README.md), [CATALOG.md](file:///home/user/Program/aibox/CATALOG.md)), helper scripts ([bin/setup-system](file:///home/user/Program/aibox/bin/setup-system), [bin/uninstall](file:///home/user/Program/aibox/bin/uninstall), [~/.local/bin/ai-box](file:///home/user/.local/bin/ai-box)), desktop metadata, and UI catalogs to English.
+* Standardized all project documentation ([README.md](README.md), [CATALOG.md](CATALOG.md)), helper scripts ([bin/setup-system](bin/setup-system), [bin/uninstall](bin/uninstall), `~/.local/bin/ai-box`)), desktop metadata, and UI catalogs to English.
 
 ### Iteration 3 — Professional UI Refinement, Live Progress, Cancellation, & Background Persistence (Commit `4500970`)
 * **Custom Flat Inputs (`FlatInput`)**: Replaced Qt Material's notched floating-label `TextField` with a sleek 1px-bordered dark input component and static labels.

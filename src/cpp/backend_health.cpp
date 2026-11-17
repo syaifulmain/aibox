@@ -334,7 +334,7 @@ QList<Backend::HealthCheckResult> Backend::runHealthChecks(bool fix, const Comma
     if (user.isEmpty())
         user = qEnvironmentVariable("USER").trimmed();
     if (user.isEmpty())
-        user = QStringLiteral("user");
+        user = qEnvironmentVariable("LOGNAME").trimmed();
 
     QList<HealthCheckResult> results;
 

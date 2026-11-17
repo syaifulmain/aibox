@@ -1125,7 +1125,7 @@ private slots:
             "-A ufw-user-forward -o incusbr0 -j ACCEPT\n");
         Backend::CommandRunner runner = [](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
             if (prog == QLatin1String("id"))
-                return {0, QStringLiteral("user wheel incus-admin kvm render video\n"), {}};
+                return {0, QStringLiteral("testuser wheel incus-admin kvm render video\n"), {}};
             if (prog == QLatin1String("__socket_rw__"))
                 return {0, {}, {}};
             if (prog == QLatin1String("systemctl") && args.value(0) == QLatin1String("is-active"))
@@ -1146,7 +1146,7 @@ private slots:
             return {1, {}, QStringLiteral("unexpected command")};
         };
 
-        const auto checks = Backend::runHealthChecks(false, runner, QStringLiteral("user"), healthyRules);
+        const auto checks = Backend::runHealthChecks(false, runner, QStringLiteral("testuser"), healthyRules);
         QCOMPARE(checks.size(), 8);
         for (const auto &c : checks) {
             QVERIFY2(c.ok, qPrintable(c.id + ": " + c.detail));
@@ -1164,7 +1164,7 @@ private slots:
 
         Backend::CommandRunner runner = [&](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
             if (prog == QLatin1String("id"))
-                return {0, QStringLiteral("user incus-admin kvm render video\n"), {}};
+                return {0, QStringLiteral("testuser incus-admin kvm render video\n"), {}};
             if (prog == QLatin1String("__socket_rw__"))
                 return {0, {}, {}};
             if (prog == QLatin1String("systemctl"))
@@ -1205,11 +1205,11 @@ private slots:
             return {1, {}, QStringLiteral("unhandled")};
         };
 
-        const auto dryRun = Backend::runHealthChecks(false, runner, QStringLiteral("user"));
+        const auto dryRun = Backend::runHealthChecks(false, runner, QStringLiteral("testuser"));
         QVERIFY(!dryRun[3].ok);
         QVERIFY(!dryRun[4].ok);
 
-        const auto fixed = Backend::runHealthChecks(true, runner, QStringLiteral("user"));
+        const auto fixed = Backend::runHealthChecks(true, runner, QStringLiteral("testuser"));
         QVERIFY(fixed[3].ok && fixed[3].repaired);
         QVERIFY(fixed[4].ok && fixed[4].repaired);
         for (const auto &c : fixed)
@@ -1220,7 +1220,7 @@ private slots:
     {
         Backend::CommandRunner runner = [](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
             if (prog == QLatin1String("id"))
-                return {0, QStringLiteral("user wheel\n"), {}};
+                return {0, QStringLiteral("testuser wheel\n"), {}};
             if (prog == QLatin1String("__socket_rw__"))
                 return {1, {}, QStringLiteral("permission denied")};
             if (prog == QLatin1String("systemctl") && args.value(0) == QLatin1String("is-active"))
@@ -1230,7 +1230,7 @@ private slots:
             return {1, {}, QStringLiteral("daemon down")};
         };
 
-        const auto checks = Backend::runHealthChecks(true, runner, QStringLiteral("user"), QStringLiteral("# empty rules"));
+        const auto checks = Backend::runHealthChecks(true, runner, QStringLiteral("testuser"), QStringLiteral("# empty rules"));
         QCOMPARE(checks.size(), 8);
         QVERIFY(!checks[0].ok && checks[0].needsRoot && checks[0].fixCommand.contains("sudo usermod -aG"));
         QVERIFY(!checks[1].ok && checks[1].needsRoot && checks[1].fixCommand.contains("sudo setfacl"));
@@ -2274,7 +2274,7 @@ exit 0
         auto makeRunner = [&](const QString &usedPctStr) -> Backend::CommandRunner {
             return [usedPctStr](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
                 if (prog == QLatin1String("id"))
-                    return {0, QStringLiteral("user incus-admin kvm render video\n"), {}};
+                    return {0, QStringLiteral("testuser incus-admin kvm render video\n"), {}};
                 if (prog == QLatin1String("__socket_rw__"))
                     return {0, {}, {}};
                 if (prog == QLatin1String("systemctl"))
@@ -2295,11 +2295,11 @@ exit 0
             };
         };
 
-        const auto warnChecks = Backend::runHealthChecks(false, makeRunner(QStringLiteral("90")), QStringLiteral("user"));
+        const auto warnChecks = Backend::runHealthChecks(false, makeRunner(QStringLiteral("90")), QStringLiteral("testuser"));
         QCOMPARE(warnChecks.last().id, QStringLiteral("pool_capacity"));
         QVERIFY(warnChecks.last().ok && warnChecks.last().warning);
 
-        const auto failChecks = Backend::runHealthChecks(false, makeRunner(QStringLiteral("97")), QStringLiteral("user"));
+        const auto failChecks = Backend::runHealthChecks(false, makeRunner(QStringLiteral("97")), QStringLiteral("testuser"));
         QCOMPARE(failChecks.last().id, QStringLiteral("pool_capacity"));
         QVERIFY(!failChecks.last().ok && !failChecks.last().warning);
     }
@@ -2775,8 +2775,8 @@ exit 0
 
         QCOMPARE(backend.adminFixCommand(QStringLiteral(
                      "Could not completely remove orphan workspace folder.\n"
-                     "Fix (admin): sudo rm -rf '/home/user/aibox/workspaces/modding-game'")),
-                 QStringLiteral("sudo rm -rf '/home/user/aibox/workspaces/modding-game'"));
+                     "Fix (admin): sudo rm -rf '/home/testuser/aibox/workspaces/modding-game'")),
+                 QStringLiteral("sudo rm -rf '/home/testuser/aibox/workspaces/modding-game'"));
         QCOMPARE(backend.adminFixCommand(QStringLiteral(
                      "Warning: could not delete subvolume; run: sudo rm -rf '/tmp/ghost'")),
                  QStringLiteral("sudo rm -rf '/tmp/ghost'"));
