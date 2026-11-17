@@ -79,4 +79,16 @@ ModalDialog {
             backend.pasteImageToWorkspace(actionsDialogRoot.env.name || "")
         })
     }
+
+    // Destructive action stays last so it is never hit by accident.
+    MenuRow {
+        label: qsTr("Wipe OS")
+        detail: qsTr("Destroy this environment and free its workspace")
+        danger: true
+        disabled: backend.busy
+        onClicked: actionsDialogRoot.openAction(function () {
+            app.deleteWorkspaceOnWipe = false
+            app.wipeVisible = true
+        })
+    }
 }

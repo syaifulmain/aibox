@@ -100,18 +100,6 @@ Rectangle {
                 }
 
                 Item { Layout.fillWidth: true }
-
-                ActionButton {
-                    label: qsTr("Wipe OS")
-                    variant: "danger"
-                    minWidth: 96
-                    disabled: backend.busy
-                    Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                    onClicked: {
-                        app.deleteWorkspaceOnWipe = false
-                        app.wipeVisible = true
-                    }
-                }
             }
 
             // Resource monitor cards

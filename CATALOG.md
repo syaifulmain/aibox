@@ -72,6 +72,13 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 55 — Wipe OS Moves into More Actions
+- **Environment inspector (`src/qml/panels/EnvironmentInspector.qml`)**: removed the standalone red **Wipe OS** button. The secondary action bar now holds only **Start OS** / **Stop OS** and **More Actions**.
+- **Environment Actions dialog (`src/qml/dialogs/EnvironmentActionsDialog.qml`)**: added **Wipe OS** as the last row, marked `danger` so the label, hover surface, and hover border use `theme.red`. Opening it closes the menu and shows the existing wipe confirmation with `deleteWorkspaceOnWipe` reset to false.
+- **Localization (`src/i18n/en.json`, `src/i18n/da.json`)**: added the new row detail string.
+- **Docs (`README.md`)**: updated the **More Actions** summary.
+- **Tests (`tests/aibox_tests.cpp`)**: no behaviour change expected; the wipe flow and the `Delete` shortcut are unchanged.
+
 ### Iteration 54 — Remove Provisioning Presets and Duplicate Cancel
 - **Create dialog (`src/qml/dialogs/CreateDialog.qml`)**: removed the optional **Provisioning Presets** block and its `Cancel` footer button. The header **Close** action remains the single dismissal control, and **Create Environment** stays right-aligned.
 - **Backend (`src/cpp/backend.h`, `backend_env.cpp`, `backend_provision.cpp`, `backend.cpp`, `backend_config.cpp`)**: removed `provisionBundles`, `provisionDirPath`, all provisioning bundle helpers, the create-time provisioning snippet, and the script seeding calls. Create environments no longer run package installation presets after boot.

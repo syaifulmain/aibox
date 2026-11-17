@@ -517,6 +517,7 @@
   "Reuse this environment as a starting point for new ones": "Genbrug dette miljø som udgangspunkt for nye miljøer",
   "Copy the command that enters this environment from a terminal": "Kopiér kommandoen, der åbner dette miljø fra en terminal",
   "Save the clipboard image to the workspace and copy its path": "Gem udklipsholderens billede i arbejdsområdet, og kopiér stien",
+  "Destroy this environment and free its workspace": "Ødelæg dette miljø, og frigør dets arbejdsområde",
   "Secrets, backups, history and cleanup": "Hemmeligheder, sikkerhedskopier, historik og oprydning",
   "OS Images": "OS-billeder",
   "Settings": "Indstillinger",

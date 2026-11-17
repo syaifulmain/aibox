@@ -21,6 +21,7 @@
   "Reuse this environment as a starting point for new ones": "Reuse this environment as a starting point for new ones",
   "Copy the command that enters this environment from a terminal": "Copy the command that enters this environment from a terminal",
   "Save the clipboard image to the workspace and copy its path": "Save the clipboard image to the workspace and copy its path",
+  "Destroy this environment and free its workspace": "Destroy this environment and free its workspace",
   "Secrets, backups, history and cleanup": "Secrets, backups, history and cleanup",
   "OS Images": "OS Images",
   "Settings": "Settings",

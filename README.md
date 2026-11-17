@@ -8,7 +8,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 
 - Create and manage Linux containers and virtual machines with configurable CPU, memory, and disk limits.
 - Monitor disk usage, memory usage, and CPU usage in compact task-manager style cards.
-- A single **Tools** menu groups global Secrets, Backups, History, and the Stale & Orphans report, while secondary environment actions (clone, quotas, template, copy AI command, paste image, and environment secrets) live in **More Actions**. The environment inspector keeps only start/stop, enter, and wipe.
+- A single **Tools** menu groups global Secrets, Backups, History, and the Stale & Orphans report, while secondary environment actions (clone, quotas, template, copy AI command, paste image, environment secrets, and the destructive **Wipe OS**) live in **More Actions**, with **Wipe OS** last and in danger styling. The environment inspector keeps only start/stop and enter.
 - Share a project workspace with environments at `/home/workspace` and open it directly on the host. The Create dialog can place a new workspace in a custom folder; an empty field keeps the configured default (`<system>/workspaces/<name>`).
 - Browse an environment's **entire root filesystem** from the host file manager: **Root Files** (under Shared Workspace) starts a passwordless, `127.0.0.1`-only SFTP listener through `incus file mount`, shows a copyable `sftp://root@127.0.0.1:<port>/` URL, and opens it with one click. It stops automatically when the environment stops, and the listener survives AIBox restarts until disabled.
 - Cache OS images, track task progress, and resume background operations.
