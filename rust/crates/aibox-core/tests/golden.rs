@@ -1735,9 +1735,6 @@ exit 0
 
 fn golden_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..")
         .join("tests")
         .join("golden")
 }

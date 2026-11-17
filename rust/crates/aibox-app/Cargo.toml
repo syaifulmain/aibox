@@ -4,9 +4,24 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "aibox_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aibox"
 path = "src/main.rs"
+test = false
+
+[[test]]
+name = "backend_qobject"
+path = "tests/backend_qobject.rs"
+harness = false
+
+[[test]]
+name = "qml_smoke"
+path = "tests/qml_smoke.rs"
+harness = false
 
 [dependencies]
 aibox-core = { path = "../aibox-core" }

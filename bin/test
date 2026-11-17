@@ -19,9 +19,8 @@ find_cargo() {
 }
 
 CARGO="$(find_cargo)"
-"$CARGO" test --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
-"$CARGO" build --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 
-# P17c: C++ Backend and unused aibox-ffi bridges were deleted; tests/aibox_tests.cpp
-# is retained until P18 ports the remaining Qt tests and adds the QML smoke test.
-echo "Note: legacy C++ Qt test harness (tests/aibox_tests.cpp) is gated out after P17c removal of C++ Backend; P18 will replace it."
+"$CARGO" fmt --all --check --manifest-path "$ROOT/rust/Cargo.toml"
+"$CARGO" clippy --all-targets --manifest-path "$ROOT/rust/Cargo.toml" -- -D warnings
+"$CARGO" test --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
