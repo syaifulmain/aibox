@@ -33,6 +33,6 @@ SOURCES += \
 RESOURCES += src/resources.qrc
 
 RUST_TARGET = $$PWD/rust/target/release
-INCLUDEPATH += $$PWD/rust/target/cxxbridge
+INCLUDEPATH += $$PWD/src/cpp $$PWD/rust/target/cxxbridge
 LIBS += $$RUST_TARGET/libaibox_ffi.a -ldl -lpthread -lm
 PRE_TARGETDEPS += $$RUST_TARGET/libaibox_ffi.a

@@ -11,8 +11,10 @@ fn main() {
         "src/theme.rs",
         "src/util.rs",
         "src/workspace_diff.rs",
+        "src/workspace_workflow.rs",
     ];
     cxx_build::bridges(bridges)
+        .include("../../../src/cpp")
         .std("c++17")
         .compile("aibox-ffi");
 

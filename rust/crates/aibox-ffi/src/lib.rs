@@ -9,3 +9,4 @@ pub mod snapshot;
 pub mod theme;
 pub mod util;
 pub mod workspace_diff;
+pub mod workspace_workflow;

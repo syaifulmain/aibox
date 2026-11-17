@@ -1763,6 +1763,160 @@ static QByteArray captureDiff() {
 
     return out;
 }
+
+static QByteArray captureWorkspace() {
+    QByteArray out;
+
+    for (const int port : {2222, 1, 65535, 0, -1, 70000}) {
+        out += jsonLine(QStringLiteral("Backend::fileAccessUrl"),
+                        QStringLiteral("port_%1").arg(port),
+                        QJsonObject{{QStringLiteral("port"), port}},
+                        Backend::fileAccessUrl(port));
+    }
+
+    {
+        const QSet<int> reserved{2222, 2223, 2224};
+        int probes = 0;
+        const int port = Backend::chooseFileAccessPort(reserved, [&probes](int candidate) {
+            ++probes;
+            return candidate != 2225;
+        });
+        out += jsonLine(QStringLiteral("Backend::chooseFileAccessPort"),
+                        QStringLiteral("skip_reserved_and_busy"),
+                        QJsonObject{{QStringLiteral("reserved"), QJsonArray{2222, 2223, 2224}},
+                                    {QStringLiteral("busy"), QJsonArray{2225}},
+                                    {QStringLiteral("startPort"), 2222},
+                                    {QStringLiteral("maxPort"), 2299}},
+                        QJsonObject{{QStringLiteral("port"), port},
+                                    {QStringLiteral("probes"), probes}});
+    }
+    out += jsonLine(QStringLiteral("Backend::chooseFileAccessPort"),
+                    QStringLiteral("first_free_no_predicate"),
+                    QJsonObject{{QStringLiteral("reserved"), QJsonArray{}},
+                                {QStringLiteral("busy"), QJsonArray{}},
+                                {QStringLiteral("startPort"), 2222},
+                                {QStringLiteral("maxPort"), 2224}},
+                    Backend::chooseFileAccessPort(QSet<int>{}, std::function<bool(int)>{}, 2222, 2224));
+    out += jsonLine(QStringLiteral("Backend::chooseFileAccessPort"),
+                    QStringLiteral("all_reserved"),
+                    QJsonObject{{QStringLiteral("reserved"), QJsonArray{2222, 2223, 2224}},
+                                {QStringLiteral("busy"), QJsonArray{}},
+                                {QStringLiteral("startPort"), 2222},
+                                {QStringLiteral("maxPort"), 2224}},
+                    Backend::chooseFileAccessPort(QSet<int>{2222, 2223, 2224}, std::function<bool(int)>{}, 2222, 2224));
+
+    {
+        const QString faWork = QStringLiteral("/tmp/aibox-golden-fa-state");
+        QDir(faWork).removeRecursively();
+        Backend backend(faWork);
+        out += jsonLine(QStringLiteral("Backend::fileAccessPaths"),
+                        QStringLiteral("box_with_spaces"),
+                        QJsonObject{{QStringLiteral("stateDir"), faWork},
+                                    {QStringLiteral("name"), QStringLiteral("My Box!")}},
+                        QJsonObject{{QStringLiteral("dir"), backend.fileAccessDirPath()},
+                                    {QStringLiteral("state"), backend.fileAccessStatePath(QStringLiteral("My Box!"))},
+                                    {QStringLiteral("log"), backend.fileAccessLogPath(QStringLiteral("My Box!"))}});
+        QDir(faWork).removeRecursively();
+    }
+
+    const QString wsWork = QStringLiteral("/tmp/aibox-golden-ws-work");
+    QDir(wsWork).removeRecursively();
+    const QString safeDir = wsWork + QStringLiteral("/datasets");
+    const QString sshDir = wsWork + QStringLiteral("/home/.ssh/keys");
+    const QString aiboxDir = wsWork + QStringLiteral("/proj/.aibox");
+    const QString cfgDir = wsWork + QStringLiteral("/cfg");
+    const QString cfgChildDir = wsWork + QStringLiteral("/cfg/sub");
+    QDir().mkpath(safeDir);
+    QDir().mkpath(sshDir);
+    QDir().mkpath(aiboxDir);
+    QDir().mkpath(cfgChildDir);
+
+    const QStringList forbidden{cfgDir};
+    const QList<QPair<const char *, QString>> mountPathCases = {
+        {"empty", QStringLiteral("")},
+        {"whitespace", QStringLiteral("   ")},
+        {"missing_dir", wsWork + QStringLiteral("/missing-dir")},
+        {"root", QStringLiteral("/")},
+        {"etc", QStringLiteral("/etc")},
+        {"usr_bin", QStringLiteral("/usr/bin")},
+        {"home_dir", QDir::homePath()},
+        {"tilde", QStringLiteral("~")},
+        {"ssh_dir", sshDir},
+        {"aibox_dir", aiboxDir},
+        {"forbidden_cfg_exact", cfgDir},
+        {"forbidden_cfg_child", cfgChildDir},
+        {"valid_dir", safeDir},
+    };
+    for (const auto &c : mountPathCases) {
+        out += jsonLine(QStringLiteral("Backend::validateExtraMountPath"),
+                        QString::fromLatin1(c.first),
+                        QJsonObject{{QStringLiteral("rawPath"), c.second},
+                                    {QStringLiteral("forbidden"), QJsonArray::fromStringList(forbidden)}},
+                        Backend::validateExtraMountPath(c.second, forbidden));
+    }
+
+    for (const auto &c : QList<QPair<const char *, QString>>{
+             {"my_data", QStringLiteral("My Data")},
+             {"empty", QStringLiteral("")},
+             {"special_chars", QStringLiteral("  foo_bar!  ")},
+         }) {
+        out += jsonLine(QStringLiteral("Backend::extraMountDeviceName"),
+                        QString::fromLatin1(c.first),
+                        QJsonObject{{QStringLiteral("rawName"), c.second}},
+                        Backend::extraMountDeviceName(c.second));
+    }
+
+    out += jsonLine(QStringLiteral("Backend::addExtraMountScript"),
+                    QStringLiteral("readonly"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("ct1")},
+                                {QStringLiteral("deviceName"), QStringLiteral("mnt-data")},
+                                {QStringLiteral("hostPath"), safeDir},
+                                {QStringLiteral("containerPath"), QStringLiteral("/home/workspace/data")},
+                                {QStringLiteral("readOnly"), true}},
+                    Backend::addExtraMountScript(QStringLiteral("ct1"), QStringLiteral("mnt-data"),
+                                                 safeDir, QStringLiteral("/home/workspace/data"), true));
+    out += jsonLine(QStringLiteral("Backend::addExtraMountScript"),
+                    QStringLiteral("readwrite_quoted"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                {QStringLiteral("deviceName"), QStringLiteral("mnt-my-data")},
+                                {QStringLiteral("hostPath"), QStringLiteral("/tmp/my data")},
+                                {QStringLiteral("containerPath"), QStringLiteral("/home/workspace/my data")},
+                                {QStringLiteral("readOnly"), false}},
+                    Backend::addExtraMountScript(QStringLiteral("box'1"), QStringLiteral("mnt-my-data"),
+                                                 QStringLiteral("/tmp/my data"),
+                                                 QStringLiteral("/home/workspace/my data"), false));
+
+    {
+        Backend backend(wsWork + QStringLiteral("/be"));
+        out += jsonLine(QStringLiteral("Backend::addExtraMount"),
+                        QStringLiteral("unconfirmed_rw"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("ct1")},
+                                    {QStringLiteral("hostPath"), safeDir},
+                                    {QStringLiteral("mountName"), QStringLiteral("data")},
+                                    {QStringLiteral("readOnly"), false},
+                                    {QStringLiteral("confirmReadWrite"), false}},
+                        backend.addExtraMount(QStringLiteral("ct1"), safeDir, QStringLiteral("data"), false, false));
+        out += jsonLine(QStringLiteral("Backend::addExtraMount"),
+                        QStringLiteral("empty_name"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("")},
+                                    {QStringLiteral("hostPath"), safeDir},
+                                    {QStringLiteral("mountName"), QStringLiteral("data")},
+                                    {QStringLiteral("readOnly"), true},
+                                    {QStringLiteral("confirmReadWrite"), false}},
+                        backend.addExtraMount(QStringLiteral(""), safeDir, QStringLiteral("data"), true, false));
+        out += jsonLine(QStringLiteral("Backend::addExtraMount"),
+                        QStringLiteral("reserved_mount_name"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("ct1")},
+                                    {QStringLiteral("hostPath"), safeDir},
+                                    {QStringLiteral("mountName"), QStringLiteral("workspace")},
+                                    {QStringLiteral("readOnly"), true},
+                                    {QStringLiteral("confirmReadWrite"), false}},
+                        backend.addExtraMount(QStringLiteral("ct1"), safeDir, QStringLiteral("workspace"), true, false));
+    }
+
+    QDir(wsWork).removeRecursively();
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1798,6 +1952,7 @@ int main(int argc, char *argv[]) {
         {"session", &GoldenCapture::captureSession},
         {"snapshot", &GoldenCapture::captureSnapshot},
         {"diff", &GoldenCapture::captureDiff},
+        {"workspace", &GoldenCapture::captureWorkspace},
     };
 
     bool matched = onlyModule.isEmpty();

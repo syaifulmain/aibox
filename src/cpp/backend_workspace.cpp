@@ -2,196 +2,117 @@
 #include "backend_helpers.h"
 #include "rust_bridge.h"
 
+#include "port_predicate.h"
 #include "aibox-ffi/src/workspace_diff.rs.h"
+#include "aibox-ffi/src/workspace_workflow.rs.h"
 
 #include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QMimeData>
-#include <QRegularExpression>
-#include <QSaveFile>
-#include <QSet>
 #include <QStandardPaths>
 #include <QThread>
 #include <QUrl>
 
 #include <csignal>
 
-namespace {
-
-bool isLocalTcpPortListening(int port) {
-    if (port < 1 || port > 65535)
-        return false;
-    QFile tcp(QStringLiteral("/proc/net/tcp"));
-    if (!tcp.open(QIODevice::ReadOnly))
-        return false;
-    // /proc/net/tcp columns: sl, local_address (HEXADDR:HEXPORT), rem_address, st, ...
-    // 127.0.0.1 in little-endian hex is 0100007F and st 0A means LISTEN.
-    const QString needle = QStringLiteral("0100007F:%1").arg(port, 4, 16, QLatin1Char('0')).toUpper();
-    const QStringList lines = QString::fromLatin1(tcp.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
-    for (const QString &line : lines) {
-        const QStringList fields = line.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        if (fields.size() < 4)
-            continue;
-        if (fields.at(1).compare(needle, Qt::CaseInsensitive) == 0 && fields.at(3) == QLatin1String("0A"))
-            return true;
-    }
-    return false;
-}
-
-} // namespace
-
 QString Backend::fileAccessDirPath() const {
-    return m_stateDir + QStringLiteral("/file-access");
+    return aibox::ffi::fromRust(aibox::ffi::file_access_dir_path(aibox::ffi::toRust(m_stateDir)));
 }
 
 QString Backend::fileAccessStatePath(const QString &name) const {
-    return fileAccessDirPath() + QLatin1Char('/') + sanitizeName(name) + QStringLiteral(".json");
+    return aibox::ffi::fromRust(aibox::ffi::file_access_state_path(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(name)));
 }
 
 QString Backend::fileAccessLogPath(const QString &name) const {
-    return fileAccessDirPath() + QLatin1Char('/') + sanitizeName(name) + QStringLiteral(".log");
+    return aibox::ffi::fromRust(aibox::ffi::file_access_log_path(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(name)));
 }
 
 QVariantMap Backend::loadFileAccessState(const QString &name) const {
-    QFile file(fileAccessStatePath(name));
-    if (!file.open(QIODevice::ReadOnly))
+    const auto state = aibox::ffi::load_file_access_state(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(name));
+    if (!state.found)
         return {};
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    return doc.isObject() ? doc.object().toVariantMap() : QVariantMap{};
+    QVariantMap map;
+    if (!state.name.empty())
+        map[QStringLiteral("name")] = aibox::ffi::fromRust(state.name);
+    if (state.pid != 0)
+        map[QStringLiteral("pid")] = static_cast<qint64>(state.pid);
+    if (state.port != 0)
+        map[QStringLiteral("port")] = state.port;
+    if (!state.started_at.empty())
+        map[QStringLiteral("startedAt")] = aibox::ffi::fromRust(state.started_at);
+    return map;
 }
 
 bool Backend::fileAccessProcessAlive(qint64 pid, const QString &name) const {
-    if (pid <= 0)
-        return false;
-    if (::kill(static_cast<pid_t>(pid), 0) != 0)
-        return false;
-
-    // Guard against PID reuse: only trust processes that still look like the
-    // `incus file mount <name> ...` listener we started.
-    QFile cmdline(QStringLiteral("/proc/%1/cmdline").arg(pid));
-    if (!cmdline.open(QIODevice::ReadOnly))
-        return false;
-    const QList<QByteArray> args = cmdline.readAll().split('\0');
-    bool hasFile = false;
-    bool hasMount = false;
-    bool hasName = false;
-    for (const QByteArray &arg : args) {
-        if (arg == "file")
-            hasFile = true;
-        else if (arg == "mount")
-            hasMount = true;
-        else if (QString::fromUtf8(arg) == name)
-            hasName = true;
-        else if (arg.contains("incus file mount") && arg.contains(name.toUtf8())) {
-            // The detached `/bin/sh -c 'exec incus file mount ...'` wrapper is
-            // still alive for a few milliseconds before exec replaces it.
-            hasFile = true;
-            hasMount = true;
-            hasName = true;
-        }
-    }
-    return hasFile && hasMount && hasName;
+    return aibox::ffi::file_access_process_alive(pid, aibox::ffi::toRust(name));
 }
 
 void Backend::stopFileAccessProcess(const QString &name) {
-    if (name.isEmpty())
-        return;
-    const QVariantMap state = loadFileAccessState(name);
-    const qint64 pid = state.value(QStringLiteral("pid")).toLongLong();
-    if (fileAccessProcessAlive(pid, name)) {
-        ::kill(static_cast<pid_t>(pid), SIGTERM);
-        QTimer::singleShot(700, this, [this, pid, name] {
-            if (fileAccessProcessAlive(pid, name))
-                ::kill(static_cast<pid_t>(pid), SIGKILL);
+    const qint64 pid = aibox::ffi::stop_file_access_process(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(name));
+    if (pid > 0) {
+        QTimer::singleShot(700, this, [stateDir = m_stateDir, pid, name] {
+            aibox::ffi::kill_file_access_if_alive(pid, aibox::ffi::toRust(name), SIGKILL);
         });
     }
-    QFile::remove(fileAccessStatePath(name));
-    QFile::remove(fileAccessLogPath(name));
 }
 
 void Backend::applyFileAccessState(QVariantList &environments) {
-    QSet<QString> knownFiles;
-    for (int i = 0; i < environments.size(); ++i) {
+    rust::Vec<aibox::ffi::FileAccessEnvInputFfi> inputs;
+    inputs.reserve(static_cast<std::size_t>(environments.size()));
+    for (const QVariant &item : environments) {
+        const QVariantMap env = item.toMap();
+        inputs.push_back(aibox::ffi::FileAccessEnvInputFfi{
+            aibox::ffi::toRust(env.value("name").toString()),
+            env.value("running").toBool(),
+        });
+    }
+    const auto res = aibox::ffi::apply_file_access_state(
+        aibox::ffi::toRust(m_stateDir), std::move(inputs));
+
+    for (int i = 0; i < environments.size() && i < static_cast<int>(res.envs.size()); ++i) {
         QVariantMap env = environments.at(i).toMap();
-        const QString name = env.value("name").toString();
-        if (name.isEmpty())
+        if (env.value("name").toString().isEmpty())
             continue;
-        knownFiles.insert(sanitizeName(name));
-
-        const QVariantMap state = loadFileAccessState(name);
-        const qint64 pid = state.value(QStringLiteral("pid")).toLongLong();
-        int port = state.value(QStringLiteral("port")).toInt();
-        bool active = fileAccessProcessAlive(pid, name);
-
-        if (!active && !state.isEmpty()) {
-            QFile::remove(fileAccessStatePath(name));
-            QFile::remove(fileAccessLogPath(name));
-            port = 0;
-        }
-        if (active && !env.value("running").toBool()) {
-            // The environment stopped, so the listener no longer has a rootfs to serve.
-            stopFileAccessProcess(name);
-            active = false;
-            port = 0;
-        }
-
-        env["fileAccessActive"] = active;
-        env["fileAccessPort"] = active ? port : 0;
-        env["fileAccessUrl"] = active ? fileAccessUrl(port) : QString();
+        const auto &out = res.envs[static_cast<std::size_t>(i)];
+        env["fileAccessActive"] = out.active;
+        env["fileAccessPort"] = out.port;
+        env["fileAccessUrl"] = aibox::ffi::fromRust(out.url);
         environments[i] = env;
     }
-
-    // Drop state files whose environment disappeared (deleted outside AIBox).
-    QDir dir(fileAccessDirPath());
-    const QFileInfoList states = dir.entryInfoList({QStringLiteral("*.json")}, QDir::Files);
-    for (const QFileInfo &info : states) {
-        const QString base = info.completeBaseName();
-        if (knownFiles.contains(base))
-            continue;
-        QFile stateFile(info.absoluteFilePath());
-        QString stateName;
-        qint64 pid = 0;
-        if (stateFile.open(QIODevice::ReadOnly)) {
-            const QJsonDocument doc = QJsonDocument::fromJson(stateFile.readAll());
-            if (doc.isObject()) {
-                stateName = doc.object().value(QStringLiteral("name")).toString();
-                pid = doc.object().value(QStringLiteral("pid")).toVariant().toLongLong();
-            }
-        }
-        if (stateName.isEmpty())
-            stateName = base;
-        if (fileAccessProcessAlive(pid, stateName))
-            ::kill(static_cast<pid_t>(pid), SIGTERM);
-        QFile::remove(info.absoluteFilePath());
-        QFile::remove(fileAccessLogPath(stateName));
+    for (const auto &k : res.pending_kills) {
+        const qint64 pid = k.pid;
+        const QString name = aibox::ffi::fromRust(k.name);
+        QTimer::singleShot(700, this, [pid, name] {
+            aibox::ffi::kill_file_access_if_alive(pid, aibox::ffi::toRust(name), SIGKILL);
+        });
     }
 }
 
 QString Backend::fileAccessUrl(int port) {
-    if (port < 1 || port > 65535)
-        return {};
-    return QStringLiteral("sftp://root@127.0.0.1:%1/").arg(port);
+    return aibox::ffi::fromRust(aibox::ffi::file_access_url(port));
 }
 
 int Backend::chooseFileAccessPort(const QSet<int> &reservedPorts,
                                   const std::function<bool(int)> &isAvailable,
                                   int startPort, int maxPort) {
-    for (int port = startPort; port <= maxPort; ++port) {
-        if (reservedPorts.contains(port))
-            continue;
-        if (isAvailable && !isAvailable(port))
-            continue;
-        return port;
-    }
-    return 0;
+    rust::Vec<std::int32_t> reserved;
+    reserved.reserve(static_cast<std::size_t>(reservedPorts.size()));
+    for (int port : reservedPorts)
+        reserved.push_back(port);
+    const bool hasPredicate = static_cast<bool>(isAvailable);
+    const aibox::ffi::PortPredicate predicate{hasPredicate ? &isAvailable : nullptr};
+    return aibox::ffi::choose_file_access_port(
+        rust::Slice<const std::int32_t>(reserved.data(), reserved.size()),
+        hasPredicate, predicate, startPort, maxPort);
 }
 
 QString Backend::enableFileAccess(const QString &name) {
@@ -200,18 +121,12 @@ QString Backend::enableFileAccess(const QString &name) {
         return message;
     };
 
-    if (name.isEmpty())
-        return fail(tr("Select an environment first."));
-    if (m_busy)
-        return fail(tr("Wait for the current operation to finish before changing root file access."));
-
-    const QVariantMap env = environmentByName(name);
-    if (env.isEmpty())
-        return fail(tr("Environment '%1' was not found.").arg(name));
-    if (env.value("isTemplate").toBool())
-        return fail(tr("Templates cannot expose root files. Clone or unmark as template first."));
-    if (!env.value("running").toBool())
-        return fail(tr("Start '%1' before enabling root file access.").arg(name));
+    const QVariantMap env = name.isEmpty() ? QVariantMap{} : environmentByName(name);
+    const QString preErr = aibox::ffi::fromRust(aibox::ffi::validate_enable_file_access(
+        aibox::ffi::toRust(name), m_busy, !env.isEmpty(),
+        env.value("isTemplate").toBool(), env.value("running").toBool()));
+    if (!preErr.isEmpty())
+        return fail(preErr);
 
     const QVariantMap existing = loadFileAccessState(name);
     if (fileAccessProcessAlive(existing.value(QStringLiteral("pid")).toLongLong(), name))
@@ -221,14 +136,8 @@ QString Backend::enableFileAccess(const QString &name) {
         return fail(tr("Could not create the root file access state directory: %1").arg(fileAccessDirPath()));
 
     QSet<int> reservedPorts;
-    QDir stateDir(fileAccessDirPath());
-    const QFileInfoList states = stateDir.entryInfoList({QStringLiteral("*.json")}, QDir::Files);
-    for (const QFileInfo &info : states) {
-        const QVariantMap state = loadFileAccessState(info.completeBaseName());
-        const int port = state.value(QStringLiteral("port")).toInt();
-        if (port > 0)
-            reservedPorts.insert(port);
-    }
+    for (int port : aibox::ffi::collect_reserved_file_access_ports(aibox::ffi::toRust(m_stateDir)))
+        reservedPorts.insert(port);
 
     const int port = chooseFileAccessPort(reservedPorts, [](int candidate) {
         return isHostPortAvailable(candidate);
@@ -237,10 +146,8 @@ QString Backend::enableFileAccess(const QString &name) {
         return fail(tr("No free local port is available for root file access (tried 2222-2299)."));
 
     const QString logPath = fileAccessLogPath(name);
-    const QString script = QStringLiteral("exec incus file mount %1 --listen %2 --no-auth > %3 2>&1")
-                               .arg(shellQuote(name),
-                                    shellQuote(QStringLiteral("127.0.0.1:%1").arg(port)),
-                                    shellQuote(logPath));
+    const QString script = aibox::ffi::fromRust(aibox::ffi::build_file_access_mount_script(
+        aibox::ffi::toRust(name), port, aibox::ffi::toRust(logPath)));
     qint64 pid = 0;
     if (!QProcess::startDetached(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), script},
                                  QDir::homePath(), &pid) ||
@@ -248,18 +155,11 @@ QString Backend::enableFileAccess(const QString &name) {
         return fail(tr("Could not start the local SFTP listener."));
     }
 
-    QJsonObject state;
-    state[QStringLiteral("name")] = name;
-    state[QStringLiteral("pid")] = pid;
-    state[QStringLiteral("port")] = port;
-    state[QStringLiteral("startedAt")] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    QSaveFile stateFile(fileAccessStatePath(name));
-    if (!stateFile.open(QIODevice::WriteOnly)) {
-        ::kill(static_cast<pid_t>(pid), SIGTERM);
-        return fail(tr("Could not save the root file access state file."));
-    }
-    stateFile.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
-    if (!stateFile.commit()) {
+    const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    const QString saveErr = aibox::ffi::fromRust(aibox::ffi::write_file_access_state(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(name),
+        pid, port, aibox::ffi::toRust(startedAt)));
+    if (!saveErr.isEmpty()) {
         ::kill(static_cast<pid_t>(pid), SIGTERM);
         return fail(tr("Could not save the root file access state file."));
     }
@@ -273,22 +173,15 @@ QString Backend::enableFileAccess(const QString &name) {
         // not mistake someone else's late listener on that port for ours.
         if (!fileAccessProcessAlive(pid, name))
             break;
-        if (isLocalTcpPortListening(port)) {
+        if (aibox::ffi::is_local_tcp_port_listening(port)) {
             listening = true;
             break;
         }
         QThread::msleep(60);
     }
     if (!listening) {
-        QString detail;
-        QFile log(logPath);
-        if (log.open(QIODevice::ReadOnly)) {
-            const QStringList lines = QString::fromUtf8(log.readAll())
-                                          .split(QRegularExpression(QStringLiteral("[\\r\\n]+")),
-                                                 Qt::SkipEmptyParts);
-            if (!lines.isEmpty())
-                detail = lines.last().trimmed();
-        }
+        const QString detail = aibox::ffi::fromRust(
+            aibox::ffi::read_file_access_failure_detail(aibox::ffi::toRust(logPath)));
         stopFileAccessProcess(name);
         return fail(detail.isEmpty()
                         ? tr("Root file access failed to start on 127.0.0.1:%1.").arg(port)
@@ -395,33 +288,20 @@ QString Backend::storePastedImage(const QImage &image, const QString &workspaceP
         return {};
     }
 
-    const QString pasteDir = QDir(workspacePath).filePath(QStringLiteral(".aibox-paste"));
-    if (!QDir().mkpath(pasteDir)) {
+    const auto pathRes = aibox::ffi::prepare_pasted_image_path(aibox::ffi::toRust(workspacePath));
+    if (!pathRes.error.empty()) {
         if (errorOut)
-            *errorOut = tr("Could not create the paste folder '%1'.").arg(pasteDir);
+            *errorOut = aibox::ffi::fromRust(pathRes.error);
         return {};
     }
-
-    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
-    QString fileName = QStringLiteral("paste-%1.png").arg(stamp);
-    for (int suffix = 2; QFileInfo::exists(QDir(pasteDir).filePath(fileName)); ++suffix)
-        fileName = QStringLiteral("paste-%1-%2.png").arg(stamp).arg(suffix);
-    const QString hostPath = QDir(pasteDir).filePath(fileName);
+    const QString hostPath = aibox::ffi::fromRust(pathRes.value);
     if (!image.save(hostPath, "PNG")) {
         if (errorOut)
             *errorOut = tr("Could not save the clipboard image to '%1'.").arg(hostPath);
         return {};
     }
 
-    // Keep the paste folder small: drop images older than a week.
-    const QDateTime cutoff = QDateTime::currentDateTime().addDays(-7);
-    const QFileInfoList stale = QDir(pasteDir).entryInfoList(
-        {QStringLiteral("paste-*.png")}, QDir::Files, QDir::Time | QDir::Reversed);
-    for (const QFileInfo &entry : stale) {
-        if (entry.lastModified() < cutoff)
-            QFile::remove(entry.absoluteFilePath());
-    }
-
+    aibox::ffi::prune_stale_pasted_images(aibox::ffi::toRust(workspacePath), 7);
     return hostPath;
 }
 
@@ -467,11 +347,8 @@ QString Backend::pasteImageToWorkspace(const QString &name) {
         return {};
     }
 
-    QString containerRoot = containerWorkspacePathFor(envName);
-    while (containerRoot.endsWith(QLatin1Char('/')))
-        containerRoot.chop(1);
-    const QString containerPath = containerRoot + QStringLiteral("/.aibox-paste/")
-                                  + QFileInfo(hostPath).fileName();
+    const QString containerPath = aibox::ffi::fromRust(aibox::ffi::pasted_image_container_path(
+        aibox::ffi::toRust(containerWorkspacePathFor(envName)), aibox::ffi::toRust(hostPath)));
 
     cb->setText(containerPath);
     m_statusMessage = tr("Saved clipboard image as '%1'. Path is on the clipboard; paste it in the terminal.")
@@ -487,64 +364,10 @@ QString Backend::pasteImageToWorkspace(const QString &name) {
 }
 
 QString Backend::validateExtraMountPath(const QString &rawPath, const QStringList &forbiddenConfigPaths) {
-    QString trimmed = rawPath.trimmed();
-    if (trimmed.isEmpty())
-        return tr("Choose a host directory to mount.");
-    if (trimmed == QLatin1String("~"))
-        trimmed = QDir::homePath();
-    else if (trimmed.startsWith(QLatin1String("~/")))
-        trimmed = QDir::homePath() + trimmed.mid(1);
-
-    const QFileInfo rawInfo(trimmed);
-    if (!rawInfo.exists() || !rawInfo.isDir())
-        return tr("Host path '%1' does not exist or is not a directory.").arg(trimmed);
-
-    QString canonical = rawInfo.canonicalFilePath();
-    if (canonical.isEmpty())
-        canonical = QDir::cleanPath(rawInfo.absoluteFilePath());
-
-    const QString homeClean = QDir::cleanPath(QDir::homePath());
-    static const QSet<QString> exactBlocked = {
-        QStringLiteral("/"), QStringLiteral("/bin"), QStringLiteral("/boot"),
-        QStringLiteral("/dev"), QStringLiteral("/etc"), QStringLiteral("/home"),
-        QStringLiteral("/lib"), QStringLiteral("/lib64"), QStringLiteral("/proc"),
-        QStringLiteral("/root"), QStringLiteral("/run"), QStringLiteral("/sbin"),
-        QStringLiteral("/sys"), QStringLiteral("/usr"), QStringLiteral("/var")
-    };
-    if (exactBlocked.contains(canonical) || canonical == homeClean) {
-        return tr("Refusing to mount system root or home directory '%1'. Pick a specific project/data subfolder.").arg(canonical);
-    }
-
-    static const QStringList prefixBlocked = {
-        QStringLiteral("/etc/"), QStringLiteral("/boot/"), QStringLiteral("/dev/"),
-        QStringLiteral("/proc/"), QStringLiteral("/sys/"), QStringLiteral("/root/"),
-        QStringLiteral("/run/"), QStringLiteral("/bin/"), QStringLiteral("/sbin/"),
-        QStringLiteral("/lib/"), QStringLiteral("/lib64/"), QStringLiteral("/usr/")
-    };
-    for (const QString &prefix : prefixBlocked) {
-        if (canonical.startsWith(prefix))
-            return tr("Refusing to mount system path '%1'.").arg(canonical);
-    }
-
-    static const QSet<QString> sensitiveComponents = {
-        QStringLiteral(".ssh"), QStringLiteral(".gnupg"), QStringLiteral(".aws"),
-        QStringLiteral(".kube"), QStringLiteral(".docker"), QStringLiteral(".aibox"),
-        QStringLiteral(".password-store")
-    };
-    const QStringList parts = canonical.split(QLatin1Char('/'), Qt::SkipEmptyParts);
-    for (const QString &part : parts) {
-        if (sensitiveComponents.contains(part))
-            return tr("Refusing to mount sensitive directory component '%1'.").arg(part);
-    }
-
-    for (const QString &cfg : forbiddenConfigPaths) {
-        const QString cleanCfg = QDir::cleanPath(cfg);
-        if (!cleanCfg.isEmpty() &&
-            (canonical == cleanCfg || canonical.startsWith(cleanCfg + QLatin1Char('/')))) {
-            return tr("Refusing to mount AIBox configuration directory '%1'.").arg(canonical);
-        }
-    }
-    return {};
+    const rust::Vec<rust::String> rForbidden = aibox::ffi::toRustVec(forbiddenConfigPaths);
+    return aibox::ffi::fromRust(aibox::ffi::validate_extra_mount_path(
+        aibox::ffi::toRust(rawPath),
+        rust::Slice<const rust::String>(rForbidden.data(), rForbidden.size())));
 }
 
 QString Backend::validateExtraMountCandidate(const QString &rawPath) const {
@@ -552,62 +375,46 @@ QString Backend::validateExtraMountCandidate(const QString &rawPath) const {
 }
 
 QString Backend::extraMountDeviceName(const QString &rawName) {
-    const QString clean = sanitizeName(rawName);
-    return clean.isEmpty() ? QString() : QStringLiteral("mnt-") + clean;
+    return aibox::ffi::fromRust(aibox::ffi::extra_mount_device_name(aibox::ffi::toRust(rawName)));
 }
 
 QString Backend::addExtraMountScript(const QString &name, const QString &deviceName,
                                      const QString &hostPath, const QString &containerPath, bool readOnly) {
-    const QString roFlag = readOnly ? QStringLiteral("true") : QStringLiteral("false");
-    return QStringLiteral("set -euo pipefail\n"
-                          "echo '@@STAGE:45:Adding extra mount (%4)...'\n"
-                          "if ! incus config device add %1 %2 disk source=%3 path=%4 readonly=%5 shift=true >/dev/null 2>&1; then\n"
-                          "    incus config device add %1 %2 disk source=%3 path=%4 readonly=%5\n"
-                          "fi\n"
-                          "echo '@@STAGE:100:Mount attached.'")
-        .arg(shellQuote(name), shellQuote(deviceName), shellQuote(hostPath), shellQuote(containerPath), roFlag);
+    return aibox::ffi::fromRust(aibox::ffi::add_extra_mount_script(
+        aibox::ffi::toRust(name), aibox::ffi::toRust(deviceName),
+        aibox::ffi::toRust(hostPath), aibox::ffi::toRust(containerPath), readOnly));
 }
 
 QString Backend::addExtraMount(const QString &name, const QString &hostPath, const QString &mountName,
                                bool readOnly, bool confirmReadWrite) {
-    if (name.isEmpty())
-        return tr("Select an environment first.");
-    if (m_busy)
-        return tr("Another operation is currently in progress.");
-    if (!readOnly && !confirmReadWrite)
-        return tr("Read-write extra mounts require explicit second confirmation.");
-
-    const QString cleanMount = sanitizeName(mountName.isEmpty() ? QFileInfo(hostPath.trimmed()).fileName() : mountName);
-    if (cleanMount.isEmpty() || cleanMount == QLatin1String("workspace") ||
-        cleanMount == QLatin1String("root") || cleanMount == QLatin1String("x11")) {
-        return tr("Choose a valid mount name (cannot be 'workspace', 'root', or 'x11').");
-    }
-
-    QString expanded = hostPath.trimmed();
-    if (expanded == QLatin1String("~"))
-        expanded = QDir::homePath();
-    else if (expanded.startsWith(QLatin1String("~/")))
-        expanded = QDir::homePath() + expanded.mid(1);
-
-    const QString pathErr = validateExtraMountCandidate(expanded);
-    if (!pathErr.isEmpty())
-        return pathErr;
-
-    const QString resolvedSource = QFileInfo(expanded).canonicalFilePath();
-    const QString devName = extraMountDeviceName(cleanMount);
-    const QString containerPath = kContainerWorkspacePath + QLatin1Char('/') + cleanMount;
-
-    const QVariantMap env = environmentByName(name);
-    if (env.isEmpty())
-        return tr("Environment '%1' was not found.").arg(name);
-    for (const auto &v : env.value("extraMounts").toList()) {
+    const QVariantMap env = name.isEmpty() ? QVariantMap{} : environmentByName(name);
+    const rust::Vec<rust::String> rForbidden = aibox::ffi::toRustVec(
+        {QFileInfo(m_configPath).absolutePath(), m_stateDir});
+    rust::Vec<aibox::ffi::ExtraMountPairFfi> existingMounts;
+    const QVariantList mountList = env.value("extraMounts").toList();
+    existingMounts.reserve(static_cast<std::size_t>(mountList.size()));
+    for (const auto &v : mountList) {
         const QVariantMap m = v.toMap();
-        if (m.value("deviceName").toString() == devName || m.value("path").toString() == containerPath)
-            return tr("Mount '%1' already exists on '%2'.").arg(containerPath, name);
+        existingMounts.push_back(aibox::ffi::ExtraMountPairFfi{
+            aibox::ffi::toRust(m.value("deviceName").toString()),
+            aibox::ffi::toRust(m.value("path").toString()),
+        });
     }
 
-    runShellTask(tr("Mounting %1 at %2 (%3)").arg(resolvedSource, containerPath, readOnly ? tr("RO") : tr("RW")),
-                 addExtraMountScript(name, devName, resolvedSource, containerPath, readOnly),
+    const auto prepared = aibox::ffi::prepare_add_extra_mount(
+        aibox::ffi::toRust(name), m_busy, aibox::ffi::toRust(hostPath),
+        aibox::ffi::toRust(mountName), readOnly, confirmReadWrite,
+        rust::Slice<const rust::String>(rForbidden.data(), rForbidden.size()),
+        !env.isEmpty(),
+        std::move(existingMounts));
+    if (!prepared.error.empty())
+        return aibox::ffi::fromRust(prepared.error);
+
+    runShellTask(tr("Mounting %1 at %2 (%3)").arg(
+                     aibox::ffi::fromRust(prepared.resolved_source),
+                     aibox::ffi::fromRust(prepared.container_path),
+                     readOnly ? tr("RO") : tr("RW")),
+                 aibox::ffi::fromRust(prepared.script),
                  {}, name);
     return {};
 }
@@ -616,11 +423,8 @@ void Backend::removeExtraMount(const QString &name, const QString &deviceName) {
     if (name.isEmpty() || deviceName.isEmpty() || m_busy)
         return;
     runShellTask(tr("Removing mount '%1' on '%2'").arg(deviceName, name),
-                 QStringLiteral("set -euo pipefail\n"
-                                "echo '@@STAGE:50:Detaching extra mount...'\n"
-                                "incus config device remove %1 %2\n"
-                                "echo '@@STAGE:100:Mount removed.'")
-                     .arg(shellQuote(name), shellQuote(deviceName)),
+                 aibox::ffi::fromRust(aibox::ffi::remove_extra_mount_script(
+                     aibox::ffi::toRust(name), aibox::ffi::toRust(deviceName))),
                  {}, name);
 }
 
