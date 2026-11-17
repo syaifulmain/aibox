@@ -2,5 +2,65 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-cd "$ROOT/pkgbuild"
-exec makepkg -fsic --noconfirm "$@"
+
+if [ "${1:-}" = "--system" ]; then
+    shift
+    cd "$ROOT/pkgbuild"
+    exec makepkg -fsic --noconfirm "$@"
+fi
+
+check_dependencies() {
+    REQUIRED_PKGS="qt6-base qt6-declarative qt6-wayland xdg-desktop-portal incus acl util-linux gcc make"
+    MISSING=""
+    if command -v pacman >/dev/null 2>&1; then
+        MISSING="$(pacman -T $REQUIRED_PKGS 2>/dev/null || true)"
+    fi
+
+    HAS_CARGO=0
+    if cargo --version >/dev/null 2>&1; then
+        HAS_CARGO=1
+    else
+        for candidate in /usr/bin/cargo "$HOME/.cargo/bin/cargo"; do
+            if [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
+                HAS_CARGO=1
+                break
+            fi
+        done
+    fi
+
+    if [ "$HAS_CARGO" -eq 0 ]; then
+        if [ -n "$MISSING" ]; then
+            MISSING="$MISSING
+rust"
+        else
+            MISSING="rust"
+        fi
+    fi
+
+    if [ -n "$MISSING" ]; then
+        MISSING_LINE="$(printf '%s\n' "$MISSING" | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')"
+        echo "==> Missing system dependencies: $MISSING_LINE"
+        echo "==> Installing missing dependencies with pacman (sudo required)..."
+        # shellcheck disable=SC2086
+        sudo pacman -S --needed --noconfirm $MISSING_LINE
+    fi
+}
+
+check_dependencies
+"$ROOT/bin/build"
+
+BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+install -Dm755 "$ROOT/build/aibox" "$BIN_DIR/aibox"
+install -Dm644 "$ROOT/LICENSE" "$DATA_DIR/licenses/aibox/LICENSE"
+install -Dm644 "$ROOT/pkgbuild/aibox.svg" "$DATA_DIR/icons/hicolor/scalable/apps/aibox.svg"
+
+mkdir -p "$DATA_DIR/applications"
+sed "s|^Exec=aibox |Exec=$BIN_DIR/aibox |" "$ROOT/pkgbuild/aibox.desktop" > "$DATA_DIR/applications/aibox.desktop"
+chmod 644 "$DATA_DIR/applications/aibox.desktop"
+
+echo "Installed $BIN_DIR/aibox"
+if [ -e /usr/bin/aibox ]; then
+    echo "Note: /usr/bin/aibox from an older system package is still present; run 'sudo pacman -R aibox' once so 'aibox' in PATH resolves to $BIN_DIR/aibox."
+fi

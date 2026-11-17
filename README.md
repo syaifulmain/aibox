@@ -38,7 +38,7 @@ On a new machine, configure Incus and required host settings:
 ./bin/setup-system
 ```
 
-Build and install the application as an Arch package:
+Build and install the application into `~/.local/` (no `sudo` required):
 
 ```bash
 ./bin/install
@@ -97,7 +97,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 ```bash
 ./bin/build     # compile into build/aibox (fast loop)
 ./bin/test      # build and run the offscreen Qt Test suite
-./bin/install   # package and install the Arch Linux build
+./bin/install   # build and install into ~/.local/ (or --system for makepkg)
 ```
 
 Source layout:

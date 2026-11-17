@@ -8,8 +8,12 @@ set -euo pipefail
 
 TARGET_USER="${SUDO_USER:-$USER}"
 
-echo "==> [1/6] Installing system packages (incus, dnsmasq, xorg-xhost, acl)..."
-sudo pacman -S --needed --noconfirm incus dnsmasq xorg-xhost acl qt6-base qt6-declarative qt6-wayland
+echo "==> [1/6] Installing system packages (incus, dnsmasq, xorg-xhost, acl, Qt6, build tools)..."
+EXTRA_RUST_PKG=()
+if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+    EXTRA_RUST_PKG=(rust)
+fi
+sudo pacman -S --needed --noconfirm incus dnsmasq xorg-xhost acl util-linux xdg-desktop-portal qt6-base qt6-declarative qt6-wayland gcc make "${EXTRA_RUST_PKG[@]}"
 
 echo "==> [2/6] Configuring /etc/subuid and /etc/subgid..."
 if ! grep -q "^root:" /etc/subuid 2>/dev/null; then

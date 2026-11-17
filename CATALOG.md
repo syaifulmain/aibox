@@ -57,7 +57,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
 | [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
-| [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
+| [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [tests/aibox_tests.pro](tests/aibox_tests.pro) & [aibox_tests.cpp](tests/aibox_tests.cpp) | Unit Tests | 74 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), global and environment secret scoping and visibility cleanup, network counter rates, `Theme`, and `Translator`. |
 | [tests/golden_capture/](tests/golden_capture) & [tests/golden/](tests/golden) | Golden Fixtures | C++ golden capture tool and committed `.jsonl` parity fixtures replayed by `aibox-core` tests. |
@@ -68,13 +68,17 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [bin/setup-system](bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
 | [bin/build](bin/build) | Script | Compiles the application into `build/aibox`. |
 | [bin/test](bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
-| [bin/install](bin/install) | Script | Standard installation entry point; builds the application and installs the Arch Linux package via `makepkg -fsic --noconfirm`. |
-| [bin/uninstall](bin/uninstall) | Script | Cleanly removes the `aibox` package (with `--full` option to also remove Incus, UFW rules, and all containers). |
+| [bin/install](bin/install) | Script | Standard installation entry point; builds the application and installs it into `~/.local/` (`~/.local/bin/aibox`, desktop entry, icon, and license) without `sudo`, or builds/installs the Arch Linux package with `--system`. |
+| [bin/uninstall](bin/uninstall) | Script | Cleanly removes the user-local `aibox` installation and any legacy `aibox` pacman package (with `--full` option to also remove Incus, UFW rules, and all containers). |
 | [AGENTS.md](AGENTS.md) | Agent Policy | Mandatory workflow, repository layout, style rules, and maintenance guidance for human and AI contributors (English, no emoji). |
 
 ---
 
 ## 3. Changelog
+
+### User-Local Passwordless Installer (`./bin/install`)
+- **Installer (`bin/install`, `bin/uninstall`, `bin/setup-system`)**: `./bin/install` now checks required packages via `pacman -T` and `cargo` (including `~/.cargo/bin/cargo`) without root, invoking `sudo pacman -S --needed` only if a dependency is actually missing; it then builds `build/aibox` via `./bin/build` and installs the binary, `.desktop` launcher entry (`Exec=$HOME/.local/bin/aibox %f`), SVG icon, and license directly under `~/.local/` (`XDG_BIN_HOME` / `XDG_DATA_HOME`) without `sudo`. Passing `--system` preserves the `makepkg -fsic --noconfirm` Arch package path when needed. `./bin/uninstall` removes the `~/.local/` files as well as any legacy system package, and `./bin/setup-system` now includes all build/runtime packages.
+- **Docs (`AGENTS.md`, `README.md`, `CATALOG.md`)**: updated installation workflow documentation to reflect user-local passwordless installation.
 
 ### Rust Migration P06 — Snapshot Logic, Btrfs Workspace Snapshots, and Scripts
 - **Rust core (`rust/crates/aibox-core/src/snapshot/`)**: ported auto-snapshot naming, timestamp parsing, interval checks, pruning, and decision logic (`auto.rs`), workspace Btrfs paths, `statfs`/inode-256 checks, snapshot listing, orphan detection, and Btrfs/migration snippets (`workspace.rs`), snapshot/wipe script builders (`scripts.rs`), and Incus/`du` snapshot size parsing and cache merging (`mod.rs`), with 7 new Rust unit tests and `libc` `statfs` support.

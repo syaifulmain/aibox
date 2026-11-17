@@ -6,7 +6,13 @@ set -euo pipefail
 # Removes the AIBox desktop package (and optionally removes Incus & all data)
 # ==============================================================================
 
-echo "==> Removing 'aibox' desktop package..."
+echo "==> Removing 'aibox' desktop application..."
+BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+rm -f "$BIN_DIR/aibox"
+rm -f "$DATA_DIR/applications/aibox.desktop"
+rm -f "$DATA_DIR/icons/hicolor/scalable/apps/aibox.svg"
+rm -rf "$DATA_DIR/licenses/aibox"
 if pacman -Qi aibox >/dev/null 2>&1; then
     sudo pacman -Rns --noconfirm aibox
 fi
@@ -24,7 +30,11 @@ if [[ "${1:-}" == "--full" ]]; then
     sudo systemctl disable --now incus.service incus.socket 2>/dev/null || true
     sudo rm -rf /etc/systemd/system/incus.service.d
     sudo systemctl daemon-reload
-    sudo pacman -Rns --noconfirm incus dnsmasq xorg-xhost 2>/dev/null || true
+    for pkg in incus dnsmasq xorg-xhost; do
+        if pacman -Qi "$pkg" >/dev/null 2>&1; then
+            sudo pacman -Rns --noconfirm "$pkg" 2>/dev/null || true
+        fi
+    done
     sudo rm -rf /var/lib/incus
     echo "==> All Incus components and containers have been completely removed."
 else

@@ -13,18 +13,19 @@ Rust migration in progress: Rust sources live under `rust/`; run `cargo fmt`, `c
 Run these steps for any feature, UI change, behaviour change, or bug fix. Do not
 declare the work finished before all three steps pass.
 
-1. Install and update the local system build:
+1. Install and update the local user build:
 
    ```bash
    ./bin/install
    ```
 
-   This builds the application, packages it as a native Arch Linux package, and
-   installs it. That covers `/usr/bin/aibox`, the desktop entry, and the
+   This builds the application and installs it into `~/.local/` without
+   requiring `sudo`. That covers `~/.local/bin/aibox`, the desktop entry in
+   `~/.local/share/applications/aibox.desktop`, the icon, and the
    `Super + Space` launcher. Run it once per change set. Do not run `makepkg`
-   separately and do not run `./bin/install` a second time. If installation
-   stops at a system authentication prompt, report that installation is
-   incomplete and ask the user to run `./bin/install` locally.
+   separately and do not run `./bin/install` a second time (use
+   `./bin/install --system` only when an Arch Linux system package in
+   `/usr/bin/aibox` is explicitly requested).
 
 2. Run the test suite:
 
