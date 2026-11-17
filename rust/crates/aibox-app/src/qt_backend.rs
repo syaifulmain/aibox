@@ -436,6 +436,15 @@ pub mod qobject {
         fn set_environment_auto_stop(self: Pin<&mut Backend>, name: &QString, enabled: bool);
 
         #[qinvokable]
+        #[cxx_name = "setEnvironmentIdleStop"]
+        fn set_environment_idle_stop(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            value: &QString,
+            allow_with_port_forwards: bool,
+        );
+
+        #[qinvokable]
         #[cxx_name = "setNetworkMode"]
         fn set_network_mode(
             self: Pin<&mut Backend>,
@@ -890,6 +899,7 @@ pub struct BackendRust {
     demo_environments: Vec<serde_json::Value>,
     pub(crate) history_seen_id: String,
     last_images_json: Vec<u8>,
+    pub(crate) last_list_json: Vec<u8>,
     last_refresh_at: Option<Instant>,
     refresh_in_flight: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
@@ -989,6 +999,7 @@ impl Default for BackendRust {
             demo_environments: Vec::new(),
             history_seen_id: String::new(),
             last_images_json: Vec::new(),
+            last_list_json: Vec::new(),
             last_refresh_at: None,
             refresh_in_flight: Arc::new(AtomicBool::new(false)),
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -1544,6 +1555,7 @@ impl qobject::Backend {
             pool_info.size_text = pool_size_text.clone();
             pool_info.resizable = !pool_size_text.is_empty();
         }
+        let list_bytes_saved = list_json.to_vec();
         let list_str = String::from_utf8_lossy(list_json);
         let (allocated_bytes, unbounded_count) =
             sum_root_disk_quotas_bytes(&list_str, "", "default");
@@ -1565,6 +1577,7 @@ impl qobject::Backend {
             let mut rust = self.as_mut().rust_mut();
             rust.last_images_json = img_json.to_vec();
             rust.engine.pool_info = pool_info;
+            rust.last_list_json = list_bytes_saved;
             rust.pool_info = q_pool;
 
             let workspace_base = rust.engine.config.workspace_base.clone();
@@ -1746,9 +1759,6 @@ impl qobject::Backend {
     pub fn set_environment_template(self: Pin<&mut Self>, _name: &QString, _is_template: bool) {
         eprintln!("not yet ported: setEnvironmentTemplate");
     }
-    pub fn set_environment_auto_stop(self: Pin<&mut Self>, _name: &QString, _enabled: bool) {
-        eprintln!("not yet ported: setEnvironmentAutoStop");
-    }
     pub fn update_environment_resources(
         self: Pin<&mut Self>,
         _name: &QString,
@@ -1773,26 +1783,6 @@ impl qobject::Backend {
     }
     pub fn copy_ai_command(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: copyAiCommand");
-    }
-    pub fn pool_warning_for_create(&self, _disk_spec: &QString) -> QString {
-        eprintln!("not yet ported: poolWarningForCreate");
-        QString::default()
-    }
-    pub fn pool_warning_for_quota_edit(
-        &self,
-        _env_name: &QString,
-        _disk_spec: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: poolWarningForQuotaEdit");
-        QString::default()
-    }
-    pub fn validate_storage_pool_resize(&self, _size_spec: &QString) -> QString {
-        eprintln!("not yet ported: validateStoragePoolResize");
-        QString::default()
-    }
-    pub fn resize_storage_pool(self: Pin<&mut Self>, _size_spec: &QString) -> QString {
-        eprintln!("not yet ported: resizeStoragePool");
-        QString::default()
     }
     pub fn set_environment_record_sessions(self: Pin<&mut Self>, _name: &QString, _mode: &QString) {
         eprintln!("not yet ported: setEnvironmentRecordSessions");

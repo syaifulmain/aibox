@@ -1,0 +1,141 @@
+use std::path::Path;
+use std::pin::Pin;
+
+use cxx_qt_lib::QString;
+
+use aibox_core::backup::available_disk_bytes;
+use aibox_core::health::idle::{
+    set_environment_auto_stop_script, set_environment_idle_stop_script,
+};
+use aibox_core::health::pool::{
+    pool_warning_for_create, pool_warning_for_quota_edit, resize_storage_pool_script,
+    sum_root_disk_quotas_bytes, validate_storage_pool_resize,
+};
+use aibox_core::task::lock::is_task_lock_active;
+use aibox_core::util::paths::home_dir;
+
+use crate::qt_backend::qobject;
+
+impl qobject::Backend {
+    pub fn set_environment_auto_stop(mut self: Pin<&mut Self>, name: &QString, enabled: bool) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let script = set_environment_auto_stop_script(&name_s, enabled);
+        self.as_mut().run_shell_task(
+            &format!("Updating auto-stop for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn set_environment_idle_stop(
+        mut self: Pin<&mut Self>,
+        name: &QString,
+        value: &QString,
+        allow_with_port_forwards: bool,
+    ) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let script =
+            set_environment_idle_stop_script(&name_s, &value.to_string(), allow_with_port_forwards);
+        self.as_mut().run_shell_task(
+            &format!("Updating idle auto-stop for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn pool_warning_for_create(&self, disk_spec: &QString) -> QString {
+        let pool = &self.engine.pool_info;
+        if !pool.valid {
+            return QString::default();
+        }
+        let list_str = String::from_utf8_lossy(&self.last_list_json);
+        let (allocated_bytes, unbounded_count) = if !list_str.is_empty() {
+            sum_root_disk_quotas_bytes(&list_str, "", &pool.name)
+        } else {
+            let mut alloc = 0i64;
+            let mut unb = 0i32;
+            for e in &self.engine.environments {
+                if e.disk_quota_bytes > 0 {
+                    alloc += e.disk_quota_bytes;
+                } else {
+                    unb += 1;
+                }
+            }
+            (alloc, unb)
+        };
+        let warn = pool_warning_for_create(
+            pool,
+            allocated_bytes,
+            unbounded_count,
+            &disk_spec.to_string(),
+        );
+        QString::from(warn.as_str())
+    }
+
+    pub fn pool_warning_for_quota_edit(&self, env_name: &QString, disk_spec: &QString) -> QString {
+        let pool = &self.engine.pool_info;
+        if !pool.valid {
+            return QString::default();
+        }
+        let list_str = String::from_utf8_lossy(&self.last_list_json);
+        let fallback: Vec<(String, i64)> = self
+            .engine
+            .environments
+            .iter()
+            .map(|e| (e.name.clone(), e.disk_quota_bytes))
+            .collect();
+        let warn = pool_warning_for_quota_edit(
+            pool,
+            &list_str,
+            &fallback,
+            &env_name.to_string(),
+            &disk_spec.to_string(),
+        );
+        QString::from(warn.as_str())
+    }
+
+    pub fn validate_storage_pool_resize(&self, size_spec: &QString) -> QString {
+        let pool = &self.engine.pool_info;
+        let (lock_active, _) =
+            is_task_lock_active(Path::new(&self.engine.paths.state_dir), *self.busy());
+        let probe_path = if !self.engine.config.os_storage_path.is_empty() {
+            self.engine.config.os_storage_path.clone()
+        } else {
+            home_dir().to_string_lossy().to_string()
+        };
+        let avail = available_disk_bytes(&probe_path);
+        let err = validate_storage_pool_resize(
+            *self.busy(),
+            lock_active,
+            pool,
+            &size_spec.to_string(),
+            avail,
+        );
+        QString::from(err.as_str())
+    }
+
+    pub fn resize_storage_pool(mut self: Pin<&mut Self>, size_spec: &QString) -> QString {
+        let err = self.validate_storage_pool_resize(size_spec);
+        if !err.is_empty() {
+            return err;
+        }
+        let pool_name = self.engine.pool_info.name.clone();
+        let clean_size = size_spec.to_string().trim().to_string();
+        let script = resize_storage_pool_script(&pool_name, &clean_size);
+        self.as_mut().run_shell_task(
+            &format!("Growing storage pool '{pool_name}' to {clean_size}"),
+            &script,
+            "",
+            "",
+        );
+        QString::default()
+    }
+}
