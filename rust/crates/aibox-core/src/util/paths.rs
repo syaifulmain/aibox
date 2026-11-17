@@ -10,6 +10,9 @@ use serde_json::{json, Value};
 
 use crate::util::json::to_json_indented;
 
+/// Container-side mount path for the shared workspace directory.
+pub const CONTAINER_WORKSPACE_PATH: &str = "/home/workspace";
+
 /// Reimplements `QDir::cleanPath` on POSIX paths without resolving symlinks.
 pub fn clean_path(path: &str) -> String {
     if path.is_empty() {

@@ -7,6 +7,7 @@ fn main() {
         "src/secrets.rs",
         "src/session.rs",
         "src/settings.rs",
+        "src/snapshot.rs",
         "src/theme.rs",
         "src/util.rs",
     ];

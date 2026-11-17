@@ -16,6 +16,7 @@ name = "aibox-core"
 version = "0.2.0"
 dependencies = [
  "chrono",
+ "libc",
  "regex",
  "serde",
  "serde_json",

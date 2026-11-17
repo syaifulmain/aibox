@@ -1363,6 +1363,273 @@ static QByteArray captureSession() {
 
     return out;
 }
+
+static QByteArray captureSnapshot() {
+    QByteArray out;
+
+    for (const QString &name : {QStringLiteral("auto-20261113-100000"),
+                                QStringLiteral("auto-"),
+                                QStringLiteral("snap-manual"),
+                                QStringLiteral(""),
+                                QStringLiteral("AUTO-20261113-100000")}) {
+        out += jsonLine(QStringLiteral("Backend::isAutoSnapshotName"), name,
+                        QJsonObject{{QStringLiteral("snapshotName"), name}},
+                        Backend::isAutoSnapshotName(name));
+    }
+
+    for (const QString &name : {QStringLiteral("auto-20261113-100000"),
+                                QStringLiteral("auto-invalid"),
+                                QStringLiteral("snap-1"),
+                                QStringLiteral("auto-20260230-000000")}) {
+        const QDateTime dt = Backend::parseAutoSnapshotTimestamp(name);
+        out += jsonLine(QStringLiteral("Backend::parseAutoSnapshotTimestamp"), name,
+                        QJsonObject{{QStringLiteral("snapshotName"), name}},
+                        QJsonObject{{QStringLiteral("valid"), dt.isValid()},
+                                    {QStringLiteral("iso"), dt.isValid() ? dt.toString(Qt::ISODate) : QString()}});
+    }
+
+    const QStringList baseSnaps = {
+        QStringLiteral("manual-initial"),
+        QStringLiteral("auto-20261113-100000"),
+        QStringLiteral("auto-20261113-101000"),
+        QStringLiteral("before-refactor"),
+        QStringLiteral("auto-20261113-102000"),
+        QStringLiteral("auto-20261113-103000"),
+    };
+    struct ShouldCase {
+        const char *label;
+        QStringList snaps;
+        QString nowIso;
+        int minInterval;
+    };
+    const QList<ShouldCase> shouldCases = {
+        {"too_soon", baseSnaps, QStringLiteral("2026-11-13T10:32:00"), 300},
+        {"exact_boundary", baseSnaps, QStringLiteral("2026-11-13T10:35:00"), 300},
+        {"manual_only", {QStringLiteral("manual-only")}, QStringLiteral("2026-11-13T10:32:00"), 300},
+        {"empty", {}, QStringLiteral("2026-11-13T10:32:00"), 300},
+        {"negative_interval", baseSnaps, QStringLiteral("2026-11-13T10:30:00"), -5},
+    };
+    for (const auto &c : shouldCases) {
+        const QDateTime nowDt = QDateTime::fromString(c.nowIso, Qt::ISODate);
+        out += jsonLine(QStringLiteral("Backend::shouldCreateAutoSnapshot"), QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("snapshots"), QJsonArray::fromStringList(c.snaps)},
+                                    {QStringLiteral("nowIso"), c.nowIso},
+                                    {QStringLiteral("minIntervalSeconds"), c.minInterval}},
+                        Backend::shouldCreateAutoSnapshot(c.snaps, nowDt, c.minInterval));
+    }
+
+    struct PruneCase {
+        const char *label;
+        QStringList snaps;
+        int keepCount;
+    };
+    const QList<PruneCase> pruneCases = {
+        {"keep_2", baseSnaps, 2},
+        {"keep_0", baseSnaps, 0},
+        {"keep_neg", baseSnaps, -1},
+        {"keep_10", baseSnaps, 10},
+        {"invalid_tiebreak",
+         {QStringLiteral("auto-bad-b"), QStringLiteral("auto-bad-a"), QStringLiteral("auto-20261113-100000")},
+         1},
+    };
+    for (const auto &c : pruneCases) {
+        out += jsonLine(QStringLiteral("Backend::autoSnapshotsToPrune"), QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("snapshots"), QJsonArray::fromStringList(c.snaps)},
+                                    {QStringLiteral("keepCount"), c.keepCount}},
+                        QJsonArray::fromStringList(Backend::autoSnapshotsToPrune(c.snaps, c.keepCount)));
+    }
+
+    for (const auto &pair : QList<QPair<QString, QString>>{
+             {QStringLiteral("/tmp/workspaces/dev box"), QStringLiteral("dev-box")},
+             {QStringLiteral("/tmp/workspaces/dev-box/"), QStringLiteral("dev-box")},
+             {QStringLiteral(""), QStringLiteral("dev-box")},
+             {QStringLiteral("/tmp/workspaces/dev-box"), QStringLiteral("")},
+         }) {
+        out += jsonLine(QStringLiteral("Backend::workspaceSnapshotDir"),
+                        pair.first + QLatin1Char('|') + pair.second,
+                        QJsonObject{{QStringLiteral("workspacePath"), pair.first},
+                                    {QStringLiteral("envName"), pair.second}},
+                        Backend::workspaceSnapshotDir(pair.first, pair.second));
+    }
+
+    out += jsonLine(QStringLiteral("Backend::findOrphanWorkspaceSnapshots"), QStringLiteral("mixed"),
+                    QJsonObject{{QStringLiteral("incusSnapshots"),
+                                 QJsonArray::fromStringList({QStringLiteral("snap-1"), QStringLiteral("auto-1")})},
+                                {QStringLiteral("wsSnapshots"),
+                                 QJsonArray::fromStringList({QStringLiteral("auto-1"), QStringLiteral("pre-restore-1"), QStringLiteral("snap-1")})}},
+                    QJsonArray::fromStringList(Backend::findOrphanWorkspaceSnapshots(
+                        {QStringLiteral("snap-1"), QStringLiteral("auto-1")},
+                        {QStringLiteral("auto-1"), QStringLiteral("pre-restore-1"), QStringLiteral("snap-1")})));
+
+    for (const auto &c : QList<QPair<QString, QByteArray>>{
+             {QStringLiteral("valid"),
+              R"json([{"name":"clean-sdk","size":52428800},{"name":"zero","size":0},{"name":"empty-unknown","size":-1},{"name":"","size":1024}])json"},
+             {QStringLiteral("empty"), QByteArray("")},
+             {QStringLiteral("invalid"), QByteArray("{not json")},
+             {QStringLiteral("object"), QByteArray(R"json({"name":"a","size":10})json")},
+         }) {
+        out += jsonLine(QStringLiteral("Backend::parseSnapshotSizesJson"), c.first,
+                        QJsonObject{{QStringLiteral("json"), QString::fromUtf8(c.second)}},
+                        QJsonObject::fromVariantMap(Backend::parseSnapshotSizesJson(c.second)));
+    }
+
+    const QString duSample = QStringLiteral(
+        "1048576\t/tmp/ws/.snapshots/dev-box/snap-1\n"
+        "2048\t/tmp/ws/.snapshots/dev-box/pre-restore-123\n"
+        "0\t/tmp/ws/.snapshots/dev-box/empty\n"
+        "-1\t/tmp/ws/.snapshots/dev-box/neg\n"
+        "badline\n");
+    out += jsonLine(QStringLiteral("Backend::parseDuBytesOutput"), QStringLiteral("sample"),
+                    QJsonObject{{QStringLiteral("output"), duSample}},
+                    QJsonObject::fromVariantMap(Backend::parseDuBytesOutput(duSample)));
+
+    for (const QString &ws : {QStringLiteral("/tmp/my workspaces/dev box"), QStringLiteral("/tmp/ws/o'reilly")}) {
+        out += jsonLine(QStringLiteral("Backend::workspaceCreateSnippet"), ws,
+                        QJsonObject{{QStringLiteral("workspacePath"), ws}},
+                        Backend::workspaceCreateSnippet(ws));
+    }
+
+    for (const QString &env : {QStringLiteral("dev-box"), QStringLiteral("box'1")}) {
+        out += jsonLine(QStringLiteral("Backend::workspaceMountMigrationScript"), env,
+                        QJsonObject{{QStringLiteral("envName"), env}},
+                        Backend::workspaceMountMigrationScript(env));
+    }
+
+    for (const auto &c : QList<QStringList>{
+             {QStringLiteral("/tmp/ws/dev-box"), QStringLiteral("/tmp/ws/.snapshots/dev-box"), QStringLiteral("snap-1")},
+             {QStringLiteral("/tmp/ws/o'reilly"), QStringLiteral("/tmp/ws/.snapshots/o'reilly"), QStringLiteral("snap'1")},
+             {QStringLiteral(""), QStringLiteral("/tmp/ws/.snapshots/dev-box"), QStringLiteral("snap-1")},
+         }) {
+        out += jsonLine(QStringLiteral("Backend::workspaceSnapshotSnippet"), c.join(QLatin1Char('|')),
+                        QJsonObject{{QStringLiteral("workspacePath"), c.at(0)},
+                                    {QStringLiteral("snapDir"), c.at(1)},
+                                    {QStringLiteral("snapName"), c.at(2)}},
+                        Backend::workspaceSnapshotSnippet(c.at(0), c.at(1), c.at(2)));
+    }
+
+    for (const bool warnOnly : {true, false}) {
+        for (const QString &p : {QStringLiteral("/tmp/ws/.snapshots/dev-box/snap-1"),
+                                 QStringLiteral("/tmp/ws/.snapshots/o'reilly/snap'1"),
+                                 QStringLiteral("")}) {
+            out += jsonLine(QStringLiteral("Backend::workspaceDeleteSnapshotSnippet"),
+                            (warnOnly ? QStringLiteral("warn|") : QStringLiteral("fail|")) + p,
+                            QJsonObject{{QStringLiteral("snapPath"), p},
+                                        {QStringLiteral("warnOnly"), warnOnly}},
+                            Backend::workspaceDeleteSnapshotSnippet(p, warnOnly));
+        }
+    }
+
+    for (const qint64 epoch : {qint64(0), qint64(1700000123)}) {
+        out += jsonLine(QStringLiteral("Backend::workspaceRestoreSnippet"),
+                        QStringLiteral("epoch_%1").arg(epoch),
+                        QJsonObject{{QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/o'reilly")},
+                                    {QStringLiteral("snapDir"), QStringLiteral("/tmp/ws/.snapshots/o'reilly")},
+                                    {QStringLiteral("snapName"), QStringLiteral("snap'1")},
+                                    {QStringLiteral("safetyEpoch"), static_cast<double>(epoch)}},
+                        Backend::workspaceRestoreSnippet(QStringLiteral("/tmp/ws/o'reilly"),
+                                                         QStringLiteral("/tmp/ws/.snapshots/o'reilly"),
+                                                         QStringLiteral("snap'1"), epoch));
+    }
+
+    out += jsonLine(QStringLiteral("Backend::convertWorkspaceToSubvolumeScript"), QStringLiteral("quoted"),
+                    QJsonObject{{QStringLiteral("envName"), QStringLiteral("box'1")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/o'reilly")}},
+                    Backend::convertWorkspaceToSubvolumeScript(QStringLiteral("box'1"),
+                                                               QStringLiteral("/tmp/ws/o'reilly")));
+
+    out += jsonLine(QStringLiteral("Backend::autoSnapshotShellSnippet"), QStringLiteral("no_ws_no_prune"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("dev-box")},
+                                {QStringLiteral("newSnapName"), QStringLiteral("auto-20261113-120000")},
+                                {QStringLiteral("pruneNames"), QJsonArray()},
+                                {QStringLiteral("workspacePath"), QStringLiteral("")},
+                                {QStringLiteral("includeWorkspace"), false}},
+                    Backend::autoSnapshotShellSnippet(QStringLiteral("dev-box"),
+                                                      QStringLiteral("auto-20261113-120000"), {}));
+    out += jsonLine(QStringLiteral("Backend::autoSnapshotShellSnippet"), QStringLiteral("with_ws_and_prune"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                {QStringLiteral("newSnapName"), QStringLiteral("auto-20261113-120000")},
+                                {QStringLiteral("pruneNames"),
+                                 QJsonArray::fromStringList({QStringLiteral("auto-20261113-090000"), QStringLiteral("auto'old")})},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/my workspaces/box'1")},
+                                {QStringLiteral("includeWorkspace"), true}},
+                    Backend::autoSnapshotShellSnippet(QStringLiteral("box'1"),
+                                                      QStringLiteral("auto-20261113-120000"),
+                                                      {QStringLiteral("auto-20261113-090000"), QStringLiteral("auto'old")},
+                                                      QStringLiteral("/tmp/my workspaces/box'1"),
+                                                      true));
+
+    for (const bool includeWs : {false, true}) {
+        out += jsonLine(QStringLiteral("Backend::createSnapshotScript"),
+                        includeWs ? QStringLiteral("with_ws") : QStringLiteral("no_ws"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                    {QStringLiteral("snapName"), QStringLiteral("snap'1")},
+                                    {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/box'1")},
+                                    {QStringLiteral("includeWorkspace"), includeWs}},
+                        Backend::createSnapshotScript(QStringLiteral("box'1"), QStringLiteral("snap'1"),
+                                                      QStringLiteral("/tmp/ws/box'1"), includeWs));
+    }
+
+    struct RestoreCase {
+        const char *label;
+        QString name;
+        QString snap;
+        QString ws;
+        QString mode;
+        bool includeWs;
+        qint64 epoch;
+    };
+    const QList<RestoreCase> restoreCases = {
+        {"both_with_ws_epoch", QStringLiteral("box'1"), QStringLiteral("snap'1"), QStringLiteral("/tmp/ws/box'1"), QStringLiteral("both"), true, 1700000123},
+        {"both_no_ws", QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("/tmp/ws/dev-box"), QStringLiteral("both"), false, 0},
+        {"system_only", QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("/tmp/ws/dev-box"), QStringLiteral("system"), true, 1700000123},
+        {"workspace_only", QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("/tmp/ws/dev-box"), QStringLiteral("workspace"), false, 1700000123},
+        {"workspace_empty_ws", QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral(""), QStringLiteral("workspace"), true, 0},
+        {"mixed_case_both", QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("/tmp/ws/dev-box"), QStringLiteral("  BOTH  "), true, 0},
+    };
+    for (const auto &c : restoreCases) {
+        out += jsonLine(QStringLiteral("Backend::restoreSnapshotScript"), QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("name"), c.name},
+                                    {QStringLiteral("snapName"), c.snap},
+                                    {QStringLiteral("workspacePath"), c.ws},
+                                    {QStringLiteral("mode"), c.mode},
+                                    {QStringLiteral("includeWorkspace"), c.includeWs},
+                                    {QStringLiteral("safetyEpoch"), static_cast<double>(c.epoch)}},
+                        Backend::restoreSnapshotScript(c.name, c.snap, c.ws, c.mode, c.includeWs, c.epoch));
+    }
+
+    for (const bool hasIncus : {true, false}) {
+        for (const bool hasWs : {true, false}) {
+            out += jsonLine(QStringLiteral("Backend::deleteSnapshotScript"),
+                            QStringLiteral("incus_%1_ws_%2").arg(hasIncus ? 1 : 0).arg(hasWs ? 1 : 0),
+                            QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                        {QStringLiteral("snapName"), QStringLiteral("snap'1")},
+                                        {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/box'1")},
+                                        {QStringLiteral("hasIncusSnap"), hasIncus},
+                                        {QStringLiteral("hasWorkspaceSnap"), hasWs}},
+                            Backend::deleteSnapshotScript(QStringLiteral("box'1"), QStringLiteral("snap'1"),
+                                                          QStringLiteral("/tmp/ws/box'1"), hasIncus, hasWs));
+        }
+    }
+
+    out += jsonLine(QStringLiteral("Backend::wipeEnvironmentScript"), QStringLiteral("container_only"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("dev-box")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/dev-box")},
+                                {QStringLiteral("deleteWorkspaceFiles"), false},
+                                {QStringLiteral("sessionsEnvDir"), QStringLiteral("")},
+                                {QStringLiteral("environmentSecretsPath"), QStringLiteral("")}},
+                    Backend::wipeEnvironmentScript(QStringLiteral("dev-box"), QStringLiteral("/tmp/ws/dev-box"), false));
+    out += jsonLine(QStringLiteral("Backend::wipeEnvironmentScript"), QStringLiteral("full_quoted"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/box'1")},
+                                {QStringLiteral("deleteWorkspaceFiles"), true},
+                                {QStringLiteral("sessionsEnvDir"), QStringLiteral("/tmp/sessions/box'1")},
+                                {QStringLiteral("environmentSecretsPath"), QStringLiteral("/tmp/secrets/box'1.json")}},
+                    Backend::wipeEnvironmentScript(QStringLiteral("box'1"), QStringLiteral("/tmp/ws/box'1"), true,
+                                                   QStringLiteral("/tmp/sessions/box'1"),
+                                                   QStringLiteral("/tmp/secrets/box'1.json")));
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1396,6 +1663,7 @@ int main(int argc, char *argv[]) {
         {"i18n", &GoldenCapture::captureI18n},
         {"secrets", &GoldenCapture::captureSecrets},
         {"session", &GoldenCapture::captureSession},
+        {"snapshot", &GoldenCapture::captureSnapshot},
     };
 
     bool matched = onlyModule.isEmpty();
