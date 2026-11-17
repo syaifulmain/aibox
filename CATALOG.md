@@ -28,40 +28,28 @@ All host-level configurations are automated in [bin/setup-system](bin/setup-syst
 
 ## 2. Project File Inventory (`~/Program/aibox`)
 
-Built following the **Omarchy** native desktop application architecture (C++17 + Qt Quick 6 + `qmake6` + `makepkg`). The C++ backend is split into feature modules that all implement the single `Backend` class declared in `backend.h`; the QML window is split into reusable components, dialogs, and panels.
+Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`makepkg` for Arch packaging).
+**Architecture decision:** Core rewritten in Rust (`aibox-core`); QML unchanged (`src/qml/`); `cxx-qt` binding (`aibox-app`) with tiny C++ shims for Qt APIs `cxx-qt` cannot express directly.
 
 | File / Path | Category | Description |
 | :--- | :--- | :--- |
-| [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | QML GUI entry point (`aibox_gui_main` called from `aibox-app/src/main.rs`) setting up `QGuiApplication` + `QQmlApplicationEngine`. |
-| [src/cpp/cli.h](src/cpp/cli.h) & [cli.cpp](src/cpp/cli.cpp) | Source (C++) | Thin C++ wrapper delegating CLI argument parsing, help formatting, and subcommand execution (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) to `aibox-ffi::cli`. |
-| [src/cpp/rust_bridge.h](src/cpp/rust_bridge.h), [port_predicate.h](src/cpp/port_predicate.h), [host_resolver.h](src/cpp/host_resolver.h) & [command_runner.h](src/cpp/command_runner.h) | Source (C++) | `cxx` bridge conversion helpers (`QString`, `QStringList`, `QByteArray`, `QVariant` via JSON) and callback wrappers (`PortPredicate`, `HostResolverBridge`, `CommandRunnerBridge`) between Qt and Rust. |
-| [rust/](rust) | Source (Rust) | Cargo workspace (`aibox-core` pure Rust core, `aibox-ffi` `cxx` staticlib/rlib bridge, `aibox-app` `cxx-qt-build` binary crate producing `rust/target/release/aibox`). |
-| [src/cpp/backend.h](src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
-| [src/cpp/backend.cpp](src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
-| [src/cpp/backend_helpers.h](src/cpp/backend_helpers.h) | Source (C++) | Shared inline helpers used by every backend module: size/rate formatting, container path constant, pool info mapping, ACL snippet builder, terminal launcher. |
-| [src/cpp/backend_env.cpp](src/cpp/backend_env.cpp) | Source (C++) | Incus JSON parsing (including per-environment workspace device paths), create/clone/start/stop/prepare, resource updates, and headless exec argument builders. |
-| [src/cpp/backend_config.cpp](src/cpp/backend_config.cpp) | Source (C++) | Settings persistence: locations, storage, presets, OS catalog entries, create options, first-run completion, resets. |
-| [src/cpp/backend_network.cpp](src/cpp/backend_network.cpp) | Source (C++) | Allowlist ACL resolution, network modes, egress log, port forwards. |
-| [src/cpp/backend_snapshot.cpp](src/cpp/backend_snapshot.cpp) | Source (C++) | Snapshot sizes, Btrfs workspace snapshot/restore/prune, auto-snapshot policy, wipe actions. |
-| [src/cpp/backend_secret.cpp](src/cpp/backend_secret.cpp) | Source (C++) | Host secrets store, per-environment injection, and session log redaction. |
-| [src/cpp/backend_session.cpp](src/cpp/backend_session.cpp) | Source (C++) | Operation history, session recording, ANSI handling, replay. |
-| [src/cpp/backend_backup.cpp](src/cpp/backend_backup.cpp) | Source (C++) | Export/import archives, archive scanning, free-space checks, stale and orphan audits. |
-| [src/cpp/backend_workspace.cpp](src/cpp/backend_workspace.cpp) | Source (C++) | Workspace diff and restore, extra mounts, localhost SFTP root-file access, clipboard image bridge. |
-| [src/cpp/backend_health.cpp](src/cpp/backend_health.cpp) | Source (C++) | Watchdog thresholds and hysteresis, idle auto-stop decisions, storage pool info, `aibox check` health checks. |
-| [src/cpp/backend_provision.cpp](src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, image cache handling, and live resource quota scripts. |
-| [src/cpp/backend_demo.cpp](src/cpp/backend_demo.cpp) | Source (C++) | Demo data used for previews and screenshots. |
-| [src/cpp/shim/](src/cpp/shim) | Source (C++) | Tiny `QTranslator` subclass (`translator_shim.{h,cpp}`) forwarding `translate()` to Rust `TranslatorState`, `clipboard_shim.{h,cpp}`, `qml_helpers.{h,cpp}` for `setContextProperty`/`QLocale`/`:/` resource reads, and `test_helpers.{h,cpp}` for offscreen `QGuiApplication`/`Backend`/`QQmlApplicationEngine` integration tests. |
-| [src/cpp/theme.h](src/cpp/theme.h) & [theme.cpp](src/cpp/theme.cpp) | Source (C++) | Compatibility `Theme` class kept only for `tests/aibox_tests.pro` until P18 (`aibox` binary uses `aibox-app/src/qt_theme.rs`). |
-| [src/cpp/translator.h](src/cpp/translator.h) & [translator.cpp](src/cpp/translator.cpp) | Source (C++) | Compatibility `Translator` class kept only for `tests/aibox_tests.pro` until P18 (`aibox` binary uses `aibox-app/src/qt_translator.rs` + `TranslatorShim`). |
+| [rust/Cargo.toml](rust/Cargo.toml) | Workspace | Cargo workspace (`aibox-core`, `aibox-app`), version `0.3.0`. |
+| [rust/crates/aibox-core/src/](rust/crates/aibox-core/src) | Source (Rust) | Pure Rust application core: `util`, `config`, `theme`, `i18n`, `secrets`, `session`, `history`, `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `incus`, `task`, `engine`, and headless `cli`. |
+| [rust/crates/aibox-core/tests/golden/](rust/crates/aibox-core/tests/golden) | Golden Fixtures | Committed `.jsonl` parity fixtures replayed by `aibox-core` `golden.rs`. |
+| [rust/crates/aibox-app/src/main.rs](rust/crates/aibox-app/src/main.rs) & [lib.rs](rust/crates/aibox-app/src/lib.rs) | Source (Rust) | Process entry point dispatching `--redact-session` and headless CLI in Rust, and calling `aibox_gui_main` for the QML GUI. |
+| [rust/crates/aibox-app/src/qt_backend*.rs](rust/crates/aibox-app/src/qt_backend.rs) | Source (Rust) | `cxx-qt` `Backend` QObject wrapping `Engine` and GUI state, split by feature module (`config`, `secrets`, `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `sessions`, `task`). |
+| [rust/crates/aibox-app/src/qt_theme.rs](rust/crates/aibox-app/src/qt_theme.rs) & [qt_translator.rs](rust/crates/aibox-app/src/qt_translator.rs) | Source (Rust) | `cxx-qt` `Theme` and `TranslatorState` QObjects with live file watching (`notify`) and Hyprland rounding polling. |
+| [rust/crates/aibox-app/src/variant.rs](rust/crates/aibox-app/src/variant.rs) | Source (Rust) | `serde_json::Value` to `QVariant` / `QVariantList` / `QVariantMap` / `QStringList` converters. |
+| [rust/crates/aibox-app/cpp/main.cpp](rust/crates/aibox-app/cpp/main.cpp) | Source (C++) | QML GUI entry point (`aibox_gui_main`) setting up `QGuiApplication` + `QQmlApplicationEngine`. |
+| [rust/crates/aibox-app/cpp/shim/](rust/crates/aibox-app/cpp/shim) | Source (C++) | Tiny C++ shims (`translator_shim.{h,cpp}`, `clipboard_shim.{h,cpp}`, `qml_helpers.{h,cpp}`, `test_helpers.{h,cpp}`). |
+| [rust/crates/aibox-app/tests/](rust/crates/aibox-app/tests) | Integration Tests | Offscreen Qt/QML integration tests (`backend_qobject.rs` for QObject/signal/async tests and `qml_smoke.rs` loading `qrc:/Main.qml`, all settings sections, and all dialogs with zero-warning enforcement). |
 | [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
 | [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
 | [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
-| [rust/crates/aibox-app/tests/](rust/crates/aibox-app/tests) | Integration Tests | Offscreen Qt/QML integration tests (`backend_qobject.rs` for QObject/signal/async tests and `qml_smoke.rs` loading `qrc:/Main.qml`, all settings sections, and all dialogs with zero-warning enforcement). |
-| [rust/crates/aibox-core/tests/golden/](rust/crates/aibox-core/tests/golden) | Golden Fixtures | Committed `.jsonl` parity fixtures replayed by `aibox-core` `golden.rs`. |
-| [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
+| [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition (`0.3.0`) installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
 | [pkgbuild/aibox.desktop](pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
 | [pkgbuild/aibox.svg](pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
 | [bin/setup-system](bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
@@ -74,6 +62,12 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Rust Migration P19 — Cleanup, Documentation, and Release (`0.3.0`)
+* **Architecture Decision**: Core rewritten in Rust (`aibox-core`); QML unchanged (`src/qml/`); `cxx-qt` binding (`aibox-app`) with tiny C++ shims (`rust/crates/aibox-app/cpp/shim/`).
+* **Dead Code & FFI Removal (`rust/crates/aibox-ffi`, `src/cpp/`)**: Removed `rust/crates/aibox-ffi`, `src/cpp/rust_bridge.h`, and leftover C++ files (`cli.{h,cpp}`, `theme.{h,cpp}`, `translator.{h,cpp}`). Moved `main.cpp` and `shim/` into `rust/crates/aibox-app/cpp/`, passing `version` and `project_dir` directly from `aibox_app::run_main()` to `aibox_gui_main()`.
+* **Version Bump & Docs (`rust/Cargo.toml`, `pkgbuild/PKGBUILD`, `AGENTS.md`, `README.md`, `CATALOG.md`)**: Bumped workspace and `PKGBUILD` version to `0.3.0`. Rewrote `AGENTS.md` for the Rust + `cxx-qt` + Cargo workflow, updated `README.md` build requirements and source layout, and updated `CATALOG.md` file inventory.
+* **Verification**: `./bin/install`, `./bin/test`, CLI checks, offscreen GUI grabs, and `git grep` for legacy `qmake`/`.pro`/`src/cpp` references all pass.
 
 ### Rust Migration P18 — Rust Test Suite & QML Smoke Test
 * **QObject & QML Smoke Integration Tests (`rust/crates/aibox-app/Cargo.toml`, `src/lib.rs`, `src/main.rs`, `src/cpp/shim/test_helpers.{h,cpp}`, `tests/backend_qobject.rs`, `tests/qml_smoke.rs`)**: Exposed `aibox-app` as a library crate (`ensure_cxx_qt_linked`) alongside the `aibox` binary. Ported the remaining 3 `Backend` QObject tests (`primary_action_counts`, `enable_file_access_requires_known_running_environment`, `enter_environment_returns_without_blocking`) to `tests/backend_qobject.rs` and added `tests/qml_smoke.rs` (`qml_smoke_all_dialogs_and_settings_zero_warnings`) to load `qrc:/Main.qml` offscreen in demo mode, open all 5 settings sections and all 17 modal dialogs, and fail on any Qt/QML warning.

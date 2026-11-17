@@ -28,7 +28,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 
 - Omarchy or Arch Linux
 - Incus and a Btrfs storage pool
-- Qt 6 development tools (`qmake6`) and Rust toolchain (`cargo`, `rustc`) to build
+- Qt 6 (`qt6-base`, `qt6-declarative`) and Rust toolchain (`cargo`, `rustc`) to build
 
 ## Setup and install
 
@@ -95,34 +95,35 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 ## Development
 
 ```bash
-./bin/build     # compile into build/aibox (fast loop)
-./bin/test      # build and run the offscreen Qt Test suite
+./bin/build     # compile into rust/target/release/aibox (fast loop)
+./bin/test      # run fmt, clippy, and the Rust/Qt/QML test suite
 ./bin/install   # build and install into ~/.local/ (or --system for makepkg)
 ```
 
 Source layout:
 
-- `src/cpp/` holds the C++ sources. The `Backend` class is declared once in
-  `backend.h` and implemented across feature modules named `backend_*.cpp`
-  (environments, network, snapshots, secrets, sessions, backups, workspace,
-  health).
+- `rust/crates/aibox-core/` holds the pure Rust core (config, secrets,
+  snapshots, workspace, network, backup, health, provisioning, Incus parsing,
+  task runtime, `Engine`, and headless CLI) plus golden replay tests.
+- `rust/crates/aibox-app/` holds the `cxx-qt` QObject bindings (`Backend`,
+  `Theme`, `TranslatorState`), `main.rs`, tiny Qt C++ shims (`cpp/`), and
+  offscreen QObject/QML smoke tests (`tests/`).
 - `src/qml/` holds the interface: `Main.qml` is the window shell, with reusable
   controls in `components/`, modal overlays in `dialogs/`, and layout sections
   in `panels/` (configuration sections live in `panels/settings/`).
 - `src/qml/components/Style.qml` is the design-token singleton: surfaces,
   spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is
   the shared modal shell, so dialogs only declare their own content. Live
-  Omarchy colours and rounding still come from the C++ `theme` object.
+  Omarchy colours and rounding come from the Rust `Theme` QObject.
 - `src/i18n/` holds the translation catalogs and `src/resources.qrc` bundles
   them with the QML files.
-- `tests/aibox_tests.cpp` holds the test suite.
 
 Read [AGENTS.md](AGENTS.md) before changing the code. For a quick visual smoke
 test without a display:
 
 ```bash
-QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox.png ./build/aibox
-QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox-create.png AIBOX_PREVIEW_CREATE=1 ./build/aibox
+QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox.png ./rust/target/release/aibox
+QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox-create.png AIBOX_PREVIEW_CREATE=1 ./rust/target/release/aibox
 ```
 
 ## Uninstall

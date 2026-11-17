@@ -13,10 +13,9 @@ dependencies = [
 
 [[package]]
 name = "aibox-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aibox-core",
- "aibox-ffi",
  "cxx",
  "cxx-qt",
  "cxx-qt-build",
@@ -29,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aibox-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "libc",
@@ -37,15 +36,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "aibox-ffi"
-version = "0.2.0"
-dependencies = [
- "aibox-core",
- "cxx",
- "cxx-build",
 ]
 
 [[package]]

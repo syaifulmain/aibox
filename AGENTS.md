@@ -6,8 +6,6 @@ This file is the contract for every human or AI agent that changes the codebase.
 `CLAUDE.md` and `GEMINI.md` are symlinks to this file, so keep one source of
 truth.
 
-Rust migration in progress: Rust sources live under `rust/`; run `cargo fmt`, `cargo clippy` and `cargo test` as part of `./bin/test`.
-
 ## Mandatory workflow for every change
 
 Run these steps for any feature, UI change, behaviour change, or bug fix. Do not
@@ -19,11 +17,11 @@ declare the work finished before all three steps pass.
    ./bin/install
    ```
 
-   This builds the application and installs it into `~/.local/` without
-   requiring `sudo`. That covers `~/.local/bin/aibox`, the desktop entry in
-   `~/.local/share/applications/aibox.desktop`, the icon, and the
-   `Super + Space` launcher. Run it once per change set. Do not run `makepkg`
-   separately and do not run `./bin/install` a second time (use
+   This builds `rust/target/release/aibox` via Cargo and installs it into
+   `~/.local/` without requiring `sudo`. That covers `~/.local/bin/aibox`, the
+   desktop entry in `~/.local/share/applications/aibox.desktop`, the icon, and
+   the `Super + Space` launcher. Run it once per change set. Do not run
+   `makepkg` separately and do not run `./bin/install` a second time (use
    `./bin/install --system` only when an Arch Linux system package in
    `/usr/bin/aibox` is explicitly requested).
 
@@ -33,6 +31,8 @@ declare the work finished before all three steps pass.
    ./bin/test
    ```
 
+   Runs `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`,
+   and `cargo test --workspace --release --locked` with `QT_QPA_PLATFORM=offscreen`.
    All tests must pass before you report completion. If a test fails, fix the
    cause; do not delete or skip the test.
 
@@ -42,53 +42,61 @@ declare the work finished before all three steps pass.
    - Update [README.md](README.md) when a feature, shortcut, dependency, or
      option changes.
 
-Fast inner loop, for iteration only: `./bin/build` compiles into `build/`
-without packaging. Always finish with `./bin/install` and `./bin/test`.
+Fast inner loop, for iteration only: `./bin/build` compiles the release binary
+without installing. Always finish with `./bin/install` and `./bin/test`.
 
 ## Repository layout
 
 ```
-rust/                     Cargo workspace (aibox-core, aibox-ffi, aibox-app)
+rust/
+  Cargo.toml              Cargo workspace (aibox-core, aibox-app)
+  crates/
+    aibox-core/           pure Rust core (logic, CLI, Engine, unit & golden tests)
+    aibox-app/            cxx-qt binary crate (QObjects, cpp/ shims, QML smoke tests)
 bin/                      build, install, test, uninstall, system setup scripts
 pkgbuild/                 PKGBUILD, desktop entry, icon for the Arch package
-src/cpp/                  C++ facade sources and headers
 src/qml/                  QML user interface, Main.qml is the window shell
 src/qml/components/       reusable QML controls (buttons, inputs, modal header)
 src/qml/dialogs/          modal overlays (create, clone, wipe, history, secrets)
 src/qml/panels/           layout sections (header, banner, content, settings)
 src/i18n/                 translation catalogs (en.json, da.json)
 src/resources.qrc         Qt resource manifest for QML and catalogs
-tests/                    offscreen Qt Test suite
 ```
 
-Key C++ entry points:
+Key entry points:
 
-- `src/cpp/main.cpp`: process entry point. Dispatches the headless CLI path,
-  the session redaction helper, and the QML GUI.
-- `src/cpp/cli.{h,cpp}`: CLI parsing and subcommands (`list`, `check`, `enter`,
-  `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`).
-- `src/cpp/backend.{h,cpp}`: the `Backend` class that owns all state and actions.
-  Its implementation is split across feature modules (`backend_*.cpp`) that all
-  define members of the same class. `backend.h` remains the single declaration,
-  and `backend_helpers.h` holds the shared internal helpers.
-- `src/cpp/theme.{h,cpp}`: live watcher for the active Omarchy theme
-  (`colors.toml`) and Hyprland window rounding.
-- `src/cpp/translator.{h,cpp}`: live language loader
-  (`~/.config/omarchy/language`).
+- `rust/crates/aibox-app/src/main.rs` & `lib.rs`: process entry point.
+  Dispatches `--redact-session` and headless CLI invocations in Rust, and calls
+  `aibox_gui_main` in `rust/crates/aibox-app/cpp/main.cpp` for the QML GUI.
+- `rust/crates/aibox-core/src/`: pure Rust application logic split by domain
+  (`util`, `config`, `theme`, `i18n`, `secrets`, `session`, `history`,
+  `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `incus`,
+  `task`, `engine`, `cli`).
+- `rust/crates/aibox-app/src/qt_backend*.rs`: `cxx-qt` `Backend` QObject
+  wrapping `Engine` and GUI state, split by feature module.
+- `rust/crates/aibox-app/src/qt_theme.rs` & `qt_translator.rs`: `cxx-qt`
+  `Theme` and `TranslatorState` QObjects with live file watching.
+- `rust/crates/aibox-app/cpp/shim/`: tiny C++ shims that `cxx-qt` cannot
+  express directly (`TranslatorShim`, clipboard, QML context helpers, offscreen
+  test helpers).
 - `src/qml/Main.qml`: application window, state properties, shortcuts, and the
   composition of the extracted QML files.
 - `src/qml/components/`, `src/qml/dialogs/`, `src/qml/panels/`: reusable
   controls, modal overlays, and layout sections. Extracted files receive the
   window with an `app` property instead of referencing the `win` id.
-- `tests/aibox_tests.cpp`: offscreen Qt Test suite, run by `./bin/test`.
+- `rust/crates/aibox-core/tests/golden.rs` & `rust/crates/aibox-app/tests/`:
+  golden replay, `Backend` QObject integration tests, and the offscreen QML
+  smoke test, run by `./bin/test`.
 
-When you add a C++ facade file, register it in `rust/crates/aibox-app/build.rs`
-and in `tests/aibox_tests.pro`. When you add or move a QML file, register it in
-`src/resources.qrc` with an alias that matches its import path.
+When you add a Rust source file, declare it with `mod` in its crate, and
+register any new `#[cxx_qt::bridge]` file in `rust/crates/aibox-app/build.rs`.
+When you add or move a QML file, register it in `src/resources.qrc` with an
+alias that matches its import path.
 
 ## Architecture notes
 
-- Framework: C++17 with Qt Quick 6 and `qmake6`. No CMake.
+- Framework: Rust (edition 2021, MSRV 1.100) + `cxx-qt` + Qt Quick 6, built
+  with Cargo. No qmake and no CMake.
 - Isolation: Incus system containers and VMs, Btrfs quotas, KVM
   (`/dev/kvm`), and Intel Iris Xe GPU passthrough (`/dev/dri`).
 - Progress streaming: long operations run under a pseudo-terminal
@@ -103,9 +111,9 @@ and in `tests/aibox_tests.pro`. When you add or move a QML file, register it in
 
 ## Code style
 
-- C++: C++17, Qt naming (`camelCase` methods, `m_` members), 4-space indent,
-  braces on the same line, `QStringLiteral` for literal strings. Follow the
-  surrounding file.
+- Rust: `rustfmt` defaults (`cargo fmt`), `cargo clippy --all-targets -- -D warnings`,
+  no `unwrap()` or `expect()` on external input (files, processes, user input),
+  `thiserror` for typed errors. Comments explain why, not what.
 - QML: 4-space indent, one property per line, `id` first, bindings over
   assignments. Reusable controls belong in `src/qml/components`. Never hardcode
   colours, font families, font sizes, spacing, radii or control heights: use

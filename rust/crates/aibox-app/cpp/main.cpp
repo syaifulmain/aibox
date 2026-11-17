@@ -1,6 +1,5 @@
 // aibox — Isolated Linux OS environment manager for AI, desktop, and mobile projects.
 
-#include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QImage>
@@ -11,25 +10,17 @@
 #include <QTimer>
 #include <QUrl>
 
-#include "cli.h"
-#include "rust_bridge.h"
 #include "aibox-app/src/qt_backend.cxxqt.h"
 #include "aibox-app/src/qt_theme.cxxqt.h"
 #include "aibox-app/src/qt_translator.cxxqt.h"
-#include "aibox-ffi/src/meta.rs.h"
 #include "shim/qml_helpers.h"
 #include "shim/translator_shim.h"
 
-extern "C" int aibox_gui_main(int argc, char *argv[]) {
+extern "C" int aibox_gui_main(int argc, char *argv[], const char *version, const char *projectDir) {
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("aibox");
-    app.setApplicationVersion(aibox::ffi::fromRust(aibox::ffi::core_version()));
-
-    QStringList rawArgs;
-    for (int i = 1; i < argc; ++i)
-        rawArgs.append(QString::fromLocal8Bit(argv[i]));
-    const Cli::ParsedArgs guiArgs = Cli::parseArgs(rawArgs);
+    app.setApplicationVersion(QString::fromUtf8(version ? version : ""));
 
     // Matches the window to aibox.desktop, so the compositor (Wayland app_id)
     // and the launcher pick up the installed icon.
@@ -49,7 +40,7 @@ extern "C" int aibox_gui_main(int argc, char *argv[]) {
     if (!themeDir.isEmpty())
         theme.configure(themeDir, QString());
     Backend backend;
-    backend.configure(guiArgs.projectDir, true);
+    backend.configure(QString::fromUtf8(projectDir ? projectDir : ""), true);
 
     QQmlApplicationEngine engine;
     QObject::connect(&translatorState, &TranslatorState::changed, &engine, &QQmlEngine::retranslate);

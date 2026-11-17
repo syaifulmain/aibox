@@ -1,7 +1,6 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int};
 
-use aibox_ffi as _;
 use cxx_qt as _;
 use cxx_qt_lib as _;
 
@@ -21,7 +20,12 @@ pub mod qt_translator;
 pub mod variant;
 
 extern "C" {
-    fn aibox_gui_main(argc: c_int, argv: *mut *mut c_char) -> c_int;
+    fn aibox_gui_main(
+        argc: c_int,
+        argv: *mut *mut c_char,
+        version: *const c_char,
+        project_dir: *const c_char,
+    ) -> c_int;
     fn cxx_qt_init_crate_aibox_app() -> bool;
 }
 
@@ -48,12 +52,23 @@ pub fn run_main() -> ! {
         }
     }
 
+    let parsed_gui = aibox_core::cli::parse_args(&raw_args[1..]);
+    let version_c = CString::new(aibox_core::core_version()).unwrap_or_default();
+    let project_dir_c = CString::new(parsed_gui.project_dir.as_str()).unwrap_or_default();
+
     let c_args: Vec<CString> = raw_args
         .iter()
         .map(|arg| CString::new(arg.as_str()).unwrap_or_else(|_| CString::new("").unwrap()))
         .collect();
     let mut ptrs: Vec<*mut c_char> = c_args.iter().map(|s| s.as_ptr() as *mut c_char).collect();
 
-    let code = unsafe { aibox_gui_main(ptrs.len() as c_int, ptrs.as_mut_ptr()) };
+    let code = unsafe {
+        aibox_gui_main(
+            ptrs.len() as c_int,
+            ptrs.as_mut_ptr(),
+            version_c.as_ptr(),
+            project_dir_c.as_ptr(),
+        )
+    };
     std::process::exit(code);
 }

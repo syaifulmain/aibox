@@ -25,7 +25,6 @@ harness = false
 
 [dependencies]
 aibox-core = { path = "../aibox-core" }
-aibox-ffi = { path = "../aibox-ffi" }
 cxx = "1"
 cxx-qt = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_full"] }
