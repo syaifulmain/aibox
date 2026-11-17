@@ -67,5 +67,8 @@
   "'%1' is a global secret and cannot be deleted from an environment. Manage it in Tools → Secrets.": "'%1' is a global secret and cannot be deleted from an environment. Manage it in Tools → Secrets.",
   "Secret '%1' does not belong to environment '%2'.": "Secret '%1' does not belong to environment '%2'.",
   "Invalid secret name '%1'.": "Invalid secret name '%1'.",
-  "Preset": "Preset"
+  "Preset": "Preset",
+  "Click to expand core usage": "Click to expand core usage",
+  "Click to collapse core usage": "Click to collapse core usage",
+  "Core %1": "Core %1"
 }

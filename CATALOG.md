@@ -72,6 +72,14 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 56 — CPU Card Expands Per-Core Usage
+- **CPU resource card (`src/qml/components/ResourceMeterCard.qml`, `src/qml/panels/EnvironmentInspector.qml`)**: the card gained optional interaction: a pointer cursor, an accent border on hover, a click signal, a tooltip, and an expansion state. The CPU Usage card uses these so a click expands the card in place and a second click collapses it. The card keeps its grid column and only grows taller. The Disk and Memory cards bind their preferred height to the CPU card height, so all three match without stretching to the window height. No new modal is added.
+- **Two-column core grid (`src/qml/panels/EnvironmentInspector.qml`)**: the card stays in its own column and only grows in height. The expanded area renders one cell per allocated core in two columns, matching `cpuCores` and the `cpuCorePercents` samples from the backend. Each cell shows `Core N`, its percentage, and a usage bar; values at or above 85% use the alert colour. The card height follows the row count, and stopped environments show zero load.
+- **Selection handling (`src/qml/panels/EnvironmentInspector.qml`)**: the expanded environment name is stored instead of a plain flag, so changing the selected environment collapses the card automatically while periodic refreshes leave it open.
+- **Localization (`src/i18n/en.json`, `src/i18n/da.json`)**: added the expand and collapse tooltips and the core label.
+- **Docs (`README.md`)**: the resource card bullet now mentions the expanding per-core CPU view.
+- **Tests (`tests/aibox_tests.cpp`)**: no behaviour change; `./bin/test` passes 74 tests.
+
 ### Iteration 55 — Wipe OS Moves into More Actions
 - **Environment inspector (`src/qml/panels/EnvironmentInspector.qml`)**: removed the standalone red **Wipe OS** button. The secondary action bar now holds only **Start OS** / **Stop OS** and **More Actions**.
 - **Environment Actions dialog (`src/qml/dialogs/EnvironmentActionsDialog.qml`)**: added **Wipe OS** as the last row, marked `danger` so the label, hover surface, and hover border use `theme.red`. Opening it closes the menu and shows the existing wipe confirmation with `deleteWorkspaceOnWipe` reset to false.

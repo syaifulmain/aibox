@@ -8,12 +8,71 @@ import "../components"
 Rectangle {
     id: root
     property QtObject app: null
+    property string cpuExpandedEnv: ""
+    readonly property bool cpuExpanded: cpuExpandedEnv.length > 0
+                                         && cpuExpandedEnv === (backend.selectedEnvironment.name || "")
     readonly property string snapshotNameText: snapshotsCard.snapshotNameText
 
     color: Style.surfaceCard
     radius: theme.radius
     border.width: Style.hairline
     border.color: Style.borderSubtle
+
+    // Per-core load shown inside the expanded CPU card, two columns of cores.
+    Component {
+        id: cpuCoresGrid
+
+        GridLayout {
+            columns: 2
+            columnSpacing: Style.space8
+            rowSpacing: Style.space6
+            width: parent ? parent.width : 0
+
+            Repeater {
+                model: backend.selectedEnvironment.cpuCorePercents || []
+
+                delegate: ColumnLayout {
+                    required property int index
+                    required property var modelData
+
+                    Layout.fillWidth: true
+                    spacing: Style.space2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.space6
+
+                        Text {
+                            elide: Text.ElideRight
+                            text: qsTr("Core %1").arg(index + 1)
+                            color: theme.muted
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
+                        }
+
+                        Text {
+                            text: modelData + "%"
+                            color: modelData >= 85 ? theme.red : theme.foreground
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
+                            font.weight: Font.Medium
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    MeterBar {
+                        Layout.fillWidth: true
+                        implicitHeight: 4
+                        value: modelData
+                        minFillWidth: Style.space2
+                        trackColor: Style.surfaceTrack
+                        fillColor: modelData >= 85 ? theme.red : theme.accent
+                    }
+                }
+            }
+        }
+    }
 
     ScrollView {
         id: inspectorScroll
@@ -111,6 +170,7 @@ Rectangle {
 
                 ResourceMeterCard {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: cpuCard.Layout.preferredHeight
                     title: qsTr("Disk Usage")
                     value: (backend.selectedEnvironment.diskUsage || "0 MB") + " / " + (backend.selectedEnvironment.diskLimit || "—")
                     badge: (backend.selectedEnvironment.diskAlertLevel === 2
@@ -125,6 +185,7 @@ Rectangle {
 
                 ResourceMeterCard {
                     Layout.fillWidth: true
+                    Layout.preferredHeight: cpuCard.Layout.preferredHeight
                     title: qsTr("Memory Usage")
                     value: (backend.selectedEnvironment.memoryUsage || "0 MB") + " / " + (backend.selectedEnvironment.memoryLimit || "—")
                     badge: (backend.selectedEnvironment.memoryPercent !== undefined ? backend.selectedEnvironment.memoryPercent : 0) + "%"
@@ -134,6 +195,7 @@ Rectangle {
                 }
 
                 ResourceMeterCard {
+                    id: cpuCard
                     Layout.fillWidth: true
                     title: qsTr("CPU Usage")
                     value: (backend.selectedEnvironment.cpuUsage || "0%") + " / " + (backend.selectedEnvironment.cpuLimit || "—")
@@ -141,6 +203,15 @@ Rectangle {
                     percent: backend.selectedEnvironment.cpuPercent !== undefined ? backend.selectedEnvironment.cpuPercent : 0
                     hasBar: true
                     active: backend.selectedEnvironment.running || false
+                    interactive: true
+                    expanded: root.cpuExpanded
+                    expandedContent: cpuCoresGrid
+                    hint: root.cpuExpanded
+                          ? qsTr("Click to collapse core usage")
+                          : qsTr("Click to expand core usage")
+                    onClicked: root.cpuExpandedEnv = root.cpuExpanded
+                                                    ? ""
+                                                    : (backend.selectedEnvironment.name || "")
                 }
             }
 

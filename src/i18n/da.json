@@ -561,5 +561,8 @@
   "'%1' is a global secret. Manage it in Tools → Secrets.": "'%1' er en global hemmelighed. Administrér den under Værktøjer → Hemmeligheder.",
   "'%1' is a global secret and cannot be deleted from an environment. Manage it in Tools → Secrets.": "'%1' er en global hemmelighed og kan ikke slettes fra et miljø. Administrér den under Værktøjer → Hemmeligheder.",
   "Secret '%1' does not belong to environment '%2'.": "Hemmeligheden '%1' tilhører ikke miljøet '%2'.",
-  "Invalid secret name '%1'.": "Ugyldigt hemmelighedsnavn '%1'."
+  "Invalid secret name '%1'.": "Ugyldigt hemmelighedsnavn '%1'.",
+  "Click to expand core usage": "Klik for at udvide CPU-forbrug pr. kerne",
+  "Click to collapse core usage": "Klik for at skjule CPU-forbrug pr. kerne",
+  "Core %1": "Kerne %1"
 }
