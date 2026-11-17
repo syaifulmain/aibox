@@ -533,6 +533,23 @@ pub mod qobject {
         ) -> QString;
 
         #[qinvokable]
+        #[cxx_name = "importEnvironment"]
+        fn import_environment(
+            self: Pin<&mut Backend>,
+            backup_file: &QString,
+            new_name: &QString,
+            workspace_archive_file: &QString,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "deleteBackup"]
+        fn delete_backup(
+            self: Pin<&mut Backend>,
+            backup_file: &QString,
+            workspace_archive_file: &QString,
+        );
+
+        #[qinvokable]
         #[cxx_name = "readOperationLog"]
         fn read_operation_log(self: &Backend, id: &QString) -> QString;
 
@@ -653,6 +670,15 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "refreshStaleReport"]
         fn refresh_stale_report(self: Pin<&mut Backend>);
+
+        #[qinvokable]
+        #[cxx_name = "exportAndWipeEnvironment"]
+        fn export_and_wipe_environment(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            include_workspace: bool,
+            delete_workspace_files: bool,
+        ) -> QString;
 
         #[qinvokable]
         #[cxx_name = "openOrphanFolder"]
@@ -795,7 +821,7 @@ pub struct BackendRust {
     count: i32,
     environments: QListQVariant,
     os_catalog: QListQVariant,
-    selected_index: i32,
+    pub(crate) selected_index: i32,
     busy: bool,
     task_progress: i32,
     task_stage: QString,
@@ -836,13 +862,13 @@ pub struct BackendRust {
     idle_stop_options: QListQVariant,
     stale_days: i32,
     stale_day_options: QListQVariant,
-    stale_report: QMapQStringQVariant,
+    pub(crate) stale_report: QMapQStringQVariant,
     record_sessions: bool,
     recorded_sessions: QListQVariant,
     pub(crate) operation_history: QListQVariant,
     pub(crate) egress_logs: QListQVariant,
     pub(crate) egress_logs_env_name: QString,
-    backup_archives: QListQVariant,
+    pub(crate) backup_archives: QListQVariant,
     diff_excludes: QStringList,
     pub(crate) diff_loading: bool,
     pub(crate) diff_entries: QListQVariant,
@@ -1735,22 +1761,6 @@ impl qobject::Backend {
         eprintln!("not yet ported: updateEnvironmentResources");
         QString::default()
     }
-    pub fn check_export_space(
-        &self,
-        _name: &QString,
-        _include_workspace: bool,
-    ) -> QMapQStringQVariant {
-        eprintln!("not yet ported: checkExportSpace");
-        QMapQStringQVariant::default()
-    }
-    pub fn export_environment(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _include_workspace: bool,
-    ) -> QString {
-        eprintln!("not yet ported: exportEnvironment");
-        QString::default()
-    }
     pub fn read_operation_log(&self, _id: &QString) -> QString {
         eprintln!("not yet ported: readOperationLog");
         QString::default()
@@ -1782,21 +1792,6 @@ impl qobject::Backend {
     }
     pub fn resize_storage_pool(self: Pin<&mut Self>, _size_spec: &QString) -> QString {
         eprintln!("not yet ported: resizeStoragePool");
-        QString::default()
-    }
-    pub fn open_orphan_folder(self: Pin<&mut Self>, _path: &QString) {
-        eprintln!("not yet ported: openOrphanFolder");
-    }
-    pub fn delete_orphan(self: Pin<&mut Self>, _kind: &QString, _path: &QString) -> QString {
-        eprintln!("not yet ported: deleteOrphan");
-        QString::default()
-    }
-    pub fn delete_orphan_as_admin(
-        self: Pin<&mut Self>,
-        _kind: &QString,
-        _path: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: deleteOrphanAsAdmin");
         QString::default()
     }
     pub fn set_environment_record_sessions(self: Pin<&mut Self>, _name: &QString, _mode: &QString) {
@@ -1855,6 +1850,14 @@ pub(crate) fn spawn_detached(
     cmd.spawn()
         .map(|child| child.id())
         .map_err(|e| e.to_string())
+}
+
+pub(crate) fn launch_command_in_terminal(shell_cmd: &str) {
+    if find_executable("xdg-terminal-exec").is_some() {
+        let _ = spawn_detached("xdg-terminal-exec", &["sh", "-c", shell_cmd], None);
+    } else if find_executable("foot").is_some() {
+        let _ = spawn_detached("foot", &["sh", "-c", shell_cmd], None);
+    }
 }
 
 pub(crate) fn find_executable(name: &str) -> Option<String> {
