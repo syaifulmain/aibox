@@ -1007,6 +1007,186 @@ static QByteArray captureI18n() {
     QDir(workDir).removeRecursively();
     return out;
 }
+
+static QByteArray captureSecrets() {
+    QByteArray out;
+
+    const QByteArray oldXdgEnv = qgetenv("XDG_CONFIG_HOME");
+    const auto restoreXdg = qScopeGuard([&] {
+        if (oldXdgEnv.isEmpty()) qunsetenv("XDG_CONFIG_HOME");
+        else qputenv("XDG_CONFIG_HOME", oldXdgEnv);
+    });
+    qunsetenv("XDG_CONFIG_HOME");
+
+    out += jsonLine(QStringLiteral("Backend::defaultSecretsStorePath"), QStringLiteral("default"),
+                    QJsonObject{}, Backend::defaultSecretsStorePath());
+
+    const QString max64(64, QLatin1Char('a'));
+    const QString over65(65, QLatin1Char('a'));
+    const QList<QPair<QString, QString>> envFileCases = {
+        {QStringLiteral("alpha"), QStringLiteral("alpha")},
+        {QStringLiteral("env_1"), QStringLiteral("env-1")},
+        {QStringLiteral("digit_start"), QStringLiteral("0box")},
+        {QStringLiteral("max64"), max64},
+        {QStringLiteral("over65"), over65},
+        {QStringLiteral("empty"), QStringLiteral("")},
+        {QStringLiteral("leading_dash"), QStringLiteral("-bad")},
+        {QStringLiteral("uppercase"), QStringLiteral("Alpha")},
+        {QStringLiteral("underscore"), QStringLiteral("a_b")},
+        {QStringLiteral("traversal"), QStringLiteral("../etc")},
+    };
+    for (const auto &c : envFileCases) {
+        out += jsonLine(QStringLiteral("Backend::isSafeEnvironmentFileName"), c.first,
+                        QJsonObject{{QStringLiteral("name"), c.second}},
+                        Backend::isSafeEnvironmentFileName(c.second));
+    }
+
+    const QList<QPair<QString, QString>> secretNameCases = {
+        {QStringLiteral("openai"), QStringLiteral("OPENAI_API_KEY")},
+        {QStringLiteral("private"), QStringLiteral("_PRIVATE_1")},
+        {QStringLiteral("single"), QStringLiteral("A")},
+        {QStringLiteral("empty"), QStringLiteral("")},
+        {QStringLiteral("lowercase"), QStringLiteral("lowercase")},
+        {QStringLiteral("leading_digit"), QStringLiteral("1INVALID")},
+        {QStringLiteral("hyphen"), QStringLiteral("BAD-NAME")},
+        {QStringLiteral("equals"), QStringLiteral("BAD=VAL")},
+    };
+    for (const auto &c : secretNameCases) {
+        out += jsonLine(QStringLiteral("Backend::isValidSecretName"), c.first,
+                        QJsonObject{{QStringLiteral("name"), c.second}},
+                        Backend::isValidSecretName(c.second));
+    }
+
+    const QList<QPair<QString, QString>> csvCases = {
+        {QStringLiteral("empty"), QStringLiteral("")},
+        {QStringLiteral("mixed"),
+         QStringLiteral("OPENAI_API_KEY, bad_name, KEY=val, GITHUB_TOKEN, OPENAI_API_KEY")},
+        {QStringLiteral("blanks"), QStringLiteral(" , , _A , B1_2 ")},
+    };
+    for (const auto &c : csvCases) {
+        QJsonArray arr;
+        for (const QString &s : Backend::parseEnvSecretNames(c.second))
+            arr.append(s);
+        out += jsonLine(QStringLiteral("Backend::parseEnvSecretNames"), c.first,
+                        QJsonObject{{QStringLiteral("rawCsv"), c.second}}, arr);
+    }
+
+    {
+        const QList<QPair<QString, QString>> pairs = {
+            {QStringLiteral("OPENAI_API_KEY"), QStringLiteral("sk-test-short")},
+            {QStringLiteral("bad-name"), QStringLiteral("sk-test-ignored")},
+            {QStringLiteral("TRICKY_VAL"), QStringLiteral("it's $HOME $(id) `uname`\nline2")},
+            {QStringLiteral("EMPTY_VAL"), QStringLiteral("")},
+        };
+        QJsonArray inArr;
+        for (const auto &p : pairs) {
+            inArr.append(QJsonObject{{QStringLiteral("name"), p.first},
+                                     {QStringLiteral("value"), p.second}});
+        }
+        out += jsonLine(QStringLiteral("Backend::buildSecretEnvFileContent"),
+                        QStringLiteral("mixed"),
+                        QJsonObject{{QStringLiteral("secrets"), inArr}},
+                        Backend::buildSecretEnvFileContent(pairs));
+    }
+
+    struct RedactCase {
+        QString label;
+        QString text;
+        QStringList values;
+    };
+    const QList<RedactCase> redactCases = {
+        {QStringLiteral("empty_text"), QStringLiteral(""), {QStringLiteral("sk-test-1")}},
+        {QStringLiteral("empty_values"), QStringLiteral("hello sk-test-1"), {}},
+        {QStringLiteral("overlapping"),
+         QStringLiteral("using sk-test-short-extra and sk-test-short inside output"),
+         {QStringLiteral("sk-test-short"), QStringLiteral("sk-test-short-extra"),
+          QStringLiteral(""), QStringLiteral("sk-test-short")}},
+        {QStringLiteral("utf8_bytes"),
+         QStringLiteral("café sk-test-αβγ end"),
+         {QStringLiteral("sk-test-αβγ")}},
+    };
+    for (const auto &c : redactCases) {
+        QJsonArray vals;
+        for (const QString &v : c.values)
+            vals.append(v);
+        out += jsonLine(QStringLiteral("Backend::redactSecrets"), c.label,
+                        QJsonObject{{QStringLiteral("text"), c.text},
+                                    {QStringLiteral("values"), vals}},
+                        Backend::redactSecrets(c.text, c.values));
+        out += jsonLine(QStringLiteral("Backend::redactSecretsBytes"), c.label,
+                        QJsonObject{{QStringLiteral("text"), c.text},
+                                    {QStringLiteral("values"), vals}},
+                        QString::fromUtf8(Backend::redactSecretsBytes(c.text.toUtf8(), c.values)));
+    }
+
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-secrets");
+    QDir(workDir).removeRecursively();
+    QDir().mkpath(workDir);
+    {
+        const QString storePath = workDir + QStringLiteral("/cfg/secrets.json");
+        const QList<QPair<QString, QString>> initial = {
+            {QStringLiteral("API_KEY"), QStringLiteral("sk-test-0001")},
+            {QStringLiteral("API_KEY"), QStringLiteral("sk-test-dup")},
+            {QStringLiteral("SECOND_KEY"), QStringLiteral("sk-test-0002")},
+        };
+        const QStringList disabled = {QStringLiteral("SECOND_KEY"), QStringLiteral("bad-name")};
+        const QStringList hidden = {QStringLiteral("API_KEY"), QStringLiteral("API_KEY")};
+        const QString saveErr = Backend::saveSecretsStore(storePath, initial, disabled, hidden);
+
+        QFile rawFile(storePath);
+        QString rawJson;
+        if (rawFile.open(QIODevice::ReadOnly))
+            rawJson = QString::fromUtf8(rawFile.readAll());
+
+        QString loadErr;
+        const auto loaded = Backend::loadSecretsStore(storePath, &loadErr);
+        QJsonArray loadedArr;
+        for (const auto &p : loaded) {
+            loadedArr.append(QJsonObject{{QStringLiteral("name"), p.first},
+                                         {QStringLiteral("value"), p.second}});
+        }
+        QJsonArray disabledLoaded;
+        for (const QString &n : Backend::loadSecretNameList(storePath, QStringLiteral("disabled")))
+            disabledLoaded.append(n);
+        QJsonArray hiddenLoaded;
+        for (const QString &n :
+             Backend::loadSecretNameList(storePath, QStringLiteral("hiddenInInstances")))
+            hiddenLoaded.append(n);
+
+        out += jsonLine(QStringLiteral("Backend::secretsStoreRoundTrip"), QStringLiteral("full"),
+                        QJsonObject{},
+                        QJsonObject{
+                            {QStringLiteral("saveErr"), saveErr},
+                            {QStringLiteral("rawJson"), rawJson},
+                            {QStringLiteral("loadErr"), loadErr},
+                            {QStringLiteral("loaded"), loadedArr},
+                            {QStringLiteral("disabled"), disabledLoaded},
+                            {QStringLiteral("hiddenInInstances"), hiddenLoaded},
+                        });
+
+        const QString badNameErr =
+            Backend::saveSecretsStore(storePath, {{QStringLiteral("bad-name"), QStringLiteral("x")}});
+        out += jsonLine(QStringLiteral("Backend::saveSecretsStore"), QStringLiteral("invalid_name"),
+                        QJsonObject{}, badNameErr);
+
+        const QString badJsonPath = workDir + QStringLiteral("/bad.json");
+        {
+            QFile f(badJsonPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write("{not valid");
+            f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+        }
+        QString badJsonErr;
+        const auto badLoaded = Backend::loadSecretsStore(badJsonPath, &badJsonErr);
+        out += jsonLine(QStringLiteral("Backend::loadSecretsStore"), QStringLiteral("invalid_json"),
+                        QJsonObject{},
+                        QJsonObject{{QStringLiteral("count"), badLoaded.size()},
+                                    {QStringLiteral("hasErr"), !badJsonErr.isEmpty()}});
+    }
+    QDir(workDir).removeRecursively();
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1038,6 +1218,7 @@ int main(int argc, char *argv[]) {
         {"settings", &GoldenCapture::captureSettings},
         {"theme", &GoldenCapture::captureTheme},
         {"i18n", &GoldenCapture::captureI18n},
+        {"secrets", &GoldenCapture::captureSecrets},
     };
 
     bool matched = onlyModule.isEmpty();

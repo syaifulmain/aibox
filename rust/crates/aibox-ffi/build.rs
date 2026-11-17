@@ -3,6 +3,7 @@ fn main() {
         "src/config.rs",
         "src/i18n.rs",
         "src/meta.rs",
+        "src/secrets.rs",
         "src/settings.rs",
         "src/theme.rs",
         "src/util.rs",
