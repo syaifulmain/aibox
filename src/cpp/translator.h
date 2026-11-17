@@ -1,11 +1,11 @@
 #pragma once
 
 #include <QFileSystemWatcher>
-#include <QHash>
-#include <QJsonValue>
 #include <QLocale>
 #include <QTimer>
 #include <QTranslator>
+
+#include "aibox-ffi/src/i18n.rs.h"
 
 // Follows the language picked under Omarchy's Setup > Language. Catalogs are
 // flat JSON objects from English source text to translation, one per Omarchy
@@ -22,7 +22,7 @@ public:
                         QObject *parent = nullptr);
 
     QString language() const { return m_language; }
-    bool isEmpty() const override { return m_strings.isEmpty(); }
+    bool isEmpty() const override;
     QString translate(const char *context, const char *sourceText, const char *disambiguation = nullptr,
                       int n = -1) const override;
 
@@ -39,7 +39,7 @@ private:
     QString m_languageFile;
     QString m_catalogDirectory;
     QString m_language;
-    QHash<QString, QJsonValue> m_strings;
+    rust::Box<aibox::ffi::CatalogHandle> m_catalog;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
 };

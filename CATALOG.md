@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P03 — Theme and Translator Logic
+- **Rust core (`rust/crates/aibox-core/src/theme.rs`, `rust/crates/aibox-core/src/i18n.rs`)**: ported Omarchy `colors.toml` parsing (`read_key`, `read_accent`, `parse_colors`, `parse_colors_file`), WCAG contrast calculation (`accent_foreground`), Hyprland rounding JSON parsing (`parse_rounding`), language file reading (`read_language`), CLDR cardinal plural rules (`plural_category`), Omarchy `formatLocale` lookup (`format_locale_name`), and layered translation catalog (`Catalog`), with 7 unit tests and real Omarchy theme fixtures under `rust/crates/aibox-core/tests/fixtures/themes/`.
+- **FFI bridge & C++ facade (`rust/crates/aibox-ffi/src/theme.rs`, `rust/crates/aibox-ffi/src/i18n.rs`, `src/cpp/theme.cpp`, `src/cpp/translator.{h,cpp}`)**: bridged theme and i18n functions (with opaque `Box<CatalogHandle>`) via `cxx` and delegated `Theme` and `Translator` logic to Rust while keeping QObject/QTranslator/QFileSystemWatcher/QProcess and all public signatures unchanged.
+- **Golden fixtures (`tests/golden/theme.jsonl`, `tests/golden/i18n.jsonl`, `tests/golden_capture/main.cpp`, `rust/crates/aibox-core/tests/golden.rs`)**: captured theme and i18n golden cases from C++ and enabled `"theme"` and `"i18n"` in `golden.rs`.
+
 ### Rust Migration P02b — Settings Mutators and Validation
 - **Rust core (`rust/crates/aibox-core/src/config/settings.rs`)**: ported all 15 settings mutators and validators (`complete_first_run`, `save_settings`, `save_os_entry`, `remove_os_entry`, `reset_os_catalog`, `save_create_options`, `save_preset`, `reset_create_options`, `save_auto_snapshot_settings`, `save_watchdog_settings`, `stale_day_options`, `save_idle_stop_settings`, `save_stale_settings`, `save_session_recording_settings`, `parse_diff_excludes`, `save_diff_excludes`) with unit tests covering all Qt settings test assertions.
 - **FFI bridge & C++ facade (`rust/crates/aibox-ffi/src/settings.rs`, `src/cpp/backend_config.cpp`, `src/cpp/backend.{h,cpp}`)**: bridged settings mutators via `cxx` and delegated all `backend_config.cpp` methods to Rust while keeping signal emission and `Backend` signatures unchanged.

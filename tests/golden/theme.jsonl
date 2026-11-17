@@ -1,0 +1,15 @@
+{"args":{"toml":""},"case":"missing","fn":"Theme::parseColors","out":{"accent":"#FFD60A","accentForeground":"black","background":"#0e0e10","darkBackground":"#13141c","foreground":"#c0caf5","green":"#9ece6a","lighterBackground":"#1e202e","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"toml":"accent = \"#112233\"\n"},"case":"partial_accent_only","fn":"Theme::parseColors","out":{"accent":"#112233","accentForeground":"white","background":"#0e0e10","darkBackground":"#13141c","foreground":"#c0caf5","green":"#9ece6a","lighterBackground":"#1e202e","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"toml":"  accent = '#abcdef'  \n  foreground = '#123456'\n"},"case":"single_quotes_and_spaces","fn":"Theme::parseColors","out":{"accent":"#abcdef","accentForeground":"black","background":"#0e0e10","darkBackground":"#13141c","foreground":"#123456","green":"#9ece6a","lighterBackground":"#1e202e","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"toml":"foreground = \"#111111\"\nbright_foreground = \"#eeeeee\"\n"},"case":"bright_foreground_overrides","fn":"Theme::parseColors","out":{"accent":"#FFD60A","accentForeground":"black","background":"#0e0e10","darkBackground":"#13141c","foreground":"#eeeeee","green":"#9ece6a","lighterBackground":"#1e202e","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"toml":"accent = \"#12345\"\nbackground = \"red\"\n"},"case":"invalid_hex_ignored","fn":"Theme::parseColors","out":{"accent":"#FFD60A","accentForeground":"black","background":"#0e0e10","darkBackground":"#13141c","foreground":"#c0caf5","green":"#9ece6a","lighterBackground":"#1e202e","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"toml":"mode = \"dark\"\naccent = \"#7aa2f7\"\nbackground = \"#1a1b26\"\ndark_background = \"#13141c\"\nlighter_background = \"#24283b\"\nforeground = \"#a9b1d6\"\ndark_foreground = \"#565f89\"\nbright_foreground = \"#c0caf5\"\nred = \"#f7768e\"\nyellow = \"#e0af68\"\ngreen = \"#9ece6a\"\n"},"case":"full_tokyo_night","fn":"Theme::parseColors","out":{"accent":"#7aa2f7","accentForeground":"black","background":"#1a1b26","darkBackground":"#13141c","foreground":"#c0caf5","green":"#9ece6a","lighterBackground":"#24283b","muted":"#565f89","red":"#f7768e","yellow":"#e0af68"}}
+{"args":{"accent":"#FFD60A"},"case":"#FFD60A","fn":"Theme::accentForeground","out":"black"}
+{"args":{"accent":"#112233"},"case":"#112233","fn":"Theme::accentForeground","out":"white"}
+{"args":{"accent":"#000000"},"case":"#000000","fn":"Theme::accentForeground","out":"white"}
+{"args":{"accent":"#ffffff"},"case":"#ffffff","fn":"Theme::accentForeground","out":"black"}
+{"args":{"accent":"#7aa2f7"},"case":"#7aa2f7","fn":"Theme::accentForeground","out":"black"}
+{"args":{"accent":"#8bc9eb"},"case":"#8bc9eb","fn":"Theme::accentForeground","out":"black"}
+{"args":{"accent":"#6e6e6e"},"case":"#6e6e6e","fn":"Theme::accentForeground","out":"white"}
+{"args":{"accent":"#737373"},"case":"#737373","fn":"Theme::accentForeground","out":"white"}
+{"args":{"accent":"#747474"},"case":"#747474","fn":"Theme::accentForeground","out":"white"}

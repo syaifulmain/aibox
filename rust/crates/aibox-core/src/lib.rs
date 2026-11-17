@@ -1,4 +1,6 @@
 pub mod config;
+pub mod i18n;
+pub mod theme;
 pub mod util;
 
 pub fn core_version() -> &'static str {

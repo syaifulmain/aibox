@@ -1,15 +1,12 @@
 // Theme watching follows Omacut (MIT, David Heinemeier Hansson).
 #include "theme.h"
 
-#include <QColor>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QRegularExpression>
 #include <QStandardPaths>
-#include <cmath>
+
+#include "aibox-ffi/src/theme.rs.h"
+#include "rust_bridge.h"
 
 Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     : QObject(parent),
@@ -32,11 +29,14 @@ Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl)
     connect(&m_roundingProcess, &QProcess::errorOccurred, this, [this] { m_roundingTimeout.stop(); });
     connect(&m_roundingProcess, &QProcess::finished, this, [this](int code, QProcess::ExitStatus status) {
         m_roundingTimeout.stop();
-        const auto value = QJsonDocument::fromJson(m_roundingProcess.readAllStandardOutput()).object().value("int");
-        if (code != 0 || status != QProcess::NormalExit || !value.isDouble() || value.toInt(-1) < 0)
+        if (code != 0 || status != QProcess::NormalExit)
             return;
-        if (value.toInt() != m_radius) {
-            m_radius = value.toInt();
+        const QByteArray stdoutBytes = m_roundingProcess.readAllStandardOutput();
+        const auto parsed = aibox::ffi::theme_parse_rounding(aibox::ffi::toRustBytes(stdoutBytes));
+        if (!parsed.valid)
+            return;
+        if (parsed.value != m_radius) {
+            m_radius = parsed.value;
             emit changed();
         }
     });
@@ -62,28 +62,17 @@ void Theme::refreshRounding() {
 }
 
 QString Theme::readKey(const QString &path, const QString &key, const QString &fallback) {
-    QFile file(path);
-    if (file.open(QIODevice::ReadOnly)) {
-        const QRegularExpression expression(
-            QStringLiteral(R"re(^\s*%1\s*=\s*["'](#[0-9a-fA-F]{6})["'])re").arg(QRegularExpression::escape(key)),
-            QRegularExpression::MultilineOption);
-        const auto match = expression.match(QString::fromUtf8(file.readAll()));
-        if (match.hasMatch())
-            return match.captured(1);
-    }
-    return fallback;
+    return aibox::ffi::fromRust(aibox::ffi::theme_read_key(
+        aibox::ffi::toRust(path), aibox::ffi::toRust(key), aibox::ffi::toRust(fallback)));
 }
 
 QString Theme::readAccent(const QString &path) {
-    return readKey(path, QStringLiteral("accent"), QStringLiteral("#FFD60A"));
+    return aibox::ffi::fromRust(aibox::ffi::theme_read_accent(aibox::ffi::toRust(path)));
 }
 
 // Black or white, whichever reads on the accent (WCAG relative luminance).
 QString Theme::accentForeground() const {
-    const QColor c(m_accent);
-    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
-    const double luminance = .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
-    return luminance > .179 ? "black" : "white";
+    return aibox::ffi::fromRust(aibox::ffi::theme_accent_foreground(aibox::ffi::toRust(m_accent)));
 }
 
 void Theme::reload() {
@@ -106,15 +95,16 @@ void Theme::reload() {
             m_watcher.addPath(path);
 
     const QString tomlPath = m_directory + "/theme/colors.toml";
-    const auto accent = readAccent(tomlPath);
-    const auto bg = readKey(tomlPath, "background", "#0e0e10");
-    const auto darkBg = readKey(tomlPath, "dark_background", "#13141c");
-    const auto lighterBg = readKey(tomlPath, "lighter_background", "#1e202e");
-    const auto fg = readKey(tomlPath, "bright_foreground", readKey(tomlPath, "foreground", "#c0caf5"));
-    const auto muted = readKey(tomlPath, "dark_foreground", "#565f89");
-    const auto green = readKey(tomlPath, "green", "#9ece6a");
-    const auto red = readKey(tomlPath, "red", "#f7768e");
-    const auto yellow = readKey(tomlPath, "yellow", "#e0af68");
+    const auto colors = aibox::ffi::theme_parse_colors_file(aibox::ffi::toRust(tomlPath));
+    const auto accent = aibox::ffi::fromRust(colors.accent);
+    const auto bg = aibox::ffi::fromRust(colors.background);
+    const auto darkBg = aibox::ffi::fromRust(colors.dark_background);
+    const auto lighterBg = aibox::ffi::fromRust(colors.lighter_background);
+    const auto fg = aibox::ffi::fromRust(colors.foreground);
+    const auto muted = aibox::ffi::fromRust(colors.muted);
+    const auto green = aibox::ffi::fromRust(colors.green);
+    const auto red = aibox::ffi::fromRust(colors.red);
+    const auto yellow = aibox::ffi::fromRust(colors.yellow);
 
     if (accent != m_accent || bg != m_background || fg != m_foreground || red != m_red || green != m_green || muted != m_muted) {
         m_accent = accent;

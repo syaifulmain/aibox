@@ -1,15 +1,18 @@
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QSaveFile>
 #include <QStringList>
 #include <QTextStream>
 
 #include "backend.h"
 #include "backend_helpers.h"
+#include "theme.h"
+#include "translator.h"
 
 namespace {
 
@@ -780,10 +783,234 @@ static QByteArray captureSettings() {
     restoreEnvs();
     return out;
 }
+
+static QByteArray captureTheme() {
+    QByteArray out;
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-theme-work");
+    QDir(workDir).removeRecursively();
+
+    auto writeColors = [&](const QString &name, const QByteArray &content) {
+        const QString dir = workDir + QLatin1Char('/') + name;
+        QDir().mkpath(dir + QStringLiteral("/theme"));
+        QFile f(dir + QStringLiteral("/theme/colors.toml"));
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(content);
+            f.close();
+        }
+        return dir;
+    };
+
+    auto themeOut = [](const Theme &t) {
+        return QJsonObject{
+            {QStringLiteral("accent"), t.accent()},
+            {QStringLiteral("accentForeground"), t.accentForeground()},
+            {QStringLiteral("background"), t.background()},
+            {QStringLiteral("darkBackground"), t.darkBackground()},
+            {QStringLiteral("lighterBackground"), t.lighterBackground()},
+            {QStringLiteral("foreground"), t.foreground()},
+            {QStringLiteral("muted"), t.muted()},
+            {QStringLiteral("green"), t.green()},
+            {QStringLiteral("red"), t.red()},
+            {QStringLiteral("yellow"), t.yellow()},
+        };
+    };
+
+    {
+        const QString dir = workDir + QStringLiteral("/missing");
+        QDir().mkpath(dir);
+        Theme t(dir);
+        out += jsonLine(QStringLiteral("Theme::parseColors"), QStringLiteral("missing"),
+                        QJsonObject{{QStringLiteral("toml"), QString()}}, themeOut(t));
+    }
+
+    const QList<QPair<QString, QByteArray>> tomlCases = {
+        {QStringLiteral("partial_accent_only"), "accent = \"#112233\"\n"},
+        {QStringLiteral("single_quotes_and_spaces"), "  accent = '#abcdef'  \n  foreground = '#123456'\n"},
+        {QStringLiteral("bright_foreground_overrides"), "foreground = \"#111111\"\nbright_foreground = \"#eeeeee\"\n"},
+        {QStringLiteral("invalid_hex_ignored"), "accent = \"#12345\"\nbackground = \"red\"\n"},
+        {QStringLiteral("full_tokyo_night"),
+         "mode = \"dark\"\n"
+         "accent = \"#7aa2f7\"\n"
+         "background = \"#1a1b26\"\n"
+         "dark_background = \"#13141c\"\n"
+         "lighter_background = \"#24283b\"\n"
+         "foreground = \"#a9b1d6\"\n"
+         "dark_foreground = \"#565f89\"\n"
+         "bright_foreground = \"#c0caf5\"\n"
+         "red = \"#f7768e\"\n"
+         "yellow = \"#e0af68\"\n"
+         "green = \"#9ece6a\"\n"},
+    };
+    for (const auto &c : tomlCases) {
+        const QString dir = writeColors(c.first, c.second);
+        Theme t(dir);
+        out += jsonLine(QStringLiteral("Theme::parseColors"), c.first,
+                        QJsonObject{{QStringLiteral("toml"), QString::fromUtf8(c.second)}},
+                        themeOut(t));
+    }
+
+    const QStringList accentSamples = {
+        QStringLiteral("#FFD60A"),
+        QStringLiteral("#112233"),
+        QStringLiteral("#000000"),
+        QStringLiteral("#ffffff"),
+        QStringLiteral("#7aa2f7"),
+        QStringLiteral("#8bc9eb"),
+        QStringLiteral("#6e6e6e"),
+        QStringLiteral("#737373"),
+        QStringLiteral("#747474"),
+    };
+    for (const auto &hex : accentSamples) {
+        const QString dir = writeColors(QStringLiteral("acc_") + hex.mid(1),
+                                        QByteArray("accent = \"") + hex.toUtf8() + "\"\n");
+        Theme t(dir);
+        out += jsonLine(QStringLiteral("Theme::accentForeground"), hex,
+                        QJsonObject{{QStringLiteral("accent"), hex}},
+                        t.accentForeground());
+    }
+
+    QDir(workDir).removeRecursively();
+    return out;
+}
+
+static QByteArray captureI18n() {
+    QByteArray out;
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-i18n-work");
+    QDir(workDir).removeRecursively();
+    QDir().mkpath(workDir);
+
+    auto writeFile = [](const QString &path, const QByteArray &data) {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(data);
+            f.close();
+        }
+    };
+
+    out += jsonLine(QStringLiteral("Translator::readLanguage"), QStringLiteral("missing"),
+                    QJsonObject{{QStringLiteral("content"), QJsonValue::Null}},
+                    Translator::readLanguage(workDir + QStringLiteral("/missing-lang")));
+
+    const QList<QPair<QString, QByteArray>> langCases = {
+        {QStringLiteral("empty"), ""},
+        {QStringLiteral("pt_br"), "pt-BR\n"},
+        {QStringLiteral("da_ws"), "  da  \nignored\n"},
+        {QStringLiteral("zh_cn"), "zh-CN\n"},
+        {QStringLiteral("fil"), "fil\n"},
+        {QStringLiteral("invalid_long"), "english\n"},
+        {QStringLiteral("invalid_underscore"), "en_US\n"},
+        {QStringLiteral("invalid_digits"), "123\n"},
+    };
+    for (const auto &c : langCases) {
+        const QString p = workDir + QStringLiteral("/lang_") + c.first;
+        writeFile(p, c.second);
+        out += jsonLine(QStringLiteral("Translator::readLanguage"), c.first,
+                        QJsonObject{{QStringLiteral("content"), QString::fromUtf8(c.second)}},
+                        Translator::readLanguage(p));
+    }
+
+    struct PluralCase {
+        const char *lang;
+        QList<long long> counts;
+    };
+    const PluralCase pluralCases[] = {
+        {"ja", {0, 1, 2}},
+        {"ko", {1}},
+        {"zh-CN", {1}},
+        {"zh-TW", {1}},
+        {"th", {1}},
+        {"vi", {1}},
+        {"id", {1}},
+        {"ms", {1}},
+        {"hi", {0, 1, 2}},
+        {"bn", {0, 1, 2}},
+        {"fa", {0, 1, 2}},
+        {"si", {0, 1, 2}},
+        {"fr", {0, 1, 2, 1000000, 2000000, 1000001}},
+        {"pt-BR", {0, 1, 2, 1000000}},
+        {"ca", {0, 1, 2, 1000000}},
+        {"es-MX", {0, 1, 2, 1000000}},
+        {"it", {0, 1, 2, 1000000}},
+        {"pt", {0, 1, 2, 1000000}},
+        {"fil", {1, 4, 6, 9, 10, 14}},
+        {"is", {1, 11, 21, 2}},
+        {"cs", {1, 2, 4, 5}},
+        {"sk", {1, 2, 4, 5}},
+        {"pl", {1, 2, 4, 5, 12, 14, 22, 25}},
+        {"ru", {1, 2, 5, 11, 12, 21, 22, 25}},
+        {"uk", {1, 2, 5, 11, 12, 21, 22, 25}},
+        {"hr", {1, 2, 5, 11, 12, 21, 22, 25}},
+        {"sr", {1, 2, 5, 11, 12, 21, 22, 25}},
+        {"sl", {1, 2, 3, 4, 5, 101, 102, 103}},
+        {"lt", {1, 2, 10, 11, 19, 21, 22}},
+        {"lv", {0, 1, 10, 11, 19, 21, 22}},
+        {"ro", {0, 1, 2, 19, 20, 101, 102}},
+        {"ar", {0, 1, 2, 3, 10, 11, 99, 100, 101, 103, 111}},
+        {"he", {0, 1, 2, 3}},
+        {"ga", {1, 2, 3, 6, 7, 10, 11}},
+        {"en", {0, 1, 2, -1, -2}},
+        {"da", {0, 1, 2}},
+    };
+    for (const auto &pc : pluralCases) {
+        const QString lang = QString::fromLatin1(pc.lang);
+        for (long long count : pc.counts) {
+            const QString label = lang + QLatin1Char('_') + QString::number(count);
+            out += jsonLine(QStringLiteral("Translator::pluralCategory"), label,
+                            QJsonObject{{QStringLiteral("language"), lang},
+                                        {QStringLiteral("count"), static_cast<double>(count)}},
+                            Translator::pluralCategory(lang, count));
+        }
+    }
+
+    // Layered catalog lookup
+    {
+        const QString catDir = workDir + QStringLiteral("/cat1");
+        QDir().mkpath(catDir);
+        writeFile(catDir + QStringLiteral("/language"), "pt-BR\n");
+        writeFile(catDir + QStringLiteral("/en.json"),
+                  R"({"%n clips": {"one": "%n clip", "other": "%n clips"}})");
+        writeFile(catDir + QStringLiteral("/pt.json"),
+                  R"({"Save": "Guardar", "Open": "Abrir", "Empty": ""})");
+        writeFile(catDir + QStringLiteral("/pt-BR.json"),
+                  R"({"Save": "Salvar"})");
+        Translator tr(catDir + QStringLiteral("/language"), catDir);
+        out += jsonLine(QStringLiteral("Translator::translate"), QStringLiteral("pt_br_layered"),
+                        QJsonObject{{QStringLiteral("language"), tr.language()}},
+                        QJsonObject{
+                            {QStringLiteral("Save"), tr.translate("Main", "Save")},
+                            {QStringLiteral("Open"), tr.translate("Main", "Open")},
+                            {QStringLiteral("EmptyIsNull"), tr.translate("Main", "Empty").isNull()},
+                            {QStringLiteral("QuitIsNull"), tr.translate("Main", "Quit").isNull()},
+                            {QStringLiteral("Clips1"), tr.translate("Main", "%n clips", nullptr, 1)},
+                            {QStringLiteral("Clips2"), tr.translate("Main", "%n clips", nullptr, 2)},
+                        });
+    }
+    {
+        const QString catDir = workDir + QStringLiteral("/cat2");
+        QDir().mkpath(catDir);
+        writeFile(catDir + QStringLiteral("/language"), "ru\n");
+        writeFile(catDir + QStringLiteral("/en.json"),
+                  R"({"%n clips": {"one": "%n clip", "other": "%n clips"}})");
+        writeFile(catDir + QStringLiteral("/ru.json"),
+                  R"({"%n clips": {"one": "%n клип", "few": "%n клипа", "many": "%n клипов", "other": "%n клипа"}})");
+        Translator tr(catDir + QStringLiteral("/language"), catDir);
+        out += jsonLine(QStringLiteral("Translator::translate"), QStringLiteral("ru_plurals"),
+                        QJsonObject{{QStringLiteral("language"), tr.language()}},
+                        QJsonObject{
+                            {QStringLiteral("n21"), tr.translate("Main", "%n clips", nullptr, 21)},
+                            {QStringLiteral("n22"), tr.translate("Main", "%n clips", nullptr, 22)},
+                            {QStringLiteral("n25"), tr.translate("Main", "%n clips", nullptr, 25)},
+                            {QStringLiteral("nNeg"), tr.translate("Main", "%n clips", nullptr, -1)},
+                        });
+    }
+
+    QDir(workDir).removeRecursively();
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
-    QCoreApplication app(argc, argv);
+    QGuiApplication app(argc, argv);
 
     QString outDir;
     QString onlyModule;
@@ -809,6 +1036,8 @@ int main(int argc, char *argv[]) {
         {"util", &GoldenCapture::captureUtil},
         {"config", &GoldenCapture::captureConfig},
         {"settings", &GoldenCapture::captureSettings},
+        {"theme", &GoldenCapture::captureTheme},
+        {"i18n", &GoldenCapture::captureI18n},
     };
 
     bool matched = onlyModule.isEmpty();
