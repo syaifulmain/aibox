@@ -67,7 +67,6 @@ Rectangle {
             ActionButton {
                 minWidth: 138
                 label: qsTr("+ Save Snapshot")
-                shortcutHint: "P"
                 disabled: backend.busy
                 Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                 onClicked: {

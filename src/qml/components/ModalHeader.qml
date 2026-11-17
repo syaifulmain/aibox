@@ -56,7 +56,6 @@ ColumnLayout {
         ActionButton {
             visible: mh.showClose
             label: qsTr("Close")
-            shortcutHint: "Esc"
             minWidth: 88
             disabled: mh.closeDisabled
             Layout.alignment: Qt.AlignTop | Qt.AlignRight

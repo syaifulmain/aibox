@@ -63,7 +63,6 @@ Rectangle {
                     label: (backend.selectedEnvironment.isTemplate || false)
                            ? qsTr("New from Template")
                            : qsTr("Enter OS Terminal")
-                    shortcutHint: (backend.selectedEnvironment.isTemplate || false) ? "" : "Space"
                     variant: "primary"
                     minWidth: 165
                     disabled: backend.busy
@@ -85,7 +84,6 @@ Rectangle {
 
                 ActionButton {
                     label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
-                    shortcutHint: "S"
                     variant: (backend.selectedEnvironment.running || false) ? "danger" : "accent"
                     minWidth: 98
                     disabled: backend.busy || (backend.selectedEnvironment.isTemplate || false)
@@ -104,7 +102,6 @@ Rectangle {
                 ActionButton {
                     visible: (backend.selectedEnvironment.secretNames || []).length > 0
                     label: qsTr("Secrets (%1)").arg((backend.selectedEnvironment.secretNames || []).length)
-                    shortcutHint: "A"
                     variant: "accent"
                     minWidth: 108
                     Layout.alignment: Qt.AlignVCenter
@@ -115,7 +112,6 @@ Rectangle {
 
                 ActionButton {
                     label: qsTr("Wipe OS")
-                    shortcutHint: "Del"
                     variant: "danger"
                     minWidth: 96
                     disabled: backend.busy
@@ -212,7 +208,6 @@ Rectangle {
 
                     ActionButton {
                         label: qsTr("Open Shared Folder")
-                        shortcutHint: "F"
                         minWidth: 165
                         Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                         onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")

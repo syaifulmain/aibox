@@ -195,6 +195,16 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 - **Localization (`src/i18n/da.json`)**:
   - Added Danish entries for the new chip placeholders, limit counter, and validation notices.
 
+### Iteration 33 — Remove Unused Roadmap Docs
+- **Documentation (`docs/ROADMAP.md`, `AGENTS.md`)**:
+  - Deleted the `docs/` directory because the roadmap duplicate is no longer used; shipped and planned work lives in `CATALOG.md`.
+  - Removed the roadmap maintenance step and the `docs/` entry from the repository layout in `AGENTS.md`.
+
+### Iteration 32 — Remove Visible Shortcut Hint Badges
+- **Action Controls (`src/qml/components/ActionButton.qml`, `src/qml/components/MenuRow.qml`, `src/qml/components/ModalHeader.qml`)**:
+  - Removed the `shortcutHint` property and the badge chip that rendered the key letter next to labels, so buttons and menu rows no longer show `N`, `R`, `Esc`, `Space`, `Del`, and the other key hints.
+  - Keyboard shortcuts keep working unchanged; the `?` help overlay and the README shortcut table remain the single place that documents them.
+
 ### Iteration 31 — Compact Environment List Card
 - **Environment Sidebar (`src/qml/Main.qml`)**:
   - Removed the secondary description line (`<osName> · <preset>`) under the environment name; everything else (status dot, name, `TEMPLATE`/`RUNNING` badges, disk/memory quotas, and network/IP) is unchanged.

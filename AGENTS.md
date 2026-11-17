@@ -38,8 +38,6 @@ declare the work finished before all three steps pass.
    - Add a changelog entry in [CATALOG.md](CATALOG.md).
    - Update [README.md](README.md) when a feature, shortcut, dependency, or
      option changes.
-   - Update [docs/ROADMAP.md](docs/ROADMAP.md) when the change completes or
-     invalidates a roadmap item.
 
 Fast inner loop, for iteration only: `./bin/build` compiles into `build/`
 without packaging. Always finish with `./bin/install` and `./bin/test`.
@@ -49,7 +47,6 @@ without packaging. Always finish with `./bin/install` and `./bin/test`.
 ```
 aibox.pro                 qmake6 project file for the application
 bin/                      build, install, test, uninstall, system setup scripts
-docs/                     architecture notes and roadmap
 pkgbuild/                 PKGBUILD, desktop entry, icon for the Arch package
 src/cpp/                  C++ sources and headers
 src/qml/                  QML user interface, Main.qml is the window shell

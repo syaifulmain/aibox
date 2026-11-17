@@ -72,7 +72,6 @@ Rectangle {
 
             ActionButton {
                 label: qsTr("Refresh")
-                shortcutHint: "R"
                 minWidth: 96
                 disabled: backend.busy
                 Layout.alignment: Qt.AlignVCenter
@@ -88,7 +87,6 @@ Rectangle {
 
             ActionButton {
                 label: qsTr("+ New Environment")
-                shortcutHint: "N"
                 variant: "primary"
                 minWidth: 165
                 disabled: backend.busy

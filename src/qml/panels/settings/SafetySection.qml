@@ -243,7 +243,6 @@ ColumnLayout {
                 Item { Layout.fillWidth: true }
                 ActionButton {
                     label: qsTr("Open Report")
-                    shortcutHint: "U"
                     minWidth: 122
                     onClicked: {
                         app.settingsVisible = false

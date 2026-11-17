@@ -27,7 +27,6 @@ ModalDialog {
     MenuRow {
         label: qsTr("Secrets")
         detail: qsTr("Store API keys and choose which environments receive them")
-        shortcutHint: "A"
         disabled: backend.firstRun
         onClicked: toolsDialogRoot.openTool(function () { app.openSecretsDialog() })
     }
@@ -35,7 +34,6 @@ ModalDialog {
     MenuRow {
         label: qsTr("Backups")
         detail: qsTr("Export an environment or import an archive")
-        shortcutHint: "B"
         disabled: backend.firstRun
         onClicked: toolsDialogRoot.openTool(function () { app.openBackupsDialog() })
     }
@@ -43,7 +41,6 @@ ModalDialog {
     MenuRow {
         label: qsTr("History")
         detail: qsTr("Operation logs and recorded terminal sessions")
-        shortcutHint: "H"
         disabled: backend.firstRun
         onClicked: toolsDialogRoot.openTool(function () { app.openHistoryDialog() })
     }
@@ -51,7 +48,6 @@ ModalDialog {
     MenuRow {
         label: qsTr("Stale & Orphans")
         detail: qsTr("Review unused environments and reclaimable disk artifacts")
-        shortcutHint: "U"
         disabled: backend.firstRun
         onClicked: toolsDialogRoot.openTool(function () { app.openStaleReportDialog() })
     }

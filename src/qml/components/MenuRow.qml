@@ -6,7 +6,6 @@ Rectangle {
     id: root
     property string label: ""
     property string detail: ""
-    property string shortcutHint: ""
     property bool danger: false
     property bool disabled: false
     readonly property bool hovered: rowMouse.containsMouse
@@ -54,14 +53,6 @@ Rectangle {
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }
-        }
-
-        TagBadge {
-            visible: root.shortcutHint.length > 0
-            text: root.shortcutHint
-            tone: root.danger ? "danger" : "accentQuiet"
-            textSize: Style.font10
-            badgeHeight: Style.badgeHeightMd
         }
     }
 

@@ -71,7 +71,6 @@ Item {
 
                     ActionButton {
                         label: qsTr("+ Create First Environment")
-                        shortcutHint: "N"
                         primary: true
                         disabled: backend.busy
                         onClicked: mainContentRoot.app.openCreateDialog("")
@@ -79,7 +78,6 @@ Item {
 
                     ActionButton {
                         label: qsTr("Browse OS Images")
-                        shortcutHint: "2"
                         onClicked: mainContentRoot.app.activeTab = 1
                     }
                 }

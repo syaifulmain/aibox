@@ -1,11 +1,10 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Flat action button with an optional keyboard hint chip.
+// Flat action button with an optional sliders icon.
 Rectangle {
     id: btn
     property string label: ""
-    property string shortcutHint: ""
     property string variant: "" // "primary" | "danger" | "success" | "accent" | ""
     property bool primary: false
     property bool danger: false
@@ -73,30 +72,6 @@ Rectangle {
             font.weight: btn.isPrimary ? Font.Medium : Font.Normal
         }
 
-        Rectangle {
-            visible: btn.shortcutHint.length > 0
-            height: Style.badgeHeight
-            width: hintText.implicitWidth + Style.space10
-            radius: Style.radius2
-            color: btn.isPrimary ? Qt.rgba(0, 0, 0, 0.18)
-                 : btn.isDefault ? Style.surfaceInput
-                 : btn.tint(btn.toneColor, 0.18)
-            border.width: btn.isPrimary ? 0 : Style.hairline
-            border.color: btn.isPrimary ? "transparent"
-                        : btn.isDefault ? Style.borderSubtle
-                        : btn.tint(btn.toneColor, 0.35)
-
-            Text {
-                id: hintText
-                anchors.centerIn: parent
-                text: btn.shortcutHint
-                color: btn.isPrimary ? theme.accentForeground
-                     : btn.isDefault ? theme.muted
-                     : btn.toneColor
-                font.family: Style.fontMono
-                font.pixelSize: Style.font10
-            }
-        }
     }
 
     MouseArea {
