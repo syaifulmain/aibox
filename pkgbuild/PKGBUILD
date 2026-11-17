@@ -6,7 +6,7 @@ arch=('x86_64' 'aarch64')
 license=('MIT')
 options=('!debug')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'incus' 'acl' 'util-linux')
-makedepends=('gcc' 'make' 'qt6-base' 'cargo')
+makedepends=('cargo' 'qt6-base' 'qt6-declarative' 'gcc')
 source=()
 sha256sums=()
 
@@ -17,7 +17,7 @@ build() {
 
 package() {
   cd "$startdir/.."
-  install -Dm755 build/aibox "$pkgdir/usr/bin/aibox"
+  install -Dm755 rust/target/release/aibox "$pkgdir/usr/bin/aibox"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 "$startdir/aibox.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/aibox.svg"
   install -Dm644 "$startdir/aibox.desktop" "$pkgdir/usr/share/applications/aibox.desktop"

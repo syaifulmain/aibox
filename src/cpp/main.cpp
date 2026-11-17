@@ -11,35 +11,14 @@
 #include <QTimer>
 #include <QUrl>
 
-#include <cstring>
-
 #include "backend.h"
 #include "cli.h"
 #include "rust_bridge.h"
-#include "aibox-ffi/src/cli.rs.h"
 #include "aibox-ffi/src/meta.rs.h"
-#include "aibox-ffi/src/session.rs.h"
 #include "theme.h"
 #include "translator.h"
 
-int main(int argc, char *argv[]) {
-    if (argc >= 3 && std::strcmp(argv[1], "--redact-session") == 0) {
-        const QString logPath = QString::fromLocal8Bit(argv[2]);
-        const QString sessionsDir = argc >= 4 ? QString::fromLocal8Bit(argv[3]) : QString();
-        return aibox::ffi::redact_session_main(
-            aibox::ffi::toRust(logPath), aibox::ffi::toRust(sessionsDir));
-    }
-
-    if (argc > 1) {
-        std::vector<rust::String> cliArgs;
-        cliArgs.reserve(static_cast<size_t>(argc - 1));
-        for (int i = 1; i < argc; ++i)
-            cliArgs.push_back(aibox::ffi::toRust(QString::fromLocal8Bit(argv[i])));
-        const rust::Slice<const rust::String> cliSlice(cliArgs.data(), cliArgs.size());
-        if (aibox::ffi::cli_is_invocation(cliSlice)) {
-            return aibox::ffi::cli_run(cliSlice);
-        }
-    }
+extern "C" int aibox_gui_main(int argc, char *argv[]) {
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("aibox");

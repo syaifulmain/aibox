@@ -48,10 +48,10 @@ without packaging. Always finish with `./bin/install` and `./bin/test`.
 ## Repository layout
 
 ```
-aibox.pro                 qmake6 project file for the application
+rust/                     Cargo workspace (aibox-core, aibox-ffi, aibox-app)
 bin/                      build, install, test, uninstall, system setup scripts
 pkgbuild/                 PKGBUILD, desktop entry, icon for the Arch package
-src/cpp/                  C++ sources and headers
+src/cpp/                  C++ facade sources and headers
 src/qml/                  QML user interface, Main.qml is the window shell
 src/qml/components/       reusable QML controls (buttons, inputs, modal header)
 src/qml/dialogs/          modal overlays (create, clone, wipe, history, secrets)
@@ -82,8 +82,8 @@ Key C++ entry points:
   window with an `app` property instead of referencing the `win` id.
 - `tests/aibox_tests.cpp`: offscreen Qt Test suite, run by `./bin/test`.
 
-When you add a source file, register it in `aibox.pro` and in
-`tests/aibox_tests.pro`. When you add or move a QML file, register it in
+When you add a C++ facade file, register it in `rust/crates/aibox-app/build.rs`
+and in `tests/aibox_tests.pro`. When you add or move a QML file, register it in
 `src/resources.qrc` with an alias that matches its import path.
 
 ## Architecture notes

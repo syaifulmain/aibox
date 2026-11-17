@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/aibox-app",
     "crates/aibox-core",
     "crates/aibox-ffi",
 ]

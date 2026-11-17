@@ -19,12 +19,6 @@ find_cargo() {
 }
 
 CARGO="$(find_cargo)"
-"$CARGO" build --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+"$CARGO" build --release --locked -p aibox-app --manifest-path "$ROOT/rust/Cargo.toml"
 
-mkdir -p "$ROOT/build"
-cd "$ROOT/build"
-
-qmake6 "$ROOT/aibox.pro"
-make -j"$(nproc)"
-
-echo "Built $ROOT/build/aibox"
+echo "Built $ROOT/rust/target/release/aibox"

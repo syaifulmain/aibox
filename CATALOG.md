@@ -32,11 +32,10 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 | File / Path | Category | Description |
 | :--- | :--- | :--- |
-| [aibox.pro](aibox.pro) | Build Config | `qmake6` project file defining Qt6 modules, C++ sources, and compiled resources. |
-| [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | Application entry point dispatching headless CLI (`aibox::ffi::cli_run` without constructing `QCoreApplication`), session redaction, and QML GUI (`QGuiApplication` + `QQmlApplicationEngine`). |
+| [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | QML GUI entry point (`aibox_gui_main` called from `aibox-app/src/main.rs`) setting up `QGuiApplication` + `QQmlApplicationEngine`. |
 | [src/cpp/cli.h](src/cpp/cli.h) & [cli.cpp](src/cpp/cli.cpp) | Source (C++) | Thin C++ wrapper delegating CLI argument parsing, help formatting, and subcommand execution (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) to `aibox-ffi::cli`. |
 | [src/cpp/rust_bridge.h](src/cpp/rust_bridge.h), [port_predicate.h](src/cpp/port_predicate.h), [host_resolver.h](src/cpp/host_resolver.h) & [command_runner.h](src/cpp/command_runner.h) | Source (C++) | `cxx` bridge conversion helpers (`QString`, `QStringList`, `QByteArray`, `QVariant` via JSON) and callback wrappers (`PortPredicate`, `HostResolverBridge`, `CommandRunnerBridge`) between Qt and Rust. |
-| [rust/](rust) | Source (Rust) | Cargo workspace (`aibox-core` pure Rust core, `aibox-ffi` `cxx` staticlib bridge) linked into the `aibox` binary and test suite. |
+| [rust/](rust) | Source (Rust) | Cargo workspace (`aibox-core` pure Rust core, `aibox-ffi` `cxx` staticlib/rlib bridge, `aibox-app` `cxx-qt-build` binary crate producing `rust/target/release/aibox`). |
 | [src/cpp/backend.h](src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
 | [src/cpp/backend.cpp](src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
 | [src/cpp/backend_helpers.h](src/cpp/backend_helpers.h) | Source (C++) | Shared inline helpers used by every backend module: size/rate formatting, container path constant, pool info mapping, ACL snippet builder, terminal launcher. |
@@ -66,7 +65,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [pkgbuild/aibox.desktop](pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
 | [pkgbuild/aibox.svg](pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
 | [bin/setup-system](bin/setup-system) | Script | Automated host setup script for Incus, Btrfs storage pool, UFW rules, and GPU/KVM profile. |
-| [bin/build](bin/build) | Script | Compiles the application into `build/aibox`. |
+| [bin/build](bin/build) | Script | Compiles the `aibox-app` binary into `rust/target/release/aibox` via `cargo build --release --locked -p aibox-app`. |
 | [bin/test](bin/test) | Script | Builds and runs the offscreen Qt Test suite. |
 | [bin/install](bin/install) | Script | Standard installation entry point; builds the application and installs it into `~/.local/` (`~/.local/bin/aibox`, desktop entry, icon, and license) without `sudo`, or builds/installs the Arch Linux package with `--system`. |
 | [bin/uninstall](bin/uninstall) | Script | Cleanly removes the user-local `aibox` installation and any legacy `aibox` pacman package (with `--full` option to also remove Incus, UFW rules, and all containers). |
@@ -75,6 +74,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Rust Migration P15 — Build Flip to Cargo & `cxx-qt-build`
+* **Binary Crate (`rust/crates/aibox-app`)**: Added the `aibox` binary crate driven by `cxx-qt-build` (`0.10.0`), compiling and moc'ing the C++ `QObject` facade (`backend.h`, `theme.h`, `translator.h`, and `src/cpp/*.cpp`), linking Qt6 modules (`Core`, `Gui`, `Qml`, `Quick`, `QuickControls2`, `DBus`, `Network`), and embedding `src/resources.qrc`.
+* **Rust Entry Point (`rust/crates/aibox-app/src/main.rs`, `src/cpp/main.cpp`)**: Dispatches `--redact-session` (`aibox_core::session::redact_session_main`) and CLI invocations (`aibox_core::cli::run`) directly in Rust, delegating GUI launches to `extern "C" int aibox_gui_main(int, char**)`.
+* **Build & Packaging (`bin/build`, `bin/install`, `pkgbuild/PKGBUILD`, `aibox.pro`, `AGENTS.md`)**: Switched `bin/build`, `bin/install`, and `pkgbuild/PKGBUILD` to build and install `rust/target/release/aibox`, removed `aibox.pro` (keeping `tests/aibox_tests.pro` for the Qt test suite until P18), and updated `AGENTS.md` to reference `rust/crates/aibox-app/build.rs`.
 
 ### Rust Migration P14 — Headless CLI in Rust
 * **Pure Rust Core (`aibox-core::cli`)**: Ported the hand-written CLI argument parser (`parse.rs`: `parse_command_name`, `parse_args`, `make_usage_error`, `argv_without_program`, `is_cli_invocation`), verbatim usage/help text (`help.rs`: `help_text`), and all subcommand executors (`commands.rs`: `run_list`, `run_check`, `run_enter`, `run_exec`, `run_start`, `run_stop`, `run_snapshot`, `run_snapshots`, `run_restore`, `run_diff`, `require_environment`, `run_pre_steps_for_exec`, `run_script_with_task_lock`) behind a testable `CliIo` trait (`StdCliIo` with `CommandExt::exec` for `enter` and inherited-stdio `Command` for `exec` / `script`) and `QtPrettyFormatter` (`to_json_qt_indented`). Also updated `Engine::new` to initialize `SecretsState` via `set_secrets_store_path("", false)` and `default_secrets_store_path()` to honor `AIBOX_SECRETS_PATH`.

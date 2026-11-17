@@ -52,7 +52,7 @@ check_dependencies
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 
-install -Dm755 "$ROOT/build/aibox" "$BIN_DIR/aibox"
+install -Dm755 "$ROOT/rust/target/release/aibox" "$BIN_DIR/aibox"
 install -Dm644 "$ROOT/LICENSE" "$DATA_DIR/licenses/aibox/LICENSE"
 install -Dm644 "$ROOT/pkgbuild/aibox.svg" "$DATA_DIR/icons/hicolor/scalable/apps/aibox.svg"
 
