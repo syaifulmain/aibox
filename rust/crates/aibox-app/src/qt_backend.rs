@@ -1792,38 +1792,6 @@ impl qobject::Backend {
     pub fn enter_environment(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: enterEnvironment");
     }
-    pub fn read_operation_log(&self, _id: &QString) -> QString {
-        eprintln!("not yet ported: readOperationLog");
-        QString::default()
-    }
-    pub fn clear_operation_history(self: Pin<&mut Self>) {
-        eprintln!("not yet ported: clearOperationHistory");
-    }
-    pub fn acknowledge_operation_history(self: Pin<&mut Self>) {
-        eprintln!("not yet ported: acknowledgeOperationHistory");
-    }
-    pub fn set_environment_record_sessions(self: Pin<&mut Self>, _name: &QString, _mode: &QString) {
-        eprintln!("not yet ported: setEnvironmentRecordSessions");
-    }
-    pub fn read_recorded_session_log(&self, _log_path: &QString) -> QString {
-        eprintln!("not yet ported: readRecordedSessionLog");
-        QString::default()
-    }
-    pub fn replay_recorded_session(
-        self: Pin<&mut Self>,
-        _log_path: &QString,
-        _timing_path: &QString,
-    ) {
-        eprintln!("not yet ported: replayRecordedSession");
-    }
-    pub fn delete_recorded_session(
-        self: Pin<&mut Self>,
-        _log_path: &QString,
-        _timing_path: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: deleteRecordedSession");
-        QString::default()
-    }
 }
 
 pub(crate) fn spawn_detached(

@@ -12,6 +12,7 @@ mod qt_backend_health;
 mod qt_backend_network;
 mod qt_backend_provision;
 mod qt_backend_secrets;
+mod qt_backend_sessions;
 mod qt_backend_snapshot;
 mod qt_backend_workspace;
 mod qt_theme;
