@@ -31,13 +31,8 @@ void Backend::loadHistorySeenMarker() {
 }
 
 QByteArray Backend::truncateLogTail(const QByteArray &data, qint64 maxBytes) {
-    if (maxBytes <= 0 || data.size() <= maxBytes)
-        return data;
-    QByteArray tail = data.right(maxBytes);
-    const int newlineIdx = tail.indexOf('\n');
-    if (newlineIdx > 0 && newlineIdx < tail.size() - 1)
-        tail = tail.mid(newlineIdx + 1);
-    return QByteArray("... [truncated] ...\n") + tail;
+    return aibox::ffi::fromRustBytes(
+        aibox::ffi::truncate_log_tail(aibox::ffi::toRustBytes(data), maxBytes));
 }
 
 int Backend::recentFailedHistoryCount() const {

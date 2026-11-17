@@ -1,10 +1,14 @@
 #pragma once
 
 #include "backend.h"
+#include "rust_bridge.h"
+#include "aibox-ffi/src/util.rs.h"
 
 #include <QCoreApplication>
 #include <QFile>
 #include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -17,97 +21,35 @@ namespace {
 inline const QString kContainerWorkspacePath = QStringLiteral("/home/workspace");
 
 inline QString formatBytes(qint64 bytes) {
-    if (bytes <= 0)
-        return QStringLiteral("0 MiB");
-    const double mb = static_cast<double>(bytes) / (1024.0 * 1024.0);
-    if (mb >= 1024.0)
-        return QStringLiteral("%1 GiB").arg(mb / 1024.0, 0, 'f', 1);
-    if (mb < 1.0)
-        return QStringLiteral("%1 KiB").arg(static_cast<double>(bytes) / 1024.0, 0, 'f', 0);
-    return QStringLiteral("%1 MiB").arg(mb, 0, 'f', 0);
+    return aibox::ffi::fromRust(aibox::ffi::format_bytes(bytes));
 }
 
 inline qint64 parseSizeBytes(const QString &sizeText) {
-    static const QRegularExpression re(
-        QStringLiteral("^\\s*(\\d+(?:\\.\\d+)?)\\s*(TiB|TB|GiB|GB|MiB|MB|KiB|KB|B)?\\s*$"),
-        QRegularExpression::CaseInsensitiveOption);
-    const auto match = re.match(sizeText);
-    if (!match.hasMatch())
-        return 0;
-
-    bool ok = false;
-    const double value = match.captured(1).toDouble(&ok);
-    if (!ok || value <= 0.0)
-        return 0;
-
-    const QString unit = match.captured(2).toUpper();
-    double scale = 1.0;
-    if (unit == QLatin1String("KIB") || unit == QLatin1String("KB"))
-        scale = 1024.0;
-    else if (unit == QLatin1String("MIB") || unit == QLatin1String("MB") || unit.isEmpty())
-        scale = 1024.0 * 1024.0;
-    else if (unit == QLatin1String("GIB") || unit == QLatin1String("GB"))
-        scale = 1024.0 * 1024.0 * 1024.0;
-    else if (unit == QLatin1String("TIB") || unit == QLatin1String("TB"))
-        scale = 1024.0 * 1024.0 * 1024.0 * 1024.0;
-
-    return static_cast<qint64>(std::llround(value * scale));
+    return aibox::ffi::parse_size_bytes(aibox::ffi::toRust(sizeText));
 }
 
 inline QString formatByteRate(qint64 bytesPerSecond) {
-    if (bytesPerSecond <= 0)
-        return QStringLiteral("0 KB/s");
-    const double kb = static_cast<double>(bytesPerSecond) / 1024.0;
-    if (kb < 1.0)
-        return QStringLiteral("%1 B/s").arg(bytesPerSecond);
-    if (kb < 1024.0)
-        return QStringLiteral("%1 KB/s").arg(kb, 0, 'f', 1);
-    const double mb = kb / 1024.0;
-    if (mb < 1024.0)
-        return QStringLiteral("%1 MB/s").arg(mb, 0, 'f', 2);
-    return QStringLiteral("%1 GB/s").arg(mb / 1024.0, 0, 'f', 2);
+    return aibox::ffi::fromRust(aibox::ffi::format_byte_rate(bytesPerSecond));
 }
 
 inline QString formatByteTotal(qint64 bytes) {
-    if (bytes <= 0)
-        return QStringLiteral("0 B");
-    const double kb = static_cast<double>(bytes) / 1024.0;
-    if (kb < 1024.0)
-        return QStringLiteral("%1 KB").arg(kb, 0, 'f', 1);
-    const double mb = kb / 1024.0;
-    if (mb < 1024.0)
-        return QStringLiteral("%1 MB").arg(mb, 0, 'f', 2);
-    const double gb = mb / 1024.0;
-    if (gb < 1024.0)
-        return QStringLiteral("%1 GB").arg(gb, 0, 'f', 2);
-    return QStringLiteral("%1 TB").arg(gb / 1024.0, 0, 'f', 2);
+    return aibox::ffi::fromRust(aibox::ffi::format_byte_total(bytes));
 }
 
 inline QStringList validatedSizeOptions(const QStringList &values) {
-    static const QRegularExpression sizeRe(QStringLiteral("^\\d+(?:\\.\\d+)?(?:GiB|MiB|TiB|GB|MB|TB)$"),
-                                           QRegularExpression::CaseInsensitiveOption);
-    QStringList result;
-    for (const auto &raw : values) {
-        const QString value = raw.trimmed();
-        if (value.isEmpty() || !sizeRe.match(value).hasMatch())
-            continue;
-        if (!result.contains(value, Qt::CaseInsensitive))
-            result.append(value);
-    }
-    return result;
+    return aibox::ffi::fromRustVec(
+        aibox::ffi::validated_size_options(aibox::ffi::toRustVec(values)));
 }
 
 inline QVariantList validatedCpuOptions(const QVariantList &values) {
+    const QByteArray json =
+        QJsonDocument(QJsonArray::fromVariantList(values)).toJson(QJsonDocument::Compact);
+    const rust::Vec<std::int32_t> cores = aibox::ffi::validated_cpu_options_json(
+        rust::Str(json.constData(), static_cast<std::size_t>(json.size())));
     QVariantList result;
-    QSet<int> seen;
-    for (const auto &raw : values) {
-        bool ok = false;
-        const int cores = raw.toInt(&ok);
-        if (!ok || cores < 1 || cores > 1024 || seen.contains(cores))
-            continue;
-        seen.insert(cores);
-        result.append(cores);
-    }
+    result.reserve(static_cast<qsizetype>(cores.size()));
+    for (const std::int32_t c : cores)
+        result.append(static_cast<int>(c));
     return result;
 }
 

@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P01 — Shared Utility Helpers in `aibox-core::util`
+- **Rust core (`rust/crates/aibox-core/src/util/`)**: implemented `format` (`format_bytes`, `format_byte_rate`, `format_byte_total`), `size` (`parse_size_bytes`, `validated_size_options`, `validated_cpu_options`, `validated_cpu_options_json`), `shell` (`shell_quote`, `shell_array_words`), `csv` (`parse_csv`), `names` (`sanitize_name`), `bytes` (`truncate_log_tail`), `json` (Qt-compatible `Indented`/`Compact` writers), `paths` (`clean_path`, `home_dir`, `xdg_config_dir`, `expand_tilde`), and `time` (`Qt::ISODate` formatters), with 12 unit tests and 95 golden replay cases in `tests/golden/util.jsonl`.
+- **FFI & C++ delegates (`rust/crates/aibox-ffi/src/util.rs`, `src/cpp/backend_helpers.h`, `src/cpp/backend.cpp`, `src/cpp/backend_session.cpp`)**: bridged all `util` helpers via `cxx` and delegated the C++ implementations while keeping all signatures unchanged.
+- **Verification**: `cargo fmt`, `cargo clippy`, `cargo test`, `./bin/golden-capture --check`, `./bin/build`, and `./bin/test` (74 Qt tests) all pass.
+
 ### Rust Migration P00 — Toolchain, Cargo Workspace, FFI Skeleton, and Golden Harness
 - **Rust workspace (`rust/Cargo.toml`, `rust/crates/aibox-core/`, `rust/crates/aibox-ffi/`)**: added the `aibox-core` pure Rust library and `aibox-ffi` `cxx` staticlib bridge with `aibox::ffi::core_version()` returning `0.2.0`.
 - **C++/qmake integration (`src/cpp/rust_bridge.h`, `aibox.pro`, `tests/aibox_tests.pro`, `src/cpp/main.cpp`)**: added Qt <-> `cxx` conversion helpers, linked `libaibox_ffi.a`, and wired `core_version()` into `app.setApplicationVersion(...)`.

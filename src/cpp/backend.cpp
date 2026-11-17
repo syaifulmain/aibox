@@ -592,30 +592,15 @@ QString Backend::localPath(const QUrl &url) const {
 }
 
 QStringList Backend::parseCsv(const QString &text) {
-    static const QRegularExpression separator(QStringLiteral("[,;\\n]"));
-    QStringList values;
-    for (const QString &part : text.split(separator, Qt::SkipEmptyParts)) {
-        const QString value = part.trimmed();
-        if (!value.isEmpty())
-            values.append(value);
-    }
-    values.removeDuplicates();
-    return values;
+    return aibox::ffi::fromRustVec(aibox::ffi::parse_csv(aibox::ffi::toRust(text)));
 }
 
 QString Backend::shellQuote(const QString &value) {
-    QString escaped = value;
-    escaped.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
-    return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+    return aibox::ffi::fromRust(aibox::ffi::shell_quote(aibox::ffi::toRust(value)));
 }
 
 QString Backend::shellArrayWords(const QString &words) {
-    const QStringList tokens = words.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-    QStringList quoted;
-    quoted.reserve(tokens.size());
-    for (const QString &token : tokens)
-        quoted.append(shellQuote(token));
-    return quoted.join(QLatin1Char(' '));
+    return aibox::ffi::fromRust(aibox::ffi::shell_array_words(aibox::ffi::toRust(words)));
 }
 
 void Backend::primaryAction() {
@@ -672,11 +657,7 @@ void Backend::setError(const QString &error) {
 }
 
 QString Backend::sanitizeName(const QString &rawName) {
-    QString s = rawName.trimmed().toLower();
-    s.replace(QRegularExpression(QStringLiteral("[^a-z0-9-]+")), QStringLiteral("-"));
-    s.replace(QRegularExpression(QStringLiteral("-+")), QStringLiteral("-"));
-    s.remove(QRegularExpression(QStringLiteral("^-+|-+$")));
-    return s;
+    return aibox::ffi::fromRust(aibox::ffi::sanitize_name(aibox::ffi::toRust(rawName)));
 }
 
 QString Backend::resolveWorkspacePath(const QString &rawParent, const QString &envName,
