@@ -5,8 +5,20 @@ use aibox_ffi as _;
 use cxx_qt as _;
 use cxx_qt_lib as _;
 
+mod qt_backend;
+mod qt_backend_backup;
+mod qt_backend_config;
+mod qt_backend_health;
+mod qt_backend_network;
+mod qt_backend_provision;
+mod qt_backend_secrets;
+mod qt_backend_sessions;
+mod qt_backend_snapshot;
+mod qt_backend_task;
+mod qt_backend_workspace;
 mod qt_theme;
 mod qt_translator;
+mod variant;
 
 extern "C" {
     fn aibox_gui_main(argc: c_int, argv: *mut *mut c_char) -> c_int;

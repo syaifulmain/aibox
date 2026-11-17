@@ -11,9 +11,9 @@
 #include <QTimer>
 #include <QUrl>
 
-#include "backend.h"
 #include "cli.h"
 #include "rust_bridge.h"
+#include "aibox-app/src/qt_backend.cxxqt.h"
 #include "aibox-app/src/qt_theme.cxxqt.h"
 #include "aibox-app/src/qt_translator.cxxqt.h"
 #include "aibox-ffi/src/meta.rs.h"
@@ -48,12 +48,8 @@ extern "C" int aibox_gui_main(int argc, char *argv[]) {
     const QString themeDir = qEnvironmentVariable("AIBOX_THEME_DIR");
     if (!themeDir.isEmpty())
         theme.configure(themeDir, QString());
-    Backend backend(guiArgs.projectDir, Backend::PathMode::ProjectDir);
-
-    const QString selectIdx = qEnvironmentVariable("AIBOX_SELECT_INDEX");
-    if (!selectIdx.isEmpty()) {
-        backend.setSelectedIndex(selectIdx.toInt());
-    }
+    Backend backend;
+    backend.configure(guiArgs.projectDir, true);
 
     QQmlApplicationEngine engine;
     QObject::connect(&translatorState, &TranslatorState::changed, &engine, &QQmlEngine::retranslate);

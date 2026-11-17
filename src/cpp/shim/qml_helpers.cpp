@@ -22,3 +22,8 @@ QByteArray aibox_read_qt_resource(const QString &path) {
         return {};
     return file.readAll();
 }
+
+bool aibox_is_gui_session() {
+    return qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr &&
+           QGuiApplication::platformName() != QLatin1String("offscreen");
+}
