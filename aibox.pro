@@ -8,6 +8,7 @@ HEADERS += \
     src/cpp/backend.h \
     src/cpp/backend_helpers.h \
     src/cpp/cli.h \
+    src/cpp/rust_bridge.h \
     src/cpp/theme.h \
     src/cpp/translator.h
 
@@ -30,3 +31,8 @@ SOURCES += \
     src/cpp/translator.cpp
 
 RESOURCES += src/resources.qrc
+
+RUST_TARGET = $$PWD/rust/target/release
+INCLUDEPATH += $$PWD/rust/target/cxxbridge
+LIBS += $$RUST_TARGET/libaibox_ffi.a -ldl -lpthread -lm
+PRE_TARGETDEPS += $$RUST_TARGET/libaibox_ffi.a

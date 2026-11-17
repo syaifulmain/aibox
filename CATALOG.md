@@ -35,6 +35,8 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [aibox.pro](aibox.pro) | Build Config | `qmake6` project file defining Qt6 modules, C++ sources, and compiled resources. |
 | [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | Application entry point dispatching headless CLI (`Cli::run` under `QCoreApplication`), session redaction, and QML GUI (`QGuiApplication` + `QQmlApplicationEngine`). |
 | [src/cpp/cli.h](src/cpp/cli.h) & [cli.cpp](src/cpp/cli.cpp) | Source (C++) | Headless CLI parser, help/usage formatter, and subcommand dispatcher (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) sharing `Backend` script builders and task lock. |
+| [src/cpp/rust_bridge.h](src/cpp/rust_bridge.h) | Source (C++) | `cxx` bridge conversion helpers (`QString`, `QStringList`, `QByteArray`, `QVariant` via JSON) between Qt and Rust. |
+| [rust/](rust) | Source (Rust) | Cargo workspace (`aibox-core` pure Rust core, `aibox-ffi` `cxx` staticlib bridge) linked into the `aibox` binary and test suite. |
 | [src/cpp/backend.h](src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
 | [src/cpp/backend.cpp](src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
 | [src/cpp/backend_helpers.h](src/cpp/backend_helpers.h) | Source (C++) | Shared inline helpers used by every backend module: size/rate formatting, container path constant, pool info mapping, ACL snippet builder, terminal launcher. |
@@ -58,6 +60,8 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [tests/aibox_tests.pro](tests/aibox_tests.pro) & [aibox_tests.cpp](tests/aibox_tests.cpp) | Unit Tests | 74 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), global and environment secret scoping and visibility cleanup, network counter rates, `Theme`, and `Translator`. |
+| [tests/golden_capture/](tests/golden_capture) & [tests/golden/](tests/golden) | Golden Fixtures | C++ golden capture tool and committed `.jsonl` parity fixtures replayed by `aibox-core` tests. |
+| [bin/golden-capture](bin/golden-capture) | Script | Builds and runs `golden_capture` offscreen to regenerate or `--check` `tests/golden/*.jsonl`. |
 | [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
 | [pkgbuild/aibox.desktop](pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
 | [pkgbuild/aibox.svg](pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
@@ -71,6 +75,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Rust Migration P00 — Toolchain, Cargo Workspace, FFI Skeleton, and Golden Harness
+- **Rust workspace (`rust/Cargo.toml`, `rust/crates/aibox-core/`, `rust/crates/aibox-ffi/`)**: added the `aibox-core` pure Rust library and `aibox-ffi` `cxx` staticlib bridge with `aibox::ffi::core_version()` returning `0.2.0`.
+- **C++/qmake integration (`src/cpp/rust_bridge.h`, `aibox.pro`, `tests/aibox_tests.pro`, `src/cpp/main.cpp`)**: added Qt <-> `cxx` conversion helpers, linked `libaibox_ffi.a`, and wired `core_version()` into `app.setApplicationVersion(...)`.
+- **Build, test, and golden harness (`bin/build`, `bin/test`, `bin/golden-capture`, `tests/golden_capture/`, `tests/golden/util.jsonl`, `pkgbuild/PKGBUILD`)**: integrated `cargo build`/`cargo test` into the build and test scripts, added `cargo` to `PKGBUILD` `makedepends`, and seeded the golden fixture harness with `util` cases.
 
 ### Iteration 56 — CPU Card Expands Per-Core Usage
 - **CPU resource card (`src/qml/components/ResourceMeterCard.qml`, `src/qml/panels/EnvironmentInspector.qml`)**: the card gained optional interaction: a pointer cursor, an accent border on hover, a click signal, a tooltip, and an expansion state. The CPU Usage card uses these so a click expands the card in place and a second click collapses it. The card keeps its grid column and only grows taller. The Disk and Memory cards bind their preferred height to the CPU card height, so all three match without stretching to the window height. No new modal is added.

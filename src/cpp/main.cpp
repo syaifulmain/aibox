@@ -14,6 +14,8 @@
 
 #include "backend.h"
 #include "cli.h"
+#include "rust_bridge.h"
+#include "aibox-ffi/src/meta.rs.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -43,13 +45,13 @@ int main(int argc, char *argv[]) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
         QCoreApplication app(argc, argv);
         app.setApplicationName("aibox");
-        app.setApplicationVersion("0.2.0");
+        app.setApplicationVersion(aibox::ffi::fromRust(aibox::ffi::core_version()));
         return Cli::run(argc, argv);
     }
 
     QGuiApplication app(argc, argv);
     app.setApplicationName("aibox");
-    app.setApplicationVersion("0.2.0");
+    app.setApplicationVersion(aibox::ffi::fromRust(aibox::ffi::core_version()));
 
     QStringList rawArgs;
     for (int i = 1; i < argc; ++i)

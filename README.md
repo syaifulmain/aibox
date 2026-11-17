@@ -28,7 +28,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 
 - Omarchy or Arch Linux
 - Incus and a Btrfs storage pool
-- Qt 6 development tools (`qmake6`) to build
+- Qt 6 development tools (`qmake6`) and Rust toolchain (`cargo`, `rustc`) to build
 
 ## Setup and install
 

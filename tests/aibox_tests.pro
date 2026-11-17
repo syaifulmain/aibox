@@ -5,7 +5,7 @@ TEMPLATE = app
 
 INCLUDEPATH += ../src/cpp
 
-HEADERS += ../src/cpp/backend.h ../src/cpp/backend_helpers.h ../src/cpp/cli.h ../src/cpp/theme.h ../src/cpp/translator.h
+HEADERS += ../src/cpp/backend.h ../src/cpp/backend_helpers.h ../src/cpp/cli.h ../src/cpp/rust_bridge.h ../src/cpp/theme.h ../src/cpp/translator.h
 SOURCES += aibox_tests.cpp \
     ../src/cpp/backend.cpp \
     ../src/cpp/backend_config.cpp \
@@ -22,3 +22,8 @@ SOURCES += aibox_tests.cpp \
     ../src/cpp/cli.cpp \
     ../src/cpp/theme.cpp \
     ../src/cpp/translator.cpp
+
+RUST_TARGET = $$PWD/../rust/target/release
+INCLUDEPATH += $$PWD/../rust/target/cxxbridge
+LIBS += $$RUST_TARGET/libaibox_ffi.a -ldl -lpthread -lm
+PRE_TARGETDEPS += $$RUST_TARGET/libaibox_ffi.a

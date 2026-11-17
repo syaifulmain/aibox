@@ -2,6 +2,26 @@
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+find_cargo() {
+    if cargo --version >/dev/null 2>&1; then
+        command -v cargo
+        return 0
+    fi
+    for candidate in /usr/bin/cargo "$HOME/.cargo/bin/cargo"; do
+        if [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    echo "cargo not found (install rust or rustup)" >&2
+    return 1
+}
+
+CARGO="$(find_cargo)"
+"$CARGO" test --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+"$CARGO" build --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+
 mkdir -p "$ROOT/build/tests"
 cd "$ROOT/build/tests"
 

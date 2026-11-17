@@ -3,3 +3,4 @@
 /pkgbuild/src/
 *.pkg.tar.*
 /.aibox/
+/rust/target/

@@ -10,6 +10,8 @@
 
 #include "backend.h"
 #include "cli.h"
+#include "rust_bridge.h"
+#include "aibox-ffi/src/meta.rs.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -37,6 +39,7 @@ private slots:
         QCOMPARE(backend.workspaceBase(), homeAibox + "/workspaces");
         QCOMPARE(backend.osStoragePath(), homeAibox + "/os-images");
         QCOMPARE(backend.configFilePath(), homeAibox + "/config.json");
+        QCOMPARE(aibox::ffi::fromRust(aibox::ffi::core_version()), QStringLiteral("0.2.0"));
     }
 
     void primaryActionCounts()

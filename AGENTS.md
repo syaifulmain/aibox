@@ -6,6 +6,8 @@ This file is the contract for every human or AI agent that changes the codebase.
 `CLAUDE.md` and `GEMINI.md` are symlinks to this file, so keep one source of
 truth.
 
+Rust migration in progress: Rust sources live under `rust/`; run `cargo fmt`, `cargo clippy` and `cargo test` as part of `./bin/test`.
+
 ## Mandatory workflow for every change
 
 Run these steps for any feature, UI change, behaviour change, or bug fix. Do not

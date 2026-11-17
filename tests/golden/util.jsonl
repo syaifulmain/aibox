@@ -1,0 +1,15 @@
+{"args":{"bytes":0},"case":"zero","fn":"formatBytes","out":"0 MiB"}
+{"args":{"bytes":-100},"case":"negative","fn":"formatBytes","out":"0 MiB"}
+{"args":{"bytes":512},"case":"bytes_512","fn":"formatBytes","out":"1 KiB"}
+{"args":{"bytes":1536},"case":"kib_1_5","fn":"formatBytes","out":"2 KiB"}
+{"args":{"bytes":1048576},"case":"mib_1","fn":"formatBytes","out":"1 MiB"}
+{"args":{"bytes":44040192},"case":"mib_42","fn":"formatBytes","out":"42 MiB"}
+{"args":{"bytes":1610612736},"case":"gib_1_5","fn":"formatBytes","out":"1.5 GiB"}
+{"args":{"rawName":"my-env"},"case":"simple","fn":"Backend::sanitizeName","out":"my-env"}
+{"args":{"rawName":"  My Cool Env!  "},"case":"spaces_and_caps","fn":"Backend::sanitizeName","out":"my-cool-env"}
+{"args":{"rawName":"---foo--bar---"},"case":"leading_trailing_dashes","fn":"Backend::sanitizeName","out":"foo-bar"}
+{"args":{"rawName":"@@@"},"case":"only_symbols","fn":"Backend::sanitizeName","out":""}
+{"args":{"value":""},"case":"empty","fn":"Backend::shellQuote","out":"''"}
+{"args":{"value":"hello"},"case":"plain","fn":"Backend::shellQuote","out":"'hello'"}
+{"args":{"value":"hello world"},"case":"spaces","fn":"Backend::shellQuote","out":"'hello world'"}
+{"args":{"value":"it's 'fine'"},"case":"single_quotes","fn":"Backend::shellQuote","out":"'it'\\''s '\\''fine'\\'''"}

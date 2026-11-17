@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+CHECK=0
+MODULE=""
+for arg in "$@"; do
+    case "$arg" in
+        --check)
+            CHECK=1
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--check] [module]"
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $arg" >&2
+            exit 2
+            ;;
+        *)
+            MODULE="$arg"
+            ;;
+    esac
+done
+
+find_cargo() {
+    if cargo --version >/dev/null 2>&1; then
+        command -v cargo
+        return 0
+    fi
+    for candidate in /usr/bin/cargo "$HOME/.cargo/bin/cargo"; do
+        if [ -x "$candidate" ] && "$candidate" --version >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    echo "cargo not found (install rust or rustup)" >&2
+    return 1
+}
+
+CARGO="$(find_cargo)"
+"$CARGO" build --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+
+mkdir -p "$ROOT/build/golden_capture"
+cd "$ROOT/build/golden_capture"
+
+qmake6 "$ROOT/tests/golden_capture/golden_capture.pro"
+make -j"$(nproc)"
+
+GOLDEN_DIR="$ROOT/tests/golden"
+GOLDEN_HOME="/tmp/aibox-golden-home"
+mkdir -p "$GOLDEN_HOME"
+
+if [ "$CHECK" -eq 1 ]; then
+    TMP_OUT="$(mktemp -d)"
+    trap 'rm -rf "$TMP_OUT"' EXIT
+    HOME="$GOLDEN_HOME" QT_QPA_PLATFORM=offscreen LC_ALL=C \
+        ./golden_capture --out-dir "$TMP_OUT" ${MODULE:+"$MODULE"}
+    if [ -n "$MODULE" ]; then
+        diff -u "$GOLDEN_DIR/$MODULE.jsonl" "$TMP_OUT/$MODULE.jsonl"
+    else
+        diff -ru "$GOLDEN_DIR" "$TMP_OUT"
+    fi
+else
+    mkdir -p "$GOLDEN_DIR"
+    HOME="$GOLDEN_HOME" QT_QPA_PLATFORM=offscreen LC_ALL=C \
+        ./golden_capture --out-dir "$GOLDEN_DIR" ${MODULE:+"$MODULE"}
+fi

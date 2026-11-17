@@ -17,6 +17,7 @@ class QImage;
 
 class Backend : public QObject {
     Q_OBJECT
+    friend struct GoldenCapture;
     Q_PROPERTY(int count READ count NOTIFY countChanged)
     Q_PROPERTY(QVariantList environments READ environments NOTIFY environmentsChanged)
     Q_PROPERTY(QVariantList osCatalog READ osCatalog NOTIFY osCatalogChanged)
