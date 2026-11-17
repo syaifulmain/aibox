@@ -1,5 +1,6 @@
 // TODO(P17c): remove once all signals and task/diff fields are wired.
 #![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 use std::path::Path;
 use std::pin::Pin;
@@ -317,6 +318,44 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "cancelTask"]
         fn cancel_task(self: Pin<&mut Backend>);
+
+        #[qinvokable]
+        #[cxx_name = "createEnvironment"]
+        fn create_environment(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            os_id: &QString,
+            preset: &QString,
+            disk_gib: &QString,
+            ram_gib: &QString,
+            cpu_cores: i32,
+            process_limit: &QString,
+            io_limit: &QString,
+            workspace_parent: &QString,
+        );
+
+        #[qinvokable]
+        #[cxx_name = "cloneEnvironment"]
+        fn clone_environment_simple(
+            self: Pin<&mut Backend>,
+            source_name: &QString,
+            new_name: &QString,
+        );
+
+        #[qinvokable]
+        #[cxx_name = "cloneEnvironment"]
+        fn clone_environment(
+            self: Pin<&mut Backend>,
+            source_name: &QString,
+            new_name: &QString,
+            disk_gib: &QString,
+            ram_gib: &QString,
+            cpu_cores: i32,
+            start_after: bool,
+            process_limit: &QString,
+            io_limit: &QString,
+            workspace_parent: &QString,
+        );
 
         #[qinvokable]
         #[cxx_name = "pathToUrl"]
@@ -838,7 +877,7 @@ pub struct BackendRust {
     pending_env_name: QString,
     status_message: QString,
     error_message: QString,
-    downloading_os_id: QString,
+    pub(crate) downloading_os_id: QString,
     system_path: QString,
     default_system_path: QString,
     workspace_base: QString,
@@ -1753,24 +1792,6 @@ impl qobject::Backend {
     pub fn enter_environment(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: enterEnvironment");
     }
-    pub fn toggle_start_stop(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: toggleStartStop");
-    }
-    pub fn set_environment_template(self: Pin<&mut Self>, _name: &QString, _is_template: bool) {
-        eprintln!("not yet ported: setEnvironmentTemplate");
-    }
-    pub fn update_environment_resources(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _cpu_cores: i32,
-        _ram_gib: &QString,
-        _disk_gib: &QString,
-        _process_limit: &QString,
-        _io_limit: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: updateEnvironmentResources");
-        QString::default()
-    }
     pub fn read_operation_log(&self, _id: &QString) -> QString {
         eprintln!("not yet ported: readOperationLog");
         QString::default()
@@ -1780,9 +1801,6 @@ impl qobject::Backend {
     }
     pub fn acknowledge_operation_history(self: Pin<&mut Self>) {
         eprintln!("not yet ported: acknowledgeOperationHistory");
-    }
-    pub fn copy_ai_command(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: copyAiCommand");
     }
     pub fn set_environment_record_sessions(self: Pin<&mut Self>, _name: &QString, _mode: &QString) {
         eprintln!("not yet ported: setEnvironmentRecordSessions");
@@ -1805,12 +1823,6 @@ impl qobject::Backend {
     ) -> QString {
         eprintln!("not yet ported: deleteRecordedSession");
         QString::default()
-    }
-    pub fn download_os_image(self: Pin<&mut Self>, _os_id: &QString) {
-        eprintln!("not yet ported: downloadOsImage");
-    }
-    pub fn remove_os_image(self: Pin<&mut Self>, _os_id: &QString) {
-        eprintln!("not yet ported: removeOsImage");
     }
 }
 

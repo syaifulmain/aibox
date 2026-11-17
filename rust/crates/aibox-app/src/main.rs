@@ -10,6 +10,7 @@ mod qt_backend_backup;
 mod qt_backend_config;
 mod qt_backend_health;
 mod qt_backend_network;
+mod qt_backend_provision;
 mod qt_backend_secrets;
 mod qt_backend_snapshot;
 mod qt_backend_workspace;
