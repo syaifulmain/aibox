@@ -1,9 +1,11 @@
 fn main() {
     let bridges = [
         "src/config.rs",
+        "src/history.rs",
         "src/i18n.rs",
         "src/meta.rs",
         "src/secrets.rs",
+        "src/session.rs",
         "src/settings.rs",
         "src/theme.rs",
         "src/util.rs",

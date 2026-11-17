@@ -1,6 +1,8 @@
 pub mod config;
+pub mod history;
 pub mod i18n;
 pub mod secrets;
+pub mod session;
 pub mod theme;
 pub mod util;
 

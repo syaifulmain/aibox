@@ -1187,6 +1187,182 @@ static QByteArray captureSecrets() {
 
     return out;
 }
+
+static QByteArray captureSession() {
+    QByteArray out;
+
+    struct EffectiveCase {
+        QString label;
+        bool globalEnabled;
+        QString envOverride;
+    };
+    const QList<EffectiveCase> effCases = {
+        {QStringLiteral("global_true_empty"), true, QStringLiteral("")},
+        {QStringLiteral("global_true_inherit"), true, QStringLiteral("inherit")},
+        {QStringLiteral("global_true_false"), true, QStringLiteral("false")},
+        {QStringLiteral("global_true_zero"), true, QStringLiteral(" 0 ")},
+        {QStringLiteral("global_false_empty"), false, QStringLiteral("")},
+        {QStringLiteral("global_false_true"), false, QStringLiteral("true")},
+        {QStringLiteral("global_false_one"), false, QStringLiteral(" 1 ")},
+        {QStringLiteral("global_false_mixed"), false, QStringLiteral(" TRUE ")},
+    };
+    for (const auto &c : effCases) {
+        out += jsonLine(QStringLiteral("Backend::effectiveRecordSessions"), c.label,
+                        QJsonObject{{QStringLiteral("globalEnabled"), c.globalEnabled},
+                                    {QStringLiteral("envOverride"), c.envOverride}},
+                        Backend::effectiveRecordSessions(c.globalEnabled, c.envOverride));
+    }
+
+    struct WrapCase {
+        QString label;
+        QString inner;
+        QString logFile;
+        QString timingFile;
+        QString redactBin;
+        QString sessionsDir;
+        bool scriptAvailable;
+    };
+    const QList<WrapCase> wrapCases = {
+        {QStringLiteral("full_with_quotes"),
+         QStringLiteral("incus exec 'my-box' --cwd /workspace -- bash -l"),
+         QStringLiteral("/tmp/aibox-golden-home/dir with 'quote'/sessions/my-box/1700000001.log"),
+         QStringLiteral("/tmp/aibox-golden-home/dir with 'quote'/sessions/my-box/1700000001.timing"),
+         QStringLiteral("/usr/bin/aibox"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions"),
+         true},
+        {QStringLiteral("no_redact_bin"),
+         QStringLiteral("bash -l"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.log"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.timing"),
+         QStringLiteral(""),
+         QStringLiteral(""),
+         true},
+        {QStringLiteral("no_sessions_dir"),
+         QStringLiteral("bash -l"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.log"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.timing"),
+         QStringLiteral("/usr/bin/aibox"),
+         QStringLiteral(""),
+         true},
+        {QStringLiteral("script_unavailable"),
+         QStringLiteral("incus exec 'my-box' -- bash -l"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.log"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.timing"),
+         QStringLiteral("/usr/bin/aibox"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions"),
+         false},
+        {QStringLiteral("empty_inner"),
+         QStringLiteral("   "),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.log"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions/box/1.timing"),
+         QStringLiteral("/usr/bin/aibox"),
+         QStringLiteral("/tmp/aibox-golden-home/sessions"),
+         true},
+    };
+    for (const auto &c : wrapCases) {
+        out += jsonLine(QStringLiteral("Backend::buildSessionWrapCommand"), c.label,
+                        QJsonObject{{QStringLiteral("inner"), c.inner},
+                                    {QStringLiteral("logFile"), c.logFile},
+                                    {QStringLiteral("timingFile"), c.timingFile},
+                                    {QStringLiteral("redactBin"), c.redactBin},
+                                    {QStringLiteral("sessionsDir"), c.sessionsDir},
+                                    {QStringLiteral("scriptAvailable"), c.scriptAvailable}},
+                        Backend::buildSessionWrapCommand(c.inner, c.logFile, c.timingFile,
+                                                         c.redactBin, c.sessionsDir, c.scriptAvailable));
+    }
+
+    const QList<QPair<QString, QString>> ansiCases = {
+        {QStringLiteral("empty"), QStringLiteral("")},
+        {QStringLiteral("osc_csi_crlf"),
+         QStringLiteral("\x1b]0;user@dev:/workspace\x07"
+                        "\x1b[32muser@dev\x1b[0m:\x1b[34m/workspace\x1b[0m$ echo ok\r\n"
+                        "\x1b[2J\x1b[1;1Hok\r\n")},
+        {QStringLiteral("osc_st_and_esc2"),
+         QStringLiteral("\x1b]2;title\x1b\\\x1b(B\x1b=hello\x1bMworld")},
+    };
+    for (const auto &c : ansiCases) {
+        out += jsonLine(QStringLiteral("Backend::stripAnsiSequences"), c.first,
+                        QJsonObject{{QStringLiteral("rawText"), c.second}},
+                        Backend::stripAnsiSequences(c.second));
+    }
+
+    {
+        out += jsonLine(QStringLiteral("Backend::formatRecordedSessionText"), QStringLiteral("empty"),
+                        QJsonObject{{QStringLiteral("raw"), QStringLiteral("")},
+                                    {QStringLiteral("maxBytes"), 204800}},
+                        Backend::formatRecordedSessionText(QByteArray(), 204800));
+        const QString shortRaw = QStringLiteral("\x1b[32mok\x1b[0m\r\n");
+        out += jsonLine(QStringLiteral("Backend::formatRecordedSessionText"), QStringLiteral("short"),
+                        QJsonObject{{QStringLiteral("raw"), shortRaw},
+                                    {QStringLiteral("maxBytes"), 204800}},
+                        Backend::formatRecordedSessionText(shortRaw.toUtf8(), 204800));
+        QByteArray big;
+        for (int i = 0; i < 120; ++i)
+            big += QByteArray("line-") + QByteArray::number(i) + "-0123456789abcdef\n";
+        out += jsonLine(QStringLiteral("Backend::formatRecordedSessionText"), QStringLiteral("truncated_min_cap"),
+                        QJsonObject{{QStringLiteral("raw"), QString::fromUtf8(big)},
+                                    {QStringLiteral("maxBytes"), 512}},
+                        Backend::formatRecordedSessionText(big, 512));
+    }
+
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-session");
+    QDir(workDir).removeRecursively();
+    QDir().mkpath(workDir + QStringLiteral("/alpha"));
+    QDir().mkpath(workDir + QStringLiteral("/beta"));
+    {
+        const QString redPath = workDir + QStringLiteral("/alpha/1700000099.log");
+        {
+            QFile f(redPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write("token=sk-test-12345\nother=safe\n");
+        }
+        const bool changed = Backend::redactSessionLogFile(redPath, {QStringLiteral("sk-test-12345")});
+        const bool unchanged = Backend::redactSessionLogFile(redPath, {QStringLiteral("sk-test-12345")});
+        QString after;
+        {
+            QFile f(redPath);
+            if (f.open(QIODevice::ReadOnly))
+                after = QString::fromUtf8(f.readAll());
+        }
+        out += jsonLine(QStringLiteral("Backend::redactSessionLogFile"), QStringLiteral("basic"),
+                        QJsonObject{},
+                        QJsonObject{{QStringLiteral("changed"), changed},
+                                    {QStringLiteral("unchanged"), unchanged},
+                                    {QStringLiteral("after"), after}});
+        QFile::remove(redPath);
+
+        const QDateTime baseDt(QDate(2026, 11, 1), QTime(0, 0, 0), QTimeZone::UTC);
+        for (int i = 1; i <= 5; ++i) {
+            const QString epochStr = QString::number(1700000000 + i);
+            const QString lp = workDir + QStringLiteral("/alpha/") + epochStr + QStringLiteral(".log");
+            const QString tp = workDir + QStringLiteral("/alpha/") + epochStr + QStringLiteral(".timing");
+            QFile lf(lp);
+            if (lf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                lf.write(QByteArray(100, 'L'));
+                lf.close();
+            }
+            if (lf.open(QIODevice::ReadWrite))
+                lf.setFileTime(baseDt.addSecs(i * 60), QFileDevice::FileModificationTime);
+            if (i % 2 == 1) {
+                QFile tf(tp);
+                if (tf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                    tf.write(QByteArray(20, 'T'));
+            }
+        }
+        const int pruned = Backend::pruneRecordedSessions(workDir, 3, 1024 * 1024);
+        const QVariantList scanned = Backend::scanRecordedSessions(workDir);
+        QJsonArray scannedArr;
+        for (const QVariant &v : scanned)
+            scannedArr.append(QJsonObject::fromVariantMap(v.toMap()));
+        out += jsonLine(QStringLiteral("Backend::pruneAndScanRecordedSessions"), QStringLiteral("basic"),
+                        QJsonObject{},
+                        QJsonObject{{QStringLiteral("pruned"), pruned},
+                                    {QStringLiteral("scanned"), scannedArr}});
+    }
+    QDir(workDir).removeRecursively();
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1219,6 +1395,7 @@ int main(int argc, char *argv[]) {
         {"theme", &GoldenCapture::captureTheme},
         {"i18n", &GoldenCapture::captureI18n},
         {"secrets", &GoldenCapture::captureSecrets},
+        {"session", &GoldenCapture::captureSession},
     };
 
     bool matched = onlyModule.isEmpty();

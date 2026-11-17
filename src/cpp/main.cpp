@@ -12,32 +12,22 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <cstring>
+
 #include "backend.h"
 #include "cli.h"
 #include "rust_bridge.h"
 #include "aibox-ffi/src/meta.rs.h"
+#include "aibox-ffi/src/session.rs.h"
 #include "theme.h"
 #include "translator.h"
 
 int main(int argc, char *argv[]) {
-    if (argc >= 3 && QString::fromLocal8Bit(argv[1]) == QLatin1String("--redact-session")) {
-        qunsetenv("QT_QPA_PLATFORMTHEME");
-        qputenv("QT_QPA_PLATFORM", "offscreen");
-        QCoreApplication app(argc, argv);
+    if (argc >= 3 && std::strcmp(argv[1], "--redact-session") == 0) {
         const QString logPath = QString::fromLocal8Bit(argv[2]);
-        const QString envSecrets = qEnvironmentVariable("AIBOX_SECRETS_PATH").trimmed();
-        const QString storePath = envSecrets.isEmpty() ? Backend::defaultSecretsStorePath() : envSecrets;
-        const auto secrets = Backend::loadSecretsStore(storePath);
-        QStringList secretValues;
-        for (const auto &kv : secrets) {
-            if (!kv.second.isEmpty())
-                secretValues.append(kv.second);
-        }
-        Backend::redactSessionLogFile(logPath, secretValues);
-        QFile::setPermissions(logPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-        if (argc >= 4)
-            Backend::pruneRecordedSessions(QString::fromLocal8Bit(argv[3]));
-        return 0;
+        const QString sessionsDir = argc >= 4 ? QString::fromLocal8Bit(argv[3]) : QString();
+        return aibox::ffi::redact_session_main(
+            aibox::ffi::toRust(logPath), aibox::ffi::toRust(sessionsDir));
     }
 
     if (Cli::isCliInvocation(argc, argv)) {
