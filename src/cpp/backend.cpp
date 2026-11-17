@@ -83,6 +83,14 @@ Backend::Backend(const QString &path, PathMode mode, QObject *parent)
 
     loadConfig();
     reloadSecrets();
+    connect(this, &Backend::environmentsChanged, this, [this] {
+        if (m_environmentSecretsEnv.isEmpty())
+            return;
+        updateEnvironmentSecretAssignments(
+            m_environmentSecretsEnv,
+            environmentByName(m_environmentSecretsEnv)
+                .value(QStringLiteral("secretNames")).toStringList());
+    });
     rebuildOsCatalog();
     loadHistorySeenMarker();
     loadOperationHistory();

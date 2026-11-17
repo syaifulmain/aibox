@@ -26,7 +26,7 @@ ModalDialog {
 
     MenuRow {
         label: qsTr("Secrets")
-        detail: qsTr("Store API keys and choose which environments receive them")
+        detail: qsTr("Store global API keys and choose which appear in environment dialogs")
         disabled: backend.firstRun
         onClicked: toolsDialogRoot.openTool(function () { app.openSecretsDialog() })
     }

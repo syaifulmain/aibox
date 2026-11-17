@@ -607,7 +607,8 @@ QString Backend::deleteSnapshotScript(const QString &name, const QString &snapNa
 
 QString Backend::wipeEnvironmentScript(const QString &name, const QString &workspacePath,
                                        bool deleteWorkspaceFiles,
-                                       const QString &sessionsEnvDir) {
+                                       const QString &sessionsEnvDir,
+                                       const QString &environmentSecretsPath) {
     QString script = QStringLiteral(
         "echo '@@STAGE:40:Wiping OS container...'; "
         "incus delete %1 --force; "
@@ -640,6 +641,11 @@ QString Backend::wipeEnvironmentScript(const QString &name, const QString &works
     if (!sessionsEnvDir.trimmed().isEmpty()) {
         script += QStringLiteral("\nrm -rf %1 >/dev/null 2>&1 || true\n")
                       .arg(shellQuote(QDir::cleanPath(sessionsEnvDir.trimmed())));
+    }
+    if (!environmentSecretsPath.trimmed().isEmpty()) {
+        // Instance-only secrets must not survive the environment they belong to.
+        script += QStringLiteral("\nrm -f %1 >/dev/null 2>&1 || true\n")
+                      .arg(shellQuote(QDir::cleanPath(environmentSecretsPath.trimmed())));
     }
     script += QStringLiteral("\necho '@@STAGE:100:Wiped.'");
     return script;
@@ -737,5 +743,7 @@ void Backend::wipeEnvironment(const QString &name, bool deleteWorkspaceFiles) {
     const QString envSessionsDir = sessionsDirPath() + QLatin1Char('/') + sanitizeName(name);
     stopFileAccessProcess(name);
     runShellTask(tr("Wiping environment '%1'").arg(name),
-                 wipeEnvironmentScript(name, hostWorkspace, deleteWorkspaceFiles, envSessionsDir), {}, name);
+                 wipeEnvironmentScript(name, hostWorkspace, deleteWorkspaceFiles, envSessionsDir,
+                                       environmentSecretsStorePath(name)),
+                 {}, name);
 }

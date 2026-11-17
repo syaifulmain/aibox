@@ -82,6 +82,9 @@ class Backend : public QObject {
     Q_PROPERTY(QVariantList secretsList READ secretsList NOTIFY secretsChanged)
     Q_PROPERTY(QString secretsError READ secretsError NOTIFY secretsChanged)
     Q_PROPERTY(QString secretsStorePath READ secretsStorePath CONSTANT)
+    Q_PROPERTY(QVariantList environmentSecrets READ environmentSecretsList NOTIFY environmentSecretsChanged)
+    Q_PROPERTY(QString environmentSecretsError READ environmentSecretsError NOTIFY environmentSecretsChanged)
+    Q_PROPERTY(QString environmentSecretsEnvName READ environmentSecretsEnvName NOTIFY environmentSecretsChanged)
     Q_PROPERTY(QVariantMap poolInfo READ poolInfo NOTIFY poolInfoChanged)
 
 public:
@@ -124,6 +127,7 @@ public:
     QList<QPair<QString, QString>> resolveEnvironmentSecrets(const QString &envName,
                                                              QString *errorOut = nullptr) const;
     void setSecretsStorePathForTest(const QString &path);
+    Q_INVOKABLE QString environmentSecretsStorePath(const QString &envName) const;
 
     int count() const { return m_count; }
     QVariantList environments() const { return m_environments; }
@@ -181,6 +185,9 @@ public:
     QVariantList secretsList() const;
     QString secretsError() const { return m_secretsError; }
     QString secretsStorePath() const { return m_secretsPath; }
+    QVariantList environmentSecretsList() const { return m_environmentSecrets; }
+    QString environmentSecretsError() const { return m_environmentSecretsError; }
+    QString environmentSecretsEnvName() const { return m_environmentSecretsEnv; }
     int idleStopMinutes() const { return m_idleStopMinutes; }
     QVariantList idleStopOptions() const { return {0, 15, 30, 60, 120}; }
 
@@ -260,6 +267,14 @@ public:
     Q_INVOKABLE bool copySecret(const QString &name);
     Q_INVOKABLE void reloadSecrets();
     Q_INVOKABLE void setEnvironmentSecrets(const QString &name, const QStringList &secretNames);
+    Q_INVOKABLE void reloadEnvironmentSecrets(const QString &envName);
+    Q_INVOKABLE QString saveEnvironmentSecret(const QString &envName, const QString &name,
+                                              const QString &value);
+    Q_INVOKABLE QString deleteEnvironmentSecret(const QString &envName, const QString &name);
+    Q_INVOKABLE bool copyEnvironmentSecret(const QString &envName, const QString &name);
+    Q_INVOKABLE QString setEnvironmentLocalSecretEnabled(const QString &envName, const QString &name,
+                                                         bool enabled);
+    Q_INVOKABLE QString setGlobalSecretInstanceVisible(const QString &name, bool visible);
     Q_INVOKABLE QString poolWarningForCreate(const QString &diskSpec) const;
     Q_INVOKABLE QString poolWarningForQuotaEdit(const QString &envName, const QString &diskSpec) const;
     Q_INVOKABLE QString validateStoragePoolResize(const QString &sizeSpec) const;
@@ -364,7 +379,8 @@ public:
                                         bool hasWorkspaceSnap);
     static QString wipeEnvironmentScript(const QString &name, const QString &workspacePath,
                                          bool deleteWorkspaceFiles,
-                                         const QString &sessionsEnvDir = {});
+                                         const QString &sessionsEnvDir = {},
+                                         const QString &environmentSecretsPath = {});
 
     // Workspace change review helpers (S2)
     static QStringList defaultDiffExcludes();
@@ -384,11 +400,20 @@ public:
     static bool isValidSecretName(const QString &name);
     static QStringList parseEnvSecretNames(const QString &rawCsv);
     static QList<QPair<QString, QString>> loadSecretsStore(const QString &filePath, QString *errorOut = nullptr);
-    static QString saveSecretsStore(const QString &filePath, const QList<QPair<QString, QString>> &secrets);
+    static QStringList loadSecretNameList(const QString &filePath, const QString &key);
+    static QString saveSecretsStore(const QString &filePath, const QList<QPair<QString, QString>> &secrets,
+                                    const QStringList &disabledNames = {},
+                                    const QStringList &hiddenInInstances = {});
     static QString buildSecretEnvFileContent(const QList<QPair<QString, QString>> &secrets);
     static QString redactSecrets(const QString &text, const QStringList &values);
     static QByteArray redactSecretsBytes(const QByteArray &data, const QStringList &values);
     static QString createHostTempSecretFile(const QString &content, QString *errorOut = nullptr);
+    static bool isSafeEnvironmentFileName(const QString &name);
+    QString instanceSecretsDirPath() const;
+    bool copySecretValue(const QString &name, const QString &value);
+    void updateEnvironmentSecretAssignments(const QString &envName, const QStringList &names);
+    void clearGlobalSecretFromEnvironments(const QString &name);
+    void refreshInstanceSecretValuesCache();
 
     // Network ACL & egress helpers (F3 & G3)
     using HostResolver = std::function<QStringList(const QString &host)>;
@@ -564,7 +589,8 @@ public:
                                                   const QString &workspacePath,
                                                   const QString &workspaceArchiveFile,
                                                   bool deleteWorkspaceFiles,
-                                                  const QString &sessionsEnvDir = {});
+                                                  const QString &sessionsEnvDir = {},
+                                                  const QString &environmentSecretsPath = {});
     static QString deleteOrphanScript(const QString &kind, const QString &targetPath);
     QString validateOrphanPath(const QString &kind, const QString &cleanPath) const;
     static QString adminDeleteScriptText(const QString &kind, const QString &targetPath);
@@ -618,6 +644,7 @@ signals:
     void workspaceDiffChanged();
     void selectedDiffChanged();
     void secretsChanged();
+    void environmentSecretsChanged();
     void poolInfoChanged();
     void environmentCreated(const QString &name);
 
@@ -781,6 +808,11 @@ private:
     QString m_secretsPath;
     QList<QPair<QString, QString>> m_secrets;
     QString m_secretsError;
+    QStringList m_hiddenGlobalSecrets;
+    QVariantList m_environmentSecrets;
+    QString m_environmentSecretsError;
+    QString m_environmentSecretsEnv;
+    QStringList m_instanceSecretValues;
     QVariantMap m_poolInfo;
     StoragePoolInfo m_lastPoolInfo;
     qint64 m_lastPoolAllocatedBytes = 0;

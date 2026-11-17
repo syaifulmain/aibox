@@ -2021,6 +2021,136 @@ exit 0
         QCOMPARE(err, QString());
     }
 
+    void environmentSecretsAreScopedAndGlobalSecretsAreReadOnly()
+    {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+        const QString storePath = tmpDir.path() + "/secrets.json";
+
+        Backend backend;
+        backend.setSecretsStorePathForTest(storePath);
+
+        QCOMPARE(backend.saveSecret("SHARED_KEY", "global-value"), QString());
+        QCOMPARE(backend.saveEnvironmentSecret("alpha", "LOCAL_KEY", "local-value"), QString());
+
+        const QString envStore = backend.environmentSecretsStorePath("alpha");
+        QCOMPARE(envStore, QDir::cleanPath(tmpDir.path() + "/secrets.d/alpha.json"));
+        QVERIFY(QFileInfo::exists(envStore));
+        const auto envPerms = QFileInfo(envStore).permissions();
+        QVERIFY(!(envPerms & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
+                              | QFileDevice::ReadOther | QFileDevice::WriteOther)));
+
+        backend.reloadEnvironmentSecrets("alpha");
+        QCOMPARE(backend.environmentSecretsError(), QString());
+        QCOMPARE(backend.environmentSecretsEnvName(), QString("alpha"));
+        QCOMPARE(backend.environmentSecretsList().size(), 2);
+
+        QVariantMap localRow;
+        QVariantMap globalRow;
+        for (const QVariant &row : backend.environmentSecretsList()) {
+            const QVariantMap map = row.toMap();
+            if (map.value("name").toString() == "LOCAL_KEY")
+                localRow = map;
+            if (map.value("name").toString() == "SHARED_KEY")
+                globalRow = map;
+        }
+        QCOMPARE(localRow.value("scope").toString(), QString("environment"));
+        QVERIFY(localRow.value("assigned").toBool());
+        QCOMPARE(globalRow.value("scope").toString(), QString("global"));
+
+        // Global names cannot be shadowed or deleted from an environment.
+        QVERIFY(backend.saveEnvironmentSecret("alpha", "SHARED_KEY", "overwrite")
+                    .contains("global secret"));
+        QVERIFY(backend.deleteEnvironmentSecret("alpha", "SHARED_KEY")
+                    .contains("cannot be deleted"));
+
+        QString err;
+        const auto alphaSecrets = backend.resolveEnvironmentSecrets("alpha", &err);
+        QCOMPARE(err, QString());
+        QCOMPARE(alphaSecrets.size(), 1);
+        QCOMPARE(alphaSecrets.first().first, QString("LOCAL_KEY"));
+        QVERIFY(backend.allSecretValues().contains("local-value"));
+        QVERIFY(backend.resolveEnvironmentSecrets("beta", &err).isEmpty());
+        QCOMPARE(err, QString());
+
+        // Global visibility is independent from per-environment use.
+        QCOMPARE(backend.setGlobalSecretInstanceVisible("SHARED_KEY", false), QString());
+        QVERIFY(!backend.secretsList().first().toMap().value("visibleInEnvironments").toBool());
+        backend.reloadEnvironmentSecrets("alpha");
+        QCOMPARE(backend.environmentSecretsList().size(), 1);
+        QCOMPARE(backend.environmentSecretsList().first().toMap().value("scope").toString(),
+                 QString("environment"));
+        QCOMPARE(backend.resolveEnvironmentSecrets("alpha", &err).size(), 1);
+        QCOMPARE(err, QString());
+
+        // Editing a global secret keeps its visibility state.
+        QCOMPARE(backend.saveSecret("SHARED_KEY", "global-value-2"), QString());
+        QVERIFY(!backend.secretsList().first().toMap().value("visibleInEnvironments").toBool());
+
+        QCOMPARE(backend.setGlobalSecretInstanceVisible("SHARED_KEY", true), QString());
+        backend.reloadEnvironmentSecrets("alpha");
+        QCOMPARE(backend.environmentSecretsList().size(), 2);
+
+        // Local secrets can be disabled for their own environment.
+        QCOMPARE(backend.setEnvironmentLocalSecretEnabled("alpha", "LOCAL_KEY", false), QString());
+        backend.reloadEnvironmentSecrets("alpha");
+        localRow = {};
+        for (const QVariant &row : backend.environmentSecretsList()) {
+            const QVariantMap map = row.toMap();
+            if (map.value("name").toString() == "LOCAL_KEY")
+                localRow = map;
+        }
+        QVERIFY(!localRow.value("assigned").toBool());
+        QVERIFY(backend.resolveEnvironmentSecrets("alpha", &err).isEmpty());
+
+        QCOMPARE(backend.setEnvironmentLocalSecretEnabled("alpha", "LOCAL_KEY", true), QString());
+        backend.reloadEnvironmentSecrets("alpha");
+        QCOMPARE(backend.resolveEnvironmentSecrets("alpha", &err).size(), 1);
+
+        const QString wipeScript = Backend::wipeEnvironmentScript(
+            "alpha", QString(), false, QString(), backend.environmentSecretsStorePath("alpha"));
+        QVERIFY(wipeScript.contains("secrets.d/alpha.json"));
+
+        QCOMPARE(backend.deleteEnvironmentSecret("alpha", "LOCAL_KEY"), QString());
+        backend.reloadEnvironmentSecrets("alpha");
+        QCOMPARE(backend.environmentSecretsList().size(), 1);
+        QCOMPARE(backend.environmentSecretsList().first().toMap().value("scope").toString(),
+                 QString("global"));
+        QVERIFY(backend.resolveEnvironmentSecrets("alpha", &err).isEmpty());
+        QVERIFY(!backend.allSecretValues().contains("local-value"));
+    }
+
+    void hidingGlobalSecretClearsEnvironmentAssignmentsInDemo()
+    {
+        QTemporaryDir tmpDir;
+        QVERIFY(tmpDir.isValid());
+
+        const QByteArray oldDemo = qgetenv("AIBOX_DEMO_MODE");
+        const QByteArray oldSecrets = qgetenv("AIBOX_SECRETS_PATH");
+        const QByteArray oldLocation = qgetenv("AIBOX_LOCATION_FILE");
+        const auto restoreEnv = qScopeGuard([&] {
+            if (oldDemo.isEmpty()) qunsetenv("AIBOX_DEMO_MODE"); else qputenv("AIBOX_DEMO_MODE", oldDemo);
+            if (oldSecrets.isEmpty()) qunsetenv("AIBOX_SECRETS_PATH"); else qputenv("AIBOX_SECRETS_PATH", oldSecrets);
+            if (oldLocation.isEmpty()) qunsetenv("AIBOX_LOCATION_FILE"); else qputenv("AIBOX_LOCATION_FILE", oldLocation);
+        });
+
+        qputenv("AIBOX_DEMO_MODE", "1");
+        qputenv("AIBOX_SECRETS_PATH", (tmpDir.path() + "/secrets.json").toUtf8());
+        qputenv("AIBOX_LOCATION_FILE", (tmpDir.path() + "/location.json").toUtf8());
+
+        Backend backend;
+        const QVariantMap before = backend.findEnvironment("flutter-pos");
+        QVERIFY(before.value("secretNames").toStringList().contains("ANTHROPIC_API_KEY"));
+
+        QCOMPARE(backend.setGlobalSecretInstanceVisible("ANTHROPIC_API_KEY", false), QString());
+        const QVariantMap after = backend.findEnvironment("flutter-pos");
+        QVERIFY(!after.value("secretNames").toStringList().contains("ANTHROPIC_API_KEY"));
+
+        QString err;
+        QVERIFY(backend.resolveEnvironmentSecrets("flutter-pos", &err).isEmpty());
+        QCOMPARE(err, QString());
+    }
+
     void secretsExecInjectionRedactsHistoryAndNeverTouchesBackups()
     {
         QTemporaryDir tmpDir;

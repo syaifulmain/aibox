@@ -127,6 +127,8 @@ ApplicationWindow {
     property string diffExcludesDraft: ""
     property string diffActionError: ""
     property bool secretsVisible: false
+    property string secretsScope: "global"
+    property string secretsEnvName: ""
     property string secretNameDraft: ""
     property string secretValueDraft: ""
     property bool secretDraftShow: false
@@ -148,12 +150,30 @@ ApplicationWindow {
     }
 
     function openSecretsDialog() {
+        win.secretsScope = "global"
+        win.secretsEnvName = ""
         win.secretNameDraft = ""
         win.secretValueDraft = ""
         win.secretDraftShow = false
         win.secretFormError = ""
         win.secretRevealMap = ({})
         backend.reloadSecrets()
+        win.secretsVisible = true
+    }
+
+    function openEnvironmentSecretsDialog(envName) {
+        const name = envName || (backend.selectedEnvironment.name || "")
+        if (name.length === 0)
+            return
+        win.secretsScope = "environment"
+        win.secretsEnvName = name
+        win.secretNameDraft = ""
+        win.secretValueDraft = ""
+        win.secretDraftShow = false
+        win.secretFormError = ""
+        win.secretRevealMap = ({})
+        backend.reloadSecrets()
+        backend.reloadEnvironmentSecrets(name)
         win.secretsVisible = true
     }
 
@@ -165,7 +185,9 @@ ApplicationWindow {
 
     function toggleEnvSecret(secretName) {
         const env = backend.selectedEnvironment
-        if (!env || !env.name || backend.busy)
+        const envName = win.secretsScope === "environment" ? win.secretsEnvName
+                                                           : (env ? (env.name || "") : "")
+        if (!env || !env.name || env.name !== envName || backend.busy)
             return
         const cur = (env.secretNames || []).slice()
         const idx = cur.indexOf(secretName)
@@ -174,6 +196,43 @@ ApplicationWindow {
         else
             cur.push(secretName)
         backend.setEnvironmentSecrets(env.name, cur)
+    }
+
+    function toggleGlobalSecretVisibility(secretName) {
+        const rows = backend.secretsList || []
+        let visible = true
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i] || {}
+            if (row.name === secretName) {
+                visible = row.visibleInEnvironments === true
+                break
+            }
+        }
+        const err = backend.setGlobalSecretInstanceVisible(secretName, !visible)
+        if (err.length > 0)
+            win.secretFormError = err
+        else
+            win.secretFormError = ""
+    }
+
+    function toggleLocalSecret(secretName) {
+        const envName = win.secretsScope === "environment" ? win.secretsEnvName : ""
+        if (envName.length === 0 || backend.busy)
+            return
+        const rows = backend.environmentSecrets || []
+        let assigned = false
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i] || {}
+            if (row.name === secretName && row.scope === "environment") {
+                assigned = row.assigned === true
+                break
+            }
+        }
+        const err = backend.setEnvironmentLocalSecretEnabled(envName, secretName, !assigned)
+        if (err.length > 0)
+            win.secretFormError = err
+        else
+            win.secretFormError = ""
     }
 
     function openChangeReviewDialog(snapName) {

@@ -135,7 +135,8 @@ QString Backend::exportAndWipeEnvironmentScript(const QString &name, const QStri
                                                 const QString &workspacePath,
                                                 const QString &workspaceArchiveFile,
                                                 bool deleteWorkspaceFiles,
-                                                const QString &sessionsEnvDir) {
+                                                const QString &sessionsEnvDir,
+                                                const QString &environmentSecretsPath) {
     const QString qBackup = shellQuote(backupFile);
     QString script = buildExportSteps(name, backupFile, workspacePath, workspaceArchiveFile);
     script += QStringLiteral(
@@ -153,7 +154,8 @@ QString Backend::exportAndWipeEnvironmentScript(const QString &name, const QStri
             "    exit 1\n"
             "fi\n").arg(qWs, qWsOut);
     }
-    script += wipeEnvironmentScript(name, workspacePath, deleteWorkspaceFiles, sessionsEnvDir);
+    script += wipeEnvironmentScript(name, workspacePath, deleteWorkspaceFiles, sessionsEnvDir,
+                                    environmentSecretsPath);
     return script;
 }
 
@@ -350,7 +352,8 @@ QString Backend::exportAndWipeEnvironment(const QString &name, bool includeWorks
     stopFileAccessProcess(clean);
     runShellTask(tr("Exporting & wiping '%1'").arg(clean),
                  exportAndWipeEnvironmentScript(clean, backupFile, wsPath, wsArchiveFile,
-                                                deleteWorkspaceFiles, envSessionsDir),
+                                                deleteWorkspaceFiles, envSessionsDir,
+                                                environmentSecretsStorePath(clean)),
                  {}, clean);
     return {};
 }

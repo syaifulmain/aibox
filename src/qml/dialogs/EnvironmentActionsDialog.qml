@@ -28,6 +28,15 @@ ModalDialog {
     }
 
     MenuRow {
+        label: qsTr("Secrets")
+        detail: qsTr("Use global secrets and add secrets that only this environment receives")
+        disabled: backend.busy
+        onClicked: actionsDialogRoot.openAction(function () {
+            app.openEnvironmentSecretsDialog(actionsDialogRoot.env.name || "")
+        })
+    }
+
+    MenuRow {
         label: qsTr("Clone")
         detail: qsTr("Create an isolated copy with its own workspace")
         disabled: backend.busy

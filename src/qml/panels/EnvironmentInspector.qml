@@ -99,15 +99,6 @@ Rectangle {
                     onClicked: app.openEnvironmentActions()
                 }
 
-                ActionButton {
-                    visible: (backend.selectedEnvironment.secretNames || []).length > 0
-                    label: qsTr("Secrets (%1)").arg((backend.selectedEnvironment.secretNames || []).length)
-                    variant: "accent"
-                    minWidth: 108
-                    Layout.alignment: Qt.AlignVCenter
-                    onClicked: app.openSecretsDialog()
-                }
-
                 Item { Layout.fillWidth: true }
 
                 ActionButton {
