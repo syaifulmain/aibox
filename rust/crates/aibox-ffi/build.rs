@@ -13,6 +13,7 @@ fn main() {
         "src/session.rs",
         "src/settings.rs",
         "src/snapshot.rs",
+        "src/task.rs",
         "src/theme.rs",
         "src/util.rs",
         "src/workspace_diff.rs",

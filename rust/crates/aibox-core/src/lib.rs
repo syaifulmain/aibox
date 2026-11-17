@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod config;
+pub mod engine;
 pub mod health;
 pub mod history;
 pub mod i18n;
@@ -9,6 +10,7 @@ pub mod provision;
 pub mod secrets;
 pub mod session;
 pub mod snapshot;
+pub mod task;
 pub mod theme;
 pub mod util;
 pub mod workspace;

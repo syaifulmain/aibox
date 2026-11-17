@@ -2,6 +2,7 @@
 #include "backend_helpers.h"
 #include "rust_bridge.h"
 #include "aibox-ffi/src/config.rs.h"
+#include "aibox-ffi/src/task.rs.h"
 
 #include <QClipboard>
 #include <QDateTime>
@@ -12,14 +13,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QRegularExpression>
-#include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
 #include <QUrl>
-
-#include <csignal>
-#include <unistd.h>
 
 Backend::Backend(const QString &workspaceDir, QObject *parent)
     : Backend(workspaceDir, PathMode::WorkspaceDir, parent) {}
@@ -599,272 +595,165 @@ void Backend::refresh() {
 }
 
 qint64 Backend::readTaskPid() const {
-    QFile pidFile(m_stateDir + "/task.pid");
-    if (!pidFile.open(QIODevice::ReadOnly))
-        return 0;
-    return pidFile.readAll().trimmed().toLongLong();
+    return static_cast<qint64>(aibox::ffi::read_task_pid(aibox::ffi::toRust(m_stateDir)));
 }
 
 bool Backend::isTaskLockActive(qint64 *outPid) const {
-    if (m_busy) {
-        if (outPid)
-            *outPid = readTaskPid();
-        return true;
-    }
-    const qint64 pid = readTaskPid();
-    if (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0) {
-        if (outPid)
-            *outPid = pid;
-        return true;
-    }
+    std::int64_t pid = 0;
+    const bool active = aibox::ffi::is_task_lock_active(aibox::ffi::toRust(m_stateDir), m_busy, pid);
     if (outPid)
-        *outPid = 0;
-    return false;
+        *outPid = static_cast<qint64>(pid);
+    return active;
 }
 
 bool Backend::acquireCliTaskLock(const QString &description, const QString &envName) {
-    if (isTaskLockActive())
-        return false;
-    QDir().mkpath(m_stateDir);
-
-    QJsonObject meta;
-    meta["description"] = description;
-    meta["envName"] = envName;
-    meta["targetEnvName"] = envName;
-    meta["startedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-    QFile metaFile(m_stateDir + QStringLiteral("/task.meta"));
-    if (metaFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        metaFile.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
-        metaFile.close();
-    }
-
-    QFile pidFile(m_stateDir + QStringLiteral("/task.pid"));
-    if (!pidFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return false;
-    pidFile.write(QByteArray::number(static_cast<qint64>(::getpid())) + '\n');
-    pidFile.close();
-    return true;
+    return aibox::ffi::acquire_cli_task_lock(
+        aibox::ffi::toRust(m_stateDir), m_busy, aibox::ffi::toRust(description), aibox::ffi::toRust(envName));
 }
 
 void Backend::releaseCliTaskLock() {
-    clearTaskFiles();
+    aibox::ffi::release_cli_task_lock(aibox::ffi::toRust(m_stateDir));
 }
 
 bool Backend::refreshSync(QString *errorOut) {
-    QProcess proc;
-    proc.start(QStringLiteral("incus"), {QStringLiteral("list"), QStringLiteral("--format=json")});
-    if (!proc.waitForFinished(10000) || proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
-        if (errorOut) {
-            const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
-            *errorOut = err.isEmpty() ? QStringLiteral("Incus daemon is not reachable.") : err;
-        }
+    const auto res = aibox::ffi::engine_refresh_sync(
+        aibox::ffi::toRust(m_workspaceBase), aibox::ffi::toRust(m_stateDir),
+        m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions);
+    if (!res.ok) {
+        if (errorOut)
+            *errorOut = aibox::ffi::fromRust(res.error);
         return false;
     }
-    const QByteArray rawJson = proc.readAllStandardOutput();
-    m_environments = parseIncusListJson(rawJson, m_workspaceBase, nullptr, 0,
-                                          m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions);
+    m_environments = aibox::ffi::fromRustJson(res.environments_json).toList();
     applyFileAccessState(m_environments);
     m_count = m_environments.size();
     return true;
 }
 
 void Backend::clearTaskFiles() {
-    QFile::remove(m_stateDir + "/task.pid");
-    QFile::remove(m_stateDir + "/task.meta");
-    QFile::remove(m_stateDir + "/task.sh");
+    aibox::ffi::clear_task_files(aibox::ffi::toRust(m_stateDir));
 }
 
 void Backend::handleProcessOutput(const QByteArray &chunk) {
-    QString text = redactSecrets(QString::fromUtf8(chunk), allSecretValues());
-    static const QRegularExpression ansiRe(QStringLiteral(R"(\x1B\[[0-9;?]*[a-zA-Z])"));
-    text.remove(ansiRe);
+    aibox::ffi::TaskProgressFfi state{
+        m_taskProgress,
+        aibox::ffi::toRust(m_taskStage),
+        aibox::ffi::toRust(m_taskLog),
+        m_hasExitCode,
+        m_lastExitCode,
+        aibox::ffi::toRust(m_pendingEnvName),
+    };
+    const auto secretVec = aibox::ffi::toRustVec(allSecretValues());
+    const rust::Slice<const rust::String> secretSlice(secretVec.data(), secretVec.size());
+    const rust::Slice<const std::uint8_t> bytes = aibox::ffi::toRustBytes(chunk);
+    const bool changed = aibox::ffi::parse_process_output_chunk(state, bytes, secretSlice);
 
-    const QStringList lines = text.split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
-    static const QRegularExpression stageRe(QStringLiteral(R"(^@@STAGE:(\d+):(.*)$)"));
-    static const QRegularExpression exitRe(QStringLiteral(R"(^@@EXIT:(\d+)$)"));
-    static const QRegularExpression pctRe(QStringLiteral(R"((\d{1,3})%)"));
-
-    for (const QString &rawLine : lines) {
-        const QString line = rawLine.trimmed();
-        if (line.isEmpty())
-            continue;
-
-        const auto exitMatch = exitRe.match(line);
-        if (exitMatch.hasMatch()) {
-            m_hasExitCode = true;
-            m_lastExitCode = exitMatch.captured(1).toInt();
-            continue;
-        }
-
-        const auto stageMatch = stageRe.match(line);
-        if (stageMatch.hasMatch()) {
-            m_taskProgress = qBound(0, stageMatch.captured(1).toInt(), 100);
-            m_taskStage = stageMatch.captured(2).trimmed();
-            emit taskProgressChanged();
-            continue;
-        }
-
-        const auto pctMatch = pctRe.match(line);
-        if (pctMatch.hasMatch()) {
-            const int subPct = qBound(0, pctMatch.captured(1).toInt(), 100);
-            if (line.contains(QLatin1String("Retrieving image"), Qt::CaseInsensitive) ||
-                line.contains(QLatin1String("Copying"), Qt::CaseInsensitive)) {
-                if (!m_pendingEnvName.isEmpty())
-                    m_taskProgress = 10 + (subPct * 55) / 100;
-                else
-                    m_taskProgress = subPct;
-            } else if (line.contains(QLatin1String("Unpacking"), Qt::CaseInsensitive)) {
-                if (!m_pendingEnvName.isEmpty())
-                    m_taskProgress = 65 + (subPct * 15) / 100;
-                else
-                    m_taskProgress = qMax(m_taskProgress, subPct);
-            }
-        }
-
-        m_taskLog = line;
+    m_taskProgress = state.task_progress;
+    m_taskStage = aibox::ffi::fromRust(state.task_stage);
+    m_taskLog = aibox::ffi::fromRust(state.task_log);
+    m_hasExitCode = state.has_exit_code;
+    m_lastExitCode = state.last_exit_code;
+    if (changed)
         emit taskProgressChanged();
-    }
 }
 
 void Backend::attachExistingTask() {
-    QFile metaFile(m_stateDir + "/task.meta");
-    if (!metaFile.open(QIODevice::ReadOnly))
+    const auto secretVec = aibox::ffi::toRustVec(allSecretValues());
+    const rust::Slice<const rust::String> secretSlice(secretVec.data(), secretVec.size());
+    const auto res = aibox::ffi::evaluate_attach_existing_task(
+        aibox::ffi::toRust(m_stateDir), secretSlice, 50);
+    if (res.kind == 0)
         return;
 
-    const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
-    const QString desc = meta.value("description").toString();
-    const QString envName = meta.value("envName").toString();
-    const QString targetEnv = meta.value("targetEnvName").toString();
-    const QString startedAt = meta.value("startedAt").toString();
-    const QString dlOsId = meta.value("downloadingOsId").toString();
-    const QString taskReason = meta.value("reason").toString();
-
-    m_pendingEnvName = envName;
-    m_downloadingOsId = dlOsId;
-    m_logOffset = 0;
-    m_hasExitCode = false;
-    m_lastExitCode = -1;
-    m_taskProgress = 5;
-    m_taskStage = desc;
-    m_taskLog = tr("Resuming background task monitor...");
-
-    const qint64 pid = readTaskPid();
-    const bool stillRunning = (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0);
-
-    // Read any log output written so far
-    QByteArray rawLog;
-    QFile logFile(m_stateDir + "/task.log");
-    if (logFile.open(QIODevice::ReadOnly)) {
-        rawLog = logFile.readAll();
-        m_logOffset = rawLog.size();
-        handleProcessOutput(rawLog);
-    }
-
-    if (stillRunning && !m_hasExitCode) {
-        setBusy(true, desc);
+    if (res.kind == 1) {
+        m_pendingEnvName = aibox::ffi::fromRust(res.env_name);
+        m_downloadingOsId = aibox::ffi::fromRust(res.downloading_os_id);
+        m_logOffset = static_cast<qint64>(res.log_offset);
+        m_hasExitCode = res.progress.has_exit_code;
+        m_lastExitCode = res.progress.last_exit_code;
+        m_taskProgress = res.progress.task_progress;
+        m_taskStage = aibox::ffi::fromRust(res.progress.task_stage);
+        m_taskLog = res.progress.task_log.empty()
+                        ? tr("Resuming background task monitor...")
+                        : aibox::ffi::fromRust(res.progress.task_log);
+        setBusy(true, aibox::ffi::fromRust(res.description));
         emit taskProgressChanged();
         m_taskWatchTimer.start();
     } else {
-        // Task already finished while the GUI was closed!
-        const int exitCode = m_hasExitCode ? m_lastExitCode : 1;
-        const QStringList secretVals = allSecretValues();
-        if (!secretVals.isEmpty() && !rawLog.isEmpty()) {
-            const QByteArray scrubbed = redactSecretsBytes(rawLog, secretVals);
-            if (scrubbed != rawLog) {
-                QFile out(m_stateDir + "/task.log");
-                if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                    out.write(scrubbed);
-            }
+        if (!res.history_json.empty()) {
+            m_operationHistory = aibox::ffi::fromRustJson(res.history_json).toList();
+            emit operationHistoryChanged();
         }
-        recordOperationHistory(desc, !targetEnv.isEmpty() ? targetEnv : envName,
-                               exitCode == 0 ? QStringLiteral("success") : QStringLiteral("failed"),
-                               exitCode, startedAt, rawLog, taskReason);
-        clearTaskFiles();
         m_downloadingOsId.clear();
         m_pendingEnvName.clear();
+        m_logOffset = 0;
+        m_hasExitCode = res.has_exit_code;
+        m_lastExitCode = res.exit_code;
+        m_taskLog = aibox::ffi::fromRust(res.progress.task_log);
         setBusy(false, {});
-        if (m_hasExitCode && m_lastExitCode == 0) {
+        const QString envName = aibox::ffi::fromRust(res.env_name);
+        if (res.has_exit_code && res.exit_code == 0) {
             m_statusMessage = !envName.isEmpty()
                                   ? tr("Environment '%1' finished creating in the background.").arg(envName)
                                   : tr("Background operation completed successfully.");
             emit statusMessageChanged();
-        } else if (m_hasExitCode && m_lastExitCode != 0) {
+        } else if (res.has_exit_code && res.exit_code != 0) {
             setError(tr("Previous background operation failed: %1").arg(m_taskLog));
         }
     }
 }
 
 void Backend::checkBackgroundTask() {
-    QFile logFile(m_stateDir + "/task.log");
-    if (logFile.open(QIODevice::ReadOnly)) {
-        if (logFile.size() > m_logOffset) {
-            logFile.seek(m_logOffset);
-            const QByteArray newBytes = logFile.readAll();
-            m_logOffset = logFile.pos();
-            handleProcessOutput(newBytes);
-        }
+    aibox::ffi::TaskProgressFfi state{
+        m_taskProgress,
+        aibox::ffi::toRust(m_taskStage),
+        aibox::ffi::toRust(m_taskLog),
+        m_hasExitCode,
+        m_lastExitCode,
+        aibox::ffi::toRust(m_pendingEnvName),
+    };
+    const auto secretVec = aibox::ffi::toRustVec(allSecretValues());
+    const rust::Slice<const rust::String> secretSlice(secretVec.data(), secretVec.size());
+    const auto res = aibox::ffi::evaluate_check_background_task(
+        aibox::ffi::toRust(m_stateDir), static_cast<std::int64_t>(m_logOffset),
+        state, secretSlice, 50);
+
+    m_logOffset = static_cast<qint64>(res.log_offset);
+    m_taskProgress = res.progress.task_progress;
+    m_taskStage = aibox::ffi::fromRust(res.progress.task_stage);
+    m_taskLog = aibox::ffi::fromRust(res.progress.task_log);
+    m_hasExitCode = res.progress.has_exit_code;
+    m_lastExitCode = res.progress.last_exit_code;
+    if (res.progress_changed)
+        emit taskProgressChanged();
+
+    if (!res.finished)
+        return;
+
+    m_taskWatchTimer.stop();
+    const QString finishedEnv = aibox::ffi::fromRust(res.finished_env);
+    const QString lastLog = aibox::ffi::fromRust(res.last_log);
+    if (!res.history_json.empty()) {
+        m_operationHistory = aibox::ffi::fromRustJson(res.history_json).toList();
+        emit operationHistoryChanged();
     }
 
-    const qint64 pid = readTaskPid();
-    const bool alive = (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0);
+    m_downloadingOsId.clear();
+    m_pendingEnvName.clear();
+    setBusy(false, {});
+    refresh();
+    refreshBackups();
+    if (!m_staleReport.isEmpty())
+        refreshStaleReport();
 
-    if (!alive || m_hasExitCode) {
-        m_taskWatchTimer.stop();
-        const QString finishedEnv = m_pendingEnvName;
-        const QString lastLog = m_taskLog;
-        const int exitCode = m_hasExitCode ? m_lastExitCode : 1;
-
-        QString desc = m_taskStage;
-        QString targetEnv = finishedEnv;
-        QString startedAt;
-        QString taskReason;
-        QFile metaFile(m_stateDir + "/task.meta");
-        if (metaFile.open(QIODevice::ReadOnly)) {
-            const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
-            if (!meta.value("description").toString().isEmpty())
-                desc = meta.value("description").toString();
-            if (!meta.value("targetEnvName").toString().isEmpty())
-                targetEnv = meta.value("targetEnvName").toString();
-            startedAt = meta.value("startedAt").toString();
-            taskReason = meta.value("reason").toString();
+    if (res.exit_code == 0) {
+        if (!finishedEnv.isEmpty()) {
+            m_statusMessage = tr("Environment '%1' is ready.").arg(finishedEnv);
+            emit statusMessageChanged();
+            emit environmentCreated(finishedEnv);
         }
-        QByteArray fullLog;
-        if (logFile.isOpen()) {
-            logFile.seek(0);
-            fullLog = logFile.readAll();
-            logFile.close();
-            const QStringList secretVals = allSecretValues();
-            if (!secretVals.isEmpty() && !fullLog.isEmpty()) {
-                const QByteArray scrubbed = redactSecretsBytes(fullLog, secretVals);
-                if (scrubbed != fullLog) {
-                    QFile out(m_stateDir + "/task.log");
-                    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                        out.write(scrubbed);
-                }
-            }
-        }
-        recordOperationHistory(desc, targetEnv,
-                               exitCode == 0 ? QStringLiteral("success") : QStringLiteral("failed"),
-                               exitCode, startedAt, fullLog, taskReason);
-
-        clearTaskFiles();
-        m_downloadingOsId.clear();
-        m_pendingEnvName.clear();
-        setBusy(false, {});
-        refresh();
-        refreshBackups();
-        if (!m_staleReport.isEmpty())
-            refreshStaleReport();
-
-        if (exitCode == 0) {
-            if (!finishedEnv.isEmpty()) {
-                m_statusMessage = tr("Environment '%1' is ready.").arg(finishedEnv);
-                emit statusMessageChanged();
-                emit environmentCreated(finishedEnv);
-            }
-        } else {
-            setError(lastLog.isEmpty() ? tr("Operation failed (exit code %1).").arg(exitCode) : lastLog);
-        }
+    } else {
+        setError(lastLog.isEmpty() ? tr("Operation failed (exit code %1).").arg(res.exit_code) : lastLog);
     }
 }
 
@@ -873,45 +762,17 @@ void Backend::cancelTask() {
         return;
 
     m_taskWatchTimer.stop();
-    const qint64 pid = readTaskPid();
-    if (pid > 0) {
-        ::kill(-static_cast<pid_t>(pid), SIGTERM);
-        ::kill(-static_cast<pid_t>(pid), SIGKILL);
+    const auto secretVec = aibox::ffi::toRustVec(allSecretValues());
+    const rust::Slice<const rust::String> secretSlice(secretVec.data(), secretVec.size());
+    const auto histJson = aibox::ffi::cancel_running_task(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(m_taskStage),
+        aibox::ffi::toRust(m_pendingEnvName), secretSlice, 50);
+    if (!histJson.empty()) {
+        m_operationHistory = aibox::ffi::fromRustJson(histJson).toList();
+        emit operationHistoryChanged();
     }
-
-    QString desc = m_taskStage;
-    QString targetEnv = m_pendingEnvName;
-    QString startedAt;
-    QString taskReason;
-    QFile metaFile(m_stateDir + "/task.meta");
-    if (metaFile.open(QIODevice::ReadOnly)) {
-        const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
-        if (!meta.value("description").toString().isEmpty())
-            desc = meta.value("description").toString();
-        if (!meta.value("targetEnvName").toString().isEmpty())
-            targetEnv = meta.value("targetEnvName").toString();
-        startedAt = meta.value("startedAt").toString();
-        taskReason = meta.value("reason").toString();
-    }
-    QByteArray fullLog;
-    QFile logFile(m_stateDir + "/task.log");
-    if (logFile.open(QIODevice::ReadOnly)) {
-        fullLog = logFile.readAll();
-        logFile.close();
-        const QStringList secretVals = allSecretValues();
-        if (!secretVals.isEmpty() && !fullLog.isEmpty()) {
-            const QByteArray scrubbed = redactSecretsBytes(fullLog, secretVals);
-            if (scrubbed != fullLog) {
-                QFile out(m_stateDir + "/task.log");
-                if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                    out.write(scrubbed);
-            }
-        }
-    }
-    recordOperationHistory(desc, targetEnv, QStringLiteral("cancelled"), 130, startedAt, fullLog, taskReason);
 
     const QString cleanupName = m_pendingEnvName;
-    clearTaskFiles();
     m_downloadingOsId.clear();
     m_pendingEnvName.clear();
     setBusy(false, tr("Operation cancelled."));
@@ -953,74 +814,19 @@ void Backend::runShellTask(const QString &description, const QString &script, co
     setBusy(true, description);
     emit taskProgressChanged();
 
-    // Persist task metadata so reopening AIBox re-attaches seamlessly
-    QJsonObject meta;
-    meta["description"] = description;
-    meta["envName"] = createdEnvName;
-    meta["targetEnvName"] = !targetEnvName.isEmpty() ? targetEnvName : createdEnvName;
-    meta["downloadingOsId"] = m_downloadingOsId;
-    meta["startedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-    if (!reason.isEmpty())
-        meta["reason"] = reason;
-
-    QFile metaFile(m_stateDir + "/task.meta");
-    if (metaFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        metaFile.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
-        metaFile.close();
-    }
-
-    QFile logFile(m_stateDir + "/task.log");
-    if (logFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        logFile.close();
-
-    const QString scriptPath = m_stateDir + "/task.sh";
-    QFile scriptFile(scriptPath);
-    if (scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        const QString wrapped = QStringLiteral(R"sh(#!/usr/bin/env bash
-(
-%1
-)
-CODE=$?
-echo "@@EXIT:$CODE"
-if command -v notify-send >/dev/null 2>&1; then
-    if [ "$CODE" -eq 0 ]; then
-        notify-send -a "AIBox" "AIBox" "%2 — Completed" 2>/dev/null || true
-    else
-        notify-send -u critical -a "AIBox" "AIBox" "%2 — Failed" 2>/dev/null || true
-    fi
-fi
-exit $CODE
-)sh").arg(script, description);
-        scriptFile.write(wrapped.toUtf8());
-        scriptFile.close();
-        scriptFile.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
-    }
-
-    const QString launchCmd = QStringLiteral(
-        "setsid '%1' > '%2/task.log' 2>&1 < /dev/null & echo $! > '%2/task.pid'")
-                                  .arg(scriptPath, m_stateDir);
-    QProcess::execute(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), launchCmd});
+    const QString launchCmd = aibox::ffi::fromRust(aibox::ffi::prepare_shell_task(
+        aibox::ffi::toRust(m_stateDir), aibox::ffi::toRust(description),
+        aibox::ffi::toRust(script), aibox::ffi::toRust(createdEnvName),
+        aibox::ffi::toRust(targetEnvName), aibox::ffi::toRust(m_downloadingOsId),
+        aibox::ffi::toRust(reason)));
+    if (!launchCmd.isEmpty())
+        QProcess::execute(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), launchCmd});
 
     m_taskWatchTimer.start();
 }
 
 QString Backend::adminFixCommand(const QString &message) const {
-    static const QRegularExpression fixRe(
-        QStringLiteral("Fix \\(admin\\):\\s*(.+)$"),
-        QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression runRe(
-        QStringLiteral("\\brun:\\s*(sudo\\s+.+)$"),
-        QRegularExpression::CaseInsensitiveOption);
-    const QStringList lines = message.split(QLatin1Char('\n'));
-    for (const QString &line : lines) {
-        const QRegularExpressionMatch fix = fixRe.match(line);
-        if (fix.hasMatch())
-            return fix.captured(1).trimmed();
-        const QRegularExpressionMatch run = runRe.match(line);
-        if (run.hasMatch())
-            return run.captured(1).trimmed();
-    }
-    return {};
+    return aibox::ffi::fromRust(aibox::ffi::admin_fix_command(aibox::ffi::toRust(message)));
 }
 
 bool Backend::copyText(const QString &text, const QString &label) {

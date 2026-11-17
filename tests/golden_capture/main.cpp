@@ -10,6 +10,7 @@
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <unistd.h>
 
 #include "backend.h"
 #include "backend_helpers.h"
@@ -3538,6 +3539,140 @@ static QByteArray captureIncus() {
 
     return out;
 }
+
+static QByteArray captureTask() {
+    QByteArray out;
+
+    // 1. adminFixCommand
+    {
+        QTemporaryDir dir;
+        Backend be(dir.path());
+        struct FixCase { const char *name; const char *msg; };
+        const FixCase cases[] = {
+            {"fix_admin_simple", "Fix (admin): sudo sysctl -w net.ipv4.ip_forward=1"},
+            {"fix_admin_multiline_case", "Something failed\n  fix (admin):   sudo incus network set incusbr0 ipv4.nat=true  \nmore"},
+            {"run_sudo", "Please run: sudo usermod -aG incus-admin alice"},
+            {"no_command", "No command here\nrun: echo not-sudo"},
+            {"fix_precedes_run_on_line", "Multiple\nrun: echo not-sudo\nFix (admin): sudo aibox-fix"},
+        };
+        for (const auto &c : cases) {
+            out += jsonLine(QStringLiteral("Backend::adminFixCommand"),
+                            QString::fromLatin1(c.name),
+                            QJsonObject{{QStringLiteral("message"), QString::fromLatin1(c.msg)}},
+                            be.adminFixCommand(QString::fromLatin1(c.msg)));
+        }
+    }
+
+    // 2. handleProcessOutput
+    {
+        struct OutputCase {
+            const char *name;
+            const char *pendingEnv;
+            const char *chunk;
+        };
+        const OutputCase cases[] = {
+            {"stage_and_exit_with_ansi", "dev",
+             "\x1b[32m@@STAGE:25:Creating container...\x1b[0m\r\nFetching metadata\n@@STAGE:100:Ready!\n@@EXIT:0\n"},
+            {"retrieving_image_with_pending", "dev",
+             "Retrieving image: 50%\rRetrieving image: 100%\n"},
+            {"retrieving_image_without_pending", "",
+             "Retrieving image: 42%\n"},
+            {"unpacking_with_pending", "dev",
+             "Unpacking: 60%\n"},
+            {"unpacking_without_pending", "",
+             "@@STAGE:70:Unpacking\nUnpacking: 50%\nUnpacking: 85%\n"},
+            {"exit_nonzero_and_bounds", "dev",
+             "@@STAGE:150:Over\n@@EXIT:2\n"},
+        };
+        for (const auto &c : cases) {
+            QTemporaryDir dir;
+            Backend be(dir.path());
+            be.m_pendingEnvName = QString::fromLatin1(c.pendingEnv);
+            be.m_taskProgress = 5;
+            be.m_taskStage = QStringLiteral("Init");
+            be.m_taskLog.clear();
+            be.m_hasExitCode = false;
+            be.m_lastExitCode = -1;
+            be.handleProcessOutput(QByteArray(c.chunk));
+            out += jsonLine(QStringLiteral("Backend::handleProcessOutput"),
+                            QString::fromLatin1(c.name),
+                            QJsonObject{
+                                {QStringLiteral("pendingEnv"), QString::fromLatin1(c.pendingEnv)},
+                                {QStringLiteral("chunk"), QString::fromLatin1(c.chunk)},
+                            },
+                            QJsonObject{
+                                {QStringLiteral("taskProgress"), be.m_taskProgress},
+                                {QStringLiteral("taskStage"), be.m_taskStage},
+                                {QStringLiteral("taskLog"), be.m_taskLog},
+                                {QStringLiteral("hasExitCode"), be.m_hasExitCode},
+                                {QStringLiteral("lastExitCode"), be.m_lastExitCode},
+                            });
+        }
+    }
+
+    // 3. task lock lifecycle (readTaskPid, isTaskLockActive, acquireCliTaskLock, releaseCliTaskLock)
+    {
+        QTemporaryDir dir;
+        const QString projDir = dir.filePath(QStringLiteral("proj"));
+        QDir().mkpath(projDir + QStringLiteral("/.aibox/state"));
+        Backend be(projDir, Backend::PathMode::ProjectDir);
+
+        const qint64 initialPid = be.readTaskPid();
+        const bool initialActive = be.isTaskLockActive();
+
+        // Stale PID
+        {
+            QFile f(be.stateDir() + QStringLiteral("/task.pid"));
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write("99999999\n");
+        }
+        const qint64 stalePid = be.readTaskPid();
+        const bool staleActive = be.isTaskLockActive();
+
+        // Acquire CLI task lock
+        const bool acquired = be.acquireCliTaskLock(QStringLiteral("Starting 'dev'"), QStringLiteral("dev"));
+        const bool activeAfterAcquire = be.isTaskLockActive();
+        const bool secondAcquire = be.acquireCliTaskLock(QStringLiteral("Other"), QStringLiteral("dev"));
+        const qint64 ownPid = be.readTaskPid();
+        const bool pidMatchesSelf = (ownPid == static_cast<qint64>(::getpid()));
+
+        QByteArray metaRaw;
+        {
+            QFile f(be.stateDir() + QStringLiteral("/task.meta"));
+            if (f.open(QIODevice::ReadOnly))
+                metaRaw = f.readAll();
+        }
+        QJsonObject metaObj = QJsonDocument::fromJson(metaRaw).object();
+        const bool hasStartedAt = !metaObj.value(QStringLiteral("startedAt")).toString().isEmpty();
+        metaObj.insert(QStringLiteral("startedAt"), QStringLiteral("<NOW>"));
+
+        be.releaseCliTaskLock();
+        const bool activeAfterRelease = be.isTaskLockActive();
+        const bool pidExistsAfterRelease = QFile::exists(be.stateDir() + QStringLiteral("/task.pid"));
+        const bool metaExistsAfterRelease = QFile::exists(be.stateDir() + QStringLiteral("/task.meta"));
+
+        out += jsonLine(QStringLiteral("Backend::taskLockLifecycle"),
+                        QStringLiteral("acquire_check_release"),
+                        QJsonObject{},
+                        QJsonObject{
+                            {QStringLiteral("initialPid"), initialPid},
+                            {QStringLiteral("initialActive"), initialActive},
+                            {QStringLiteral("stalePid"), stalePid},
+                            {QStringLiteral("staleActive"), staleActive},
+                            {QStringLiteral("acquired"), acquired},
+                            {QStringLiteral("activeAfterAcquire"), activeAfterAcquire},
+                            {QStringLiteral("secondAcquire"), secondAcquire},
+                            {QStringLiteral("pidMatchesSelf"), pidMatchesSelf},
+                            {QStringLiteral("hasStartedAt"), hasStartedAt},
+                            {QStringLiteral("meta"), metaObj},
+                            {QStringLiteral("activeAfterRelease"), activeAfterRelease},
+                            {QStringLiteral("pidExistsAfterRelease"), pidExistsAfterRelease},
+                            {QStringLiteral("metaExistsAfterRelease"), metaExistsAfterRelease},
+                        });
+    }
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -3579,6 +3714,7 @@ int main(int argc, char *argv[]) {
         {"health", &GoldenCapture::captureHealth},
         {"provision", &GoldenCapture::captureProvision},
         {"incus", &GoldenCapture::captureIncus},
+        {"task", &GoldenCapture::captureTask},
     };
 
     bool matched = onlyModule.isEmpty();
