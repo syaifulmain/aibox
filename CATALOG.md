@@ -50,8 +50,9 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/cpp/backend_health.cpp](src/cpp/backend_health.cpp) | Source (C++) | Watchdog thresholds and hysteresis, idle auto-stop decisions, storage pool info, `aibox check` health checks. |
 | [src/cpp/backend_provision.cpp](src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, image cache handling, and live resource quota scripts. |
 | [src/cpp/backend_demo.cpp](src/cpp/backend_demo.cpp) | Source (C++) | Demo data used for previews and screenshots. |
-| [src/cpp/theme.h](src/cpp/theme.h) & [theme.cpp](src/cpp/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
-| [src/cpp/translator.h](src/cpp/translator.h) & [translator.cpp](src/cpp/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
+| [src/cpp/shim/](src/cpp/shim) | Source (C++) | Tiny `QTranslator` subclass (`translator_shim.{h,cpp}`) forwarding `translate()` to Rust `TranslatorState`, plus `qml_helpers.{h,cpp}` for `setContextProperty`, `QLocale`, and `:/` resource reads. |
+| [src/cpp/theme.h](src/cpp/theme.h) & [theme.cpp](src/cpp/theme.cpp) | Source (C++) | Compatibility `Theme` class kept only for `tests/aibox_tests.pro` until P18 (`aibox` binary uses `aibox-app/src/qt_theme.rs`). |
+| [src/cpp/translator.h](src/cpp/translator.h) & [translator.cpp](src/cpp/translator.cpp) | Source (C++) | Compatibility `Translator` class kept only for `tests/aibox_tests.pro` until P18 (`aibox` binary uses `aibox-app/src/qt_translator.rs` + `TranslatorShim`). |
 | [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
 | [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
@@ -74,6 +75,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Rust Migration P16 — `Theme` and `TranslatorState` QObjects in Rust
+* **Rust `cxx-qt` QObjects (`rust/crates/aibox-app/src/qt_theme.rs`, `qt_translator.rs`)**: Replaced the C++ `Theme` and `Translator` in the `aibox` binary with `#[cxx_qt::bridge]` QObjects (`Theme` with all 11 QML properties, `changed` signal, `configure` invokable, `notify`-based 80ms debounced filesystem watching, and background `hyprctl` rounding polling; `TranslatorState` with `language` property, `changed` signal, `configure` invokable, and `notify`-based language file watching).
+* **Tiny C++ Shims (`src/cpp/shim/translator_shim.{h,cpp}`, `qml_helpers.{h,cpp}`, `src/cpp/main.cpp`)**: Added `TranslatorShim` (`QTranslator` subclass forwarding `isEmpty()` and `translate()` to Rust `TranslatorState`) and `aibox_set_context_property` / `aibox_apply_locale` / `aibox_read_qt_resource` helpers; updated `main.cpp` and `aibox-app/build.rs` while keeping `src/cpp/theme.{h,cpp}` and `translator.{h,cpp}` only in `tests/aibox_tests.pro` until P18.
+* **Verification**: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `./bin/golden-capture --check`, `./bin/install`, `./bin/test` (109 Rust + 74/74 Qt), CLI smoke checks, and offscreen QML checks (`QT_LOGGING_RULES="qt.qml*=true"`) with custom `AIBOX_THEME_DIR` all pass with zero QML warnings.
 
 ### Rust Migration P15 — Build Flip to Cargo & `cxx-qt-build`
 * **Binary Crate (`rust/crates/aibox-app`)**: Added the `aibox` binary crate driven by `cxx-qt-build` (`0.10.0`), compiling and moc'ing the C++ `QObject` facade (`backend.h`, `theme.h`, `translator.h`, and `src/cpp/*.cpp`), linking Qt6 modules (`Core`, `Gui`, `Qml`, `Quick`, `QuickControls2`, `DBus`, `Network`), and embedding `src/resources.qrc`.

@@ -5,6 +5,9 @@ use aibox_ffi as _;
 use cxx_qt as _;
 use cxx_qt_lib as _;
 
+mod qt_theme;
+mod qt_translator;
+
 extern "C" {
     fn aibox_gui_main(argc: c_int, argv: *mut *mut c_char) -> c_int;
 }

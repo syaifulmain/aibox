@@ -11,11 +11,7 @@ fn main() {
     let cpp_dir = root_dir.join("src/cpp");
     let cxxbridge_dir = root_dir.join("rust/target/cxxbridge");
 
-    let qobject_headers = [
-        cpp_dir.join("backend.h"),
-        cpp_dir.join("theme.h"),
-        cpp_dir.join("translator.h"),
-    ];
+    let qobject_headers = [cpp_dir.join("backend.h")];
 
     let cpp_sources = [
         cpp_dir.join("main.cpp"),
@@ -32,8 +28,8 @@ fn main() {
         cpp_dir.join("backend_snapshot.cpp"),
         cpp_dir.join("backend_workspace.cpp"),
         cpp_dir.join("cli.cpp"),
-        cpp_dir.join("theme.cpp"),
-        cpp_dir.join("translator.cpp"),
+        cpp_dir.join("shim/qml_helpers.cpp"),
+        cpp_dir.join("shim/translator_shim.cpp"),
     ];
 
     let mut builder = CxxQtBuilder::new()
@@ -44,6 +40,8 @@ fn main() {
         .qt_module("DBus")
         .qt_module("Network")
         .qrc(root_dir.join("src/resources.qrc"))
+        .file("src/qt_theme.rs")
+        .file("src/qt_translator.rs")
         .cpp_files(qobject_headers.iter().chain(cpp_sources.iter()));
 
     // SAFETY: We only configure C++17 and include paths for the existing C++ QObject facade.

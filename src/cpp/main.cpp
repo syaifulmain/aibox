@@ -14,9 +14,11 @@
 #include "backend.h"
 #include "cli.h"
 #include "rust_bridge.h"
+#include "aibox-app/src/qt_theme.cxxqt.h"
+#include "aibox-app/src/qt_translator.cxxqt.h"
 #include "aibox-ffi/src/meta.rs.h"
-#include "theme.h"
-#include "translator.h"
+#include "shim/qml_helpers.h"
+#include "shim/translator_shim.h"
 
 extern "C" int aibox_gui_main(int argc, char *argv[]) {
 
@@ -38,11 +40,14 @@ extern "C" int aibox_gui_main(int argc, char *argv[]) {
 
     // Installed before anything is translated, and every qsTr() binding is
     // re-evaluated when the Omarchy language changes.
-    Translator translator;
+    TranslatorState translatorState;
+    TranslatorShim translator(&translatorState);
     app.installTranslator(&translator);
 
+    Theme theme;
     const QString themeDir = qEnvironmentVariable("AIBOX_THEME_DIR");
-    Theme theme(themeDir);
+    if (!themeDir.isEmpty())
+        theme.configure(themeDir, QString());
     Backend backend(guiArgs.projectDir, Backend::PathMode::ProjectDir);
 
     const QString selectIdx = qEnvironmentVariable("AIBOX_SELECT_INDEX");
@@ -51,10 +56,10 @@ extern "C" int aibox_gui_main(int argc, char *argv[]) {
     }
 
     QQmlApplicationEngine engine;
-    QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
-    engine.rootContext()->setContextProperty("translator", &translator);
-    engine.rootContext()->setContextProperty("theme", &theme);
-    engine.rootContext()->setContextProperty("backend", &backend);
+    QObject::connect(&translatorState, &TranslatorState::changed, &engine, &QQmlEngine::retranslate);
+    aibox_set_context_property(&engine, QStringLiteral("translator"), &translatorState);
+    aibox_set_context_property(&engine, QStringLiteral("theme"), &theme);
+    aibox_set_context_property(&engine, QStringLiteral("backend"), &backend);
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;
