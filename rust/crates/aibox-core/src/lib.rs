@@ -4,6 +4,7 @@ pub mod health;
 pub mod history;
 pub mod i18n;
 pub mod network;
+pub mod provision;
 pub mod secrets;
 pub mod session;
 pub mod snapshot;

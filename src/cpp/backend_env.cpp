@@ -1,5 +1,8 @@
 #include "backend.h"
 #include "backend_helpers.h"
+#include "rust_bridge.h"
+
+#include "aibox-ffi/src/provision.rs.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -21,6 +24,11 @@
 #include <QUuid>
 
 #include <cmath>
+
+using aibox::ffi::fromRust;
+using aibox::ffi::fromRustVec;
+using aibox::ffi::toRust;
+using aibox::ffi::toRustVec;
 
 namespace {
 
@@ -519,96 +527,41 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
                                 const QString &diskGiB, const QString &ramGiB, int cpuCores,
                                 const QString &processLimit, const QString &ioLimit,
                                 const QString &workspaceParent) {
-    if (m_busy) {
-        setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
+    QStringList existingNames;
+    existingNames.reserve(m_environments.size());
+    for (const auto &v : m_environments)
+        existingNames << v.toMap().value("name").toString();
+
+    std::vector<aibox::ffi::OsEntryInputFfi> osEntries;
+    osEntries.reserve(m_osEntries.size());
+    for (const auto &v : m_osEntries) {
+        const QVariantMap m = v.toMap();
+        osEntries.push_back({toRust(m.value("id").toString()), toRust(m.value("alias").toString())});
+    }
+
+    std::vector<aibox::ffi::PresetInputFfi> presets;
+    presets.reserve(m_presets.size());
+    for (const auto &v : m_presets) {
+        const QVariantMap m = v.toMap();
+        presets.push_back({toRust(m.value("id").toString()), toRust(m.value("flags").toString()),
+                           m.value("x11").toBool()});
+    }
+
+    const auto existingRust = toRustVec(existingNames);
+    const auto plan = aibox::ffi::prepare_create_environment(
+        m_busy, toRust(rawName), rust::Slice<const rust::String>(existingRust.data(), existingRust.size()),
+        toRust(osId), rust::Slice<const aibox::ffi::OsEntryInputFfi>(osEntries.data(), osEntries.size()),
+        toRust(presetId), toRust(m_defaultPresetId),
+        rust::Slice<const aibox::ffi::PresetInputFfi>(presets.data(), presets.size()),
+        toRust(diskGiB), toRust(ramGiB), cpuCores, toRust(processLimit), toRust(ioLimit),
+        toRust(workspaceParent), toRust(m_workspaceBase), toRust(m_osStoragePath));
+    if (!plan.ok) {
+        setError(fromRust(plan.error));
         return;
     }
 
-    const QString name = sanitizeName(rawName);
-    if (name.isEmpty()) {
-        setError(tr("Please enter a valid environment name (letters, numbers, hyphens)."));
-        return;
-    }
-
-    for (const auto &v : m_environments) {
-        if (v.toMap().value("name").toString() == name) {
-            setError(tr("Environment '%1' already exists.").arg(name));
-            return;
-        }
-    }
-
-    static const QRegularExpression sizeRe(QStringLiteral("^\\d+(?:\\.\\d+)?(?:GiB|MiB|TiB|GB|MB|TB)$"),
-                                           QRegularExpression::CaseInsensitiveOption);
-    if (!sizeRe.match(diskGiB.trimmed()).hasMatch()) {
-        setError(tr("The disk quota is invalid. Use a value such as 35GiB."));
-        return;
-    }
-    if (!sizeRe.match(ramGiB.trimmed()).hasMatch()) {
-        setError(tr("The RAM limit is invalid. Use a value such as 6GiB."));
-        return;
-    }
-
-    const QString cleanProc = processLimit.trimmed().compare(QLatin1String("unlimited"), Qt::CaseInsensitive) == 0
-                                  ? QString()
-                                  : processLimit.trimmed();
-    const QString cleanIo = ioLimit.trimmed().compare(QLatin1String("unlimited"), Qt::CaseInsensitive) == 0
-                                ? QString()
-                                : ioLimit.trimmed();
-    if (!isValidProcessLimit(cleanProc)) {
-        setError(tr("The process limit is invalid. Use an integer >= 10 (e.g. 512) or leave unlimited."));
-        return;
-    }
-    if (!isValidIoLimit(cleanIo)) {
-        setError(tr("The disk I/O limit is invalid. Use a rate such as 200MB or 2500iops."));
-        return;
-    }
-
-    QVariantMap osEntry = osEntryById(osId);
-    if (osEntry.isEmpty())
-        osEntry = m_osEntries.value(0).toMap();
-    if (osEntry.isEmpty()) {
-        setError(tr("There is no OS in the catalog. Add one in Configuration first."));
-        return;
-    }
-
-    QVariantMap preset = presetById(presetId);
-    if (preset.isEmpty())
-        preset = presetById(m_defaultPresetId);
-    if (preset.isEmpty())
-        preset = m_presets.value(0).toMap();
-    if (preset.isEmpty()) {
-        setError(tr("There is no capability preset. Add one in Configuration first."));
-        return;
-    }
-
-    const QString entryId = osEntry.value("id").toString();
-    const QString osAlias = osEntry.value("alias").toString();
-    const QString localAlias = QStringLiteral("aibox-") + entryId;
-    QString workspaceError;
-    const QString hostWorkspace = resolveWorkspacePath(workspaceParent, name, m_workspaceBase, &workspaceError);
-    if (hostWorkspace.isEmpty()) {
-        setError(workspaceError);
-        return;
-    }
-    const QString cacheBase = cacheBasePath(entryId);
-    const QString flags = preset.value("flags").toString();
-    const bool isVm = flags.contains(QLatin1String("--vm"));
-
-    const QString script = createEnvironmentScript(name,
-                                                   localAlias,
-                                                   QStringLiteral("images:") + osAlias,
-                                                   hostWorkspace,
-                                                   cacheBase,
-                                                   flags,
-                                                   ramGiB,
-                                                   diskGiB,
-                                                   cpuCores,
-                                                   preset.value("x11").toBool(),
-                                                   cleanProc,
-                                                   cleanIo,
-                                                   isVm);
-
-    runShellTask(tr("Creating environment '%1'").arg(name), script, name, name);
+    const QString name = fromRust(plan.name);
+    runShellTask(fromRust(plan.title), fromRust(plan.script), name, name);
 }
 
 QString Backend::createEnvironmentScript(const QString &name, const QString &localAlias, const QString &remoteImage,
@@ -616,95 +569,10 @@ QString Backend::createEnvironmentScript(const QString &name, const QString &loc
                                          const QString &profileFlags, const QString &ramGiB, const QString &diskGiB,
                                          int cpuCores, bool x11, const QString &processLimit, const QString &ioLimit,
                                          bool isVm) {
-    QString rootOpts = QStringLiteral("size=%1").arg(diskGiB.trimmed());
-    const QString cleanIo = ioLimit.trimmed();
-    if (!cleanIo.isEmpty() && cleanIo.compare(QLatin1String("unlimited"), Qt::CaseInsensitive) != 0)
-        rootOpts += QStringLiteral(",limits.read=%1,limits.write=%1").arg(cleanIo);
-
-    QString quotaArgs = QStringLiteral("-c limits.cpu=%1 -c limits.memory=%2 -d root,%3")
-                            .arg(QString::number(qMax(1, cpuCores)), ramGiB.trimmed(), rootOpts);
-    const QString cleanProc = processLimit.trimmed();
-    if (!isVm && !cleanProc.isEmpty() && cleanProc.compare(QLatin1String("unlimited"), Qt::CaseInsensitive) != 0)
-        quotaArgs += QStringLiteral(" -c limits.processes=%1").arg(cleanProc);
-
-    return QStringLiteral(R"sh(
-set -euo pipefail
-NAME=%1
-LOCAL_ALIAS=%2
-REMOTE_IMAGE=%3
-WORKSPACE=%4
-WS_PATH=%11
-CACHE=%5
-CACHE_ROOT=%6
-PROFILE_ARGS=(%7)
-QUOTA_ARGS=(%8)
-X11=%9
-
-echo "@@STAGE:8:Step 1/4 — Preparing shared workspace directory..."
-%10
-if command -v setfacl >/dev/null 2>&1; then
-    ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
-    setfacl -R -m "u:${ACL_USER}:rwx" -m "m::rwx" -d -m "u:${ACL_USER}:rwx" -d -m "m::rwx" "$WORKSPACE" 2>/dev/null || true
-fi
-
-if incus image info "$LOCAL_ALIAS" >/dev/null 2>&1; then
-    echo "@@STAGE:60:Step 2/4 — Using cached OS image ($LOCAL_ALIAS)..."
-    SOURCE_IMAGE="$LOCAL_ALIAS"
-elif [ -s "$CACHE" ] && [ -s "$CACHE_ROOT" ]; then
-    echo "@@STAGE:30:Step 2/4 — Importing OS image from OS storage..."
-    incus image import "$CACHE" "$CACHE_ROOT" --alias "$LOCAL_ALIAS"
-    SOURCE_IMAGE="$LOCAL_ALIAS"
-else
-    echo "@@STAGE:12:Step 2/4 — Downloading OS image ($REMOTE_IMAGE)..."
-    script -q -e -c "incus image copy \"$REMOTE_IMAGE\" local: --alias \"$LOCAL_ALIAS\" --auto-update" /dev/null
-    SOURCE_IMAGE="$LOCAL_ALIAS"
-fi
-
-echo "@@STAGE:72:Step 3/4 — Launching isolated OS container & applying quotas..."
-script -q -e -c "incus launch \"$SOURCE_IMAGE\" \"$NAME\" ${PROFILE_ARGS[*]} ${QUOTA_ARGS[*]}" /dev/null
-
-echo "@@STAGE:86:Step 4/4 — Mounting $WS_PATH & waiting for network IP..."
-sleep 1
-
-if ! incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$WS_PATH" shift=true >/dev/null 2>&1; then
-    incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$WS_PATH" >/dev/null
-fi
-
-if [[ "$X11" == "1" ]] && [[ -d /tmp/.X11-unix ]]; then
-    if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-        xhost +local: >/dev/null 2>&1 || true
-    fi
-    incus config device add "$NAME" x11 disk source=/tmp/.X11-unix path=/tmp/.X11-unix >/dev/null 2>&1 || true
-fi
-
-incus exec "$NAME" -- sh -c '
-    mkdir -p "$1" && chmod 777 "$1" || true
-    if [ -f /etc/dhcpcd.conf ] && ! grep -q "^noarp" /etc/dhcpcd.conf; then
-        echo "noarp" >> /etc/dhcpcd.conf
-        pkill -HUP dhcpcd 2>/dev/null || udhcpc -i eth0 -n -q 2>/dev/null || true
-    fi
-' aibox "$WS_PATH" >/dev/null 2>&1 || true
-
-for _ in 1 2 3 4 5; do
-    if incus list "$NAME" -f csv -c 4 | grep -q "[0-9]"; then
-        break
-    fi
-    sleep 1
-done
-%10
-echo "@@STAGE:100:Environment ready!"
-)sh")
-                               .arg(shellQuote(name),
-                                    shellQuote(localAlias),
-                                    shellQuote(remoteImage),
-                                    shellQuote(workspace),
-                                    shellQuote(cacheBase),
-                                    shellQuote(cacheBase + ".root"),
-                                    shellArrayWords(profileFlags),
-                                    shellArrayWords(quotaArgs),
-                                    x11 ? QStringLiteral("1") : QStringLiteral("0"),
-                                    workspaceCreateSnippet(workspace))
-                                .arg(shellQuote(kContainerWorkspacePath));
+    return fromRust(aibox::ffi::create_environment_script(
+        toRust(name), toRust(localAlias), toRust(remoteImage), toRust(workspace), toRust(cacheBase),
+        toRust(profileFlags), toRust(ramGiB), toRust(diskGiB), cpuCores, x11,
+        toRust(processLimit), toRust(ioLimit), isVm));
 }
 
 QVariantList Backend::templates() const {
@@ -732,84 +600,12 @@ QString Backend::cloneEnvironmentScript(const QString &sourceName, const QString
                                         const QString &netMode, const QString &netAllowlist,
                                         const QStringList &resolvedCidrs, const QString &processLimit,
                                         const QString &ioLimit, bool isVm) {
-    QString quotaLines;
-    if (cpuCores > 0)
-        quotaLines += QStringLiteral("incus config set %1 limits.cpu %2\n").arg(shellQuote(newName), shellQuote(QString::number(cpuCores)));
-    if (!ramGiB.trimmed().isEmpty())
-        quotaLines += QStringLiteral("incus config set %1 limits.memory %2\n").arg(shellQuote(newName), shellQuote(ramGiB.trimmed()));
-    const QString cleanProc = processLimit.trimmed();
-    if (!isVm && !cleanProc.isEmpty() && cleanProc.compare(QLatin1String("unlimited"), Qt::CaseInsensitive) != 0)
-        quotaLines += QStringLiteral("incus config set %1 limits.processes %2\n").arg(shellQuote(newName), shellQuote(cleanProc));
-    if (!diskGiB.trimmed().isEmpty())
-        quotaLines += QStringLiteral("incus config device set %1 root size=%2 >/dev/null 2>&1 || incus config device override %1 root size=%2\n")
-                          .arg(shellQuote(newName), shellQuote(diskGiB.trimmed()));
-    const QString cleanIo = ioLimit.trimmed();
-    if (!cleanIo.isEmpty() && cleanIo.compare(QLatin1String("unlimited"), Qt::CaseInsensitive) != 0) {
-        quotaLines += QStringLiteral("incus config device set %1 root limits.read=%2 limits.write=%2 >/dev/null 2>&1 || incus config device override %1 root limits.read=%2 limits.write=%2\n")
-                          .arg(shellQuote(newName), shellQuote(cleanIo));
-    }
-
-    QString netSnippet;
-    if (netMode == QLatin1String("allowlist")) {
-        netSnippet = aclApplyShellSnippet(newName, netAllowlist, resolvedCidrs, false);
-    } else if (netMode == QLatin1String("offline")) {
-        netSnippet = QStringLiteral("incus config device remove %1 eth0 >/dev/null 2>&1 || true\nincus config device add %1 eth0 none >/dev/null 2>&1 || true")
-                         .arg(shellQuote(newName));
-    } else {
-        netSnippet = QStringLiteral("incus config device remove %1 eth0 >/dev/null 2>&1 || true").arg(shellQuote(newName));
-    }
-    netSnippet += QStringLiteral("\nincus config unset %1 user.aibox.egresslog >/dev/null 2>&1 || true").arg(shellQuote(newName));
-
-    QString startSnippet;
-    if (startAfter) {
-        startSnippet = QStringLiteral(R"sh(
-echo "@@STAGE:85:Starting cloned environment..."
-incus start "$DST"
-for _ in 1 2 3 4 5; do
-    if incus list "$DST" -f csv -c 4 | grep -q "[0-9]"; then
-        break
-    fi
-    sleep 1
-done
-)sh");
-    }
-
-    return QStringLiteral(R"sh(
-set -euo pipefail
-SRC=%1
-DST=%2
-WORKSPACE=%3
-WS_PATH=%8
-
-echo "@@STAGE:12:Step 1/3 — Preparing fresh workspace directory..."
-%7
-if command -v setfacl >/dev/null 2>&1; then
-    ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
-    setfacl -R -m "u:${ACL_USER}:rwx" -m "m::rwx" -d -m "u:${ACL_USER}:rwx" -d -m "m::rwx" "$WORKSPACE" 2>/dev/null || true
-fi
-
-echo "@@STAGE:35:Step 2/3 — Cloning environment with Btrfs copy-on-write..."
-script -q -e -c "incus copy \"$SRC\" \"$DST\" --stateless" /dev/null
-
-echo "@@STAGE:70:Step 3/3 — Configuring isolated workspace & limits..."
-incus config unset "$DST" user.aibox.template >/dev/null 2>&1 || true
-incus config device remove "$DST" workspace >/dev/null 2>&1 || true
-if ! incus config device add "$DST" workspace disk source="$WORKSPACE" path="$WS_PATH" shift=true >/dev/null 2>&1; then
-    incus config device add "$DST" workspace disk source="$WORKSPACE" path="$WS_PATH" >/dev/null
-fi
-%4
-%5
-%6
-echo "@@STAGE:100:Clone ready!"
-)sh")
-        .arg(shellQuote(sourceName),
-             shellQuote(newName),
-             shellQuote(workspace),
-             quotaLines.trimmed(),
-             netSnippet,
-             startSnippet,
-             workspaceCreateSnippet(workspace),
-             shellQuote(kContainerWorkspacePath));
+    const auto cidrsRust = toRustVec(resolvedCidrs);
+    return fromRust(aibox::ffi::clone_environment_script(
+        toRust(sourceName), toRust(newName), toRust(workspace), toRust(diskGiB),
+        toRust(ramGiB), cpuCores, startAfter, toRust(netMode), toRust(netAllowlist),
+        rust::Slice<const rust::String>(cidrsRust.data(), cidrsRust.size()),
+        toRust(processLimit), toRust(ioLimit), isVm));
 }
 
 QString Backend::prepareEnvironmentScript(const QString &name) {
@@ -818,97 +614,34 @@ QString Backend::prepareEnvironmentScript(const QString &name) {
 
 QString Backend::buildPrepareScript(const QString &name, const QString &allowRefresh) {
     const QString autoSnap = buildAutoSnapshotIfNeeded(name);
-
-    return QStringLiteral(R"sh(
-if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-    xhost +local: >/dev/null 2>&1 || true
-fi
-%2
-%3
-%4
-STATUS=$(incus info %1 | awk '/^Status:/ {print $2}')
-if [[ "$STATUS" != "RUNNING" ]]; then
-    incus start %1
-    sleep 1
-fi
-incus config set %1 user.aibox.lastused "$(date +%s)" >/dev/null 2>&1 || true
-)sh").arg(shellQuote(name), autoSnap, allowRefresh, workspaceMountMigrationScript(name));
+    return fromRust(aibox::ffi::build_prepare_script(toRust(name), toRust(autoSnap), toRust(allowRefresh)));
 }
 
 QStringList Backend::enterIncusExecArgs(const QString &name, const QString &remoteEnvPath) const {
-    const QString displayVal = qEnvironmentVariable("DISPLAY").trimmed().isEmpty()
-                                   ? QStringLiteral(":0")
-                                   : qEnvironmentVariable("DISPLAY");
-    const QString termVal = qEnvironmentVariable("TERM").trimmed().isEmpty()
-                                ? QStringLiteral("xterm-256color")
-                                : qEnvironmentVariable("TERM");
-    const QString shellCmd = remoteEnvPath.isEmpty()
-                                 ? QStringLiteral("if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh; fi")
-                                 : QStringLiteral("if [ -f %1 ]; then set -a; . %1; set +a; rm -f %1; fi; if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh; fi")
-                                       .arg(shellQuote(remoteEnvPath));
-    return {
-        QStringLiteral("exec"),
-        name,
-        QStringLiteral("--cwd"),
-        containerWorkspacePathFor(name),
-        QStringLiteral("--env"),
-        QStringLiteral("DISPLAY=") + displayVal,
-        QStringLiteral("--env"),
-        QStringLiteral("TERM=") + termVal,
-        QStringLiteral("--"),
-        QStringLiteral("sh"),
-        QStringLiteral("-c"),
-        shellCmd
-    };
+    return fromRustVec(aibox::ffi::enter_incus_exec_args(
+        toRust(name), toRust(remoteEnvPath), toRust(containerWorkspacePathFor(name)),
+        toRust(qEnvironmentVariable("DISPLAY")), toRust(qEnvironmentVariable("TERM"))));
 }
 
 QStringList Backend::execIncusCommandArgs(const QString &name, const QStringList &cmd,
                                           const QString &remoteEnvPath) const {
-    QStringList args{
-        QStringLiteral("exec"),
-        name,
-        QStringLiteral("--cwd"),
-        containerWorkspacePathFor(name),
-        QStringLiteral("--")
-    };
-    if (remoteEnvPath.isEmpty()) {
-        args.append(cmd);
-    } else {
-        args << QStringLiteral("sh")
-             << QStringLiteral("-c")
-             << QStringLiteral("AIBOX_ENV=\"$1\"; shift; if [ -f \"$AIBOX_ENV\" ]; then set -a; . \"$AIBOX_ENV\"; set +a; rm -f \"$AIBOX_ENV\"; fi; exec \"$@\"")
-             << QStringLiteral("aibox-exec")
-             << remoteEnvPath;
-        args.append(cmd);
-    }
-    return args;
+    const auto cmdRust = toRustVec(cmd);
+    return fromRustVec(aibox::ffi::exec_incus_command_args(
+        toRust(name), rust::Slice<const rust::String>(cmdRust.data(), cmdRust.size()),
+        toRust(remoteEnvPath), toRust(containerWorkspacePathFor(name))));
 }
 
 QString Backend::startEnvironmentScript(const QString &name) {
     const QString autoSnap = buildAutoSnapshotIfNeeded(name);
     const QString allowRefresh = buildAllowlistRefreshIfNeeded(name);
-    QString script = QStringLiteral("set -euo pipefail\necho '@@STAGE:20:Preparing environment...'\n");
-    if (!autoSnap.isEmpty())
-        script += autoSnap + QLatin1Char('\n');
-    if (!allowRefresh.isEmpty())
-        script += allowRefresh + QLatin1Char('\n');
-    script += QStringLiteral("echo '@@STAGE:55:Starting container...'\n%2\nincus start %1 && sleep 1\n"
-                             "incus config set %1 user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n"
-                             "echo '@@STAGE:100:Started.'")
-                  .arg(shellQuote(name), workspaceMountMigrationScript(name));
-    return script;
+    return fromRust(aibox::ffi::start_environment_script(
+        toRust(name), toRust(autoSnap), toRust(allowRefresh)));
 }
 
 QString Backend::stopEnvironmentScript(const QString &name, bool includeAutoSnapshot) {
-    QString script = QStringLiteral("set -euo pipefail\n");
-    if (includeAutoSnapshot) {
-        const QString autoSnap = buildAutoSnapshotIfNeeded(name);
-        if (!autoSnap.isEmpty())
-            script += autoSnap + QLatin1Char('\n');
-    }
-    script += QStringLiteral("echo '@@STAGE:40:Stopping container...'\nincus stop %1\necho '@@STAGE:100:Stopped.'")
-                  .arg(shellQuote(name));
-    return script;
+    const QString autoSnap = includeAutoSnapshot ? buildAutoSnapshotIfNeeded(name) : QString();
+    return fromRust(aibox::ffi::stop_environment_script(
+        toRust(name), includeAutoSnapshot, toRust(autoSnap)));
 }
 
 void Backend::enterEnvironment(const QString &name) {
@@ -1075,20 +808,7 @@ void Backend::handleEnterSecretsPushed(int exitCode, QProcess::ExitStatus status
 }
 
 QString Backend::buildEnterCommand(const QString &name, const QString &remoteEnvPath) const {
-    const QString wsMountArg = QStringLiteral(
-        "\"$(incus config device get %1 workspace path 2>/dev/null || echo %2)\"")
-        .arg(shellQuote(name), shellQuote(kContainerWorkspacePath));
-    if (remoteEnvPath.isEmpty()) {
-        return QStringLiteral(
-            "incus exec %1 --cwd %2 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- bash -l || "
-            "incus exec %1 --cwd %2 -- sh").arg(shellQuote(name), wsMountArg);
-    }
-    return QStringLiteral(
-        "incus exec %1 --cwd %3 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- "
-        "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter %2 || "
-        "incus exec %1 --cwd %3 -- "
-        "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter %2")
-                   .arg(shellQuote(name), shellQuote(remoteEnvPath), wsMountArg);
+    return fromRust(aibox::ffi::build_enter_command(toRust(name), toRust(remoteEnvPath)));
 }
 
 void Backend::launchEnterTerminal(const QString &remoteEnvPath) {
@@ -1144,18 +864,21 @@ void Backend::toggleStartStop(const QString &name) {
     if (name.isEmpty() || m_busy)
         return;
     const QVariantMap env = environmentByName(name);
-    if (env.value("isTemplate").toBool()) {
-        setError(tr("Templates cannot be started directly. Clone or unmark as template first."));
+    const bool isTemplate = env.value("isTemplate").toBool();
+    const bool isRunning = env.value("running").toBool();
+    const QString autoSnap = isTemplate ? QString() : buildAutoSnapshotIfNeeded(name);
+    const QString allowRefresh = (!isTemplate && !isRunning) ? buildAllowlistRefreshIfNeeded(name) : QString();
+
+    const auto plan = aibox::ffi::prepare_toggle_start_stop(
+        toRust(name), isTemplate, isRunning, toRust(autoSnap), toRust(allowRefresh));
+    if (!plan.ok) {
+        setError(fromRust(plan.error));
         return;
     }
-    const bool isRunning = env.value("running").toBool();
 
-    if (isRunning) {
+    if (plan.is_stopping)
         stopFileAccessProcess(name);
-        runShellTask(tr("Stopping '%1'").arg(name), stopEnvironmentScript(name), {}, name);
-    } else {
-        runShellTask(tr("Starting '%1'").arg(name), startEnvironmentScript(name), {}, name);
-    }
+    runShellTask(fromRust(plan.title), fromRust(plan.script), {}, name);
 }
 
 void Backend::cloneEnvironment(const QString &sourceName, const QString &rawNewName,
@@ -1163,69 +886,37 @@ void Backend::cloneEnvironment(const QString &sourceName, const QString &rawNewN
                                int cpuCores, bool startAfter,
                                const QString &processLimit, const QString &ioLimit,
                                const QString &workspaceParent) {
-    if (m_busy) {
-        setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
-        return;
-    }
     const QVariantMap source = environmentByName(sourceName);
-    if (source.isEmpty()) {
-        setError(tr("Source environment '%1' was not found.").arg(sourceName));
-        return;
-    }
-    const QString newName = sanitizeName(rawNewName);
-    if (newName.isEmpty()) {
-        setError(tr("Please enter a valid environment name (letters, numbers, hyphens)."));
-        return;
-    }
-    if (!environmentByName(newName).isEmpty()) {
-        setError(tr("Environment '%1' already exists.").arg(newName));
-        return;
-    }
-
-    static const QRegularExpression sizeRe(QStringLiteral("^\\d+(?:\\.\\d+)?(?:GiB|MiB|TiB|GB|MB|TB)$"),
-                                           QRegularExpression::CaseInsensitiveOption);
-    if (!diskGiB.trimmed().isEmpty() && !sizeRe.match(diskGiB.trimmed()).hasMatch()) {
-        setError(tr("The disk quota is invalid. Use a value such as 35GiB."));
-        return;
-    }
-    if (!ramGiB.trimmed().isEmpty() && !sizeRe.match(ramGiB.trimmed()).hasMatch()) {
-        setError(tr("The RAM limit is invalid. Use a value such as 6GiB."));
-        return;
-    }
-
-    const QString cleanProc = processLimit.trimmed().compare(QLatin1String("unlimited"), Qt::CaseInsensitive) == 0
-                                  ? QString()
-                                  : processLimit.trimmed();
-    const QString cleanIo = ioLimit.trimmed().compare(QLatin1String("unlimited"), Qt::CaseInsensitive) == 0
-                                ? QString()
-                                : ioLimit.trimmed();
-    if (!isValidProcessLimit(cleanProc)) {
-        setError(tr("The process limit is invalid. Use an integer >= 10 (e.g. 512) or leave unlimited."));
-        return;
-    }
-    if (!isValidIoLimit(cleanIo)) {
-        setError(tr("The disk I/O limit is invalid. Use a rate such as 200MB or 2500iops."));
-        return;
-    }
-
+    const bool sourceExists = !source.isEmpty();
     const QString netMode = source.value("networkMode").toString();
     const QString netAllow = source.value("networkAllowlist").toString();
+    const QString sourceType = source.value("type").toString();
+
+    QStringList existingNames;
+    existingNames.reserve(m_environments.size());
+    for (const auto &v : m_environments)
+        existingNames << v.toMap().value("name").toString();
+
     QStringList resolvedCidrs;
-    if (netMode == QLatin1String("allowlist"))
+    if (!m_busy && sourceExists && netMode == QLatin1String("allowlist"))
         resolvedCidrs = resolveAllowlistCidrs(parseAllowlistEntries(netAllow));
 
-    const bool isVm = source.value("type").toString().toUpper() == QLatin1String("VM");
-    QString workspaceError;
-    const QString hostWorkspace = resolveWorkspacePath(workspaceParent, newName, m_workspaceBase, &workspaceError);
-    if (hostWorkspace.isEmpty()) {
-        setError(workspaceError);
+    const auto existingRust = toRustVec(existingNames);
+    const auto cidrsRust = toRustVec(resolvedCidrs);
+    const auto plan = aibox::ffi::prepare_clone_environment(
+        m_busy, toRust(sourceName), sourceExists, toRust(netMode), toRust(netAllow),
+        toRust(sourceType), toRust(rawNewName),
+        rust::Slice<const rust::String>(existingRust.data(), existingRust.size()),
+        toRust(diskGiB), toRust(ramGiB), cpuCores, startAfter,
+        rust::Slice<const rust::String>(cidrsRust.data(), cidrsRust.size()),
+        toRust(processLimit), toRust(ioLimit), toRust(workspaceParent), toRust(m_workspaceBase));
+    if (!plan.ok) {
+        setError(fromRust(plan.error));
         return;
     }
-    const QString script = cloneEnvironmentScript(sourceName, newName, hostWorkspace,
-                                                  diskGiB, ramGiB, cpuCores, startAfter,
-                                                  netMode, netAllow, resolvedCidrs,
-                                                  cleanProc, cleanIo, isVm);
-    runShellTask(tr("Cloning '%1' to '%2'").arg(sourceName, newName), script, newName, newName);
+
+    const QString newName = fromRust(plan.name);
+    runShellTask(fromRust(plan.title), fromRust(plan.script), newName, newName);
 }
 
 void Backend::setEnvironmentTemplate(const QString &name, bool isTemplate) {
@@ -1235,30 +926,18 @@ void Backend::setEnvironmentTemplate(const QString &name, bool isTemplate) {
     if (env.isEmpty())
         return;
 
-    if (isTemplate) {
-        QString script = QStringLiteral("set -euo pipefail\necho '@@STAGE:30:Preparing template...'\n");
-        if (env.value("running").toBool())
-            script += QStringLiteral("incus stop %1\n").arg(shellQuote(name));
-        script += QStringLiteral("incus config set %1 user.aibox.template true\necho '@@STAGE:100:Marked as template.'").arg(shellQuote(name));
-        runShellTask(tr("Marking '%1' as template").arg(name), script);
-    } else {
-        const QString script = QStringLiteral(
-            "set -euo pipefail\necho '@@STAGE:50:Unmarking template...'\n"
-            "incus config unset %1 user.aibox.template >/dev/null 2>&1 || true\n"
-            "echo '@@STAGE:100:Template unmarked.'").arg(shellQuote(name));
-        runShellTask(tr("Unmarking '%1' as template").arg(name), script);
-    }
+    const auto plan = aibox::ffi::set_environment_template_script(
+        toRust(name), env.value("running").toBool(), isTemplate);
+    runShellTask(fromRust(plan.title), fromRust(plan.script));
 }
 
 QString Backend::aiExecCommandText(const QString &name) const {
     if (name.isEmpty())
         return {};
     const QVariantMap env = environmentByName(name);
-    if (!env.value("secretNames").toStringList().isEmpty())
-        return QStringLiteral("aibox exec %1 -- bash").arg(name);
-    const QString wsMount = env.value(QStringLiteral("workspaceMountPath")).toString().trimmed();
-    return QStringLiteral("incus exec %1 --cwd %2 -- bash")
-        .arg(name, wsMount.isEmpty() ? containerWorkspacePath() : wsMount);
+    const bool hasSecrets = !env.value("secretNames").toStringList().isEmpty();
+    const QString wsMount = env.value(QStringLiteral("workspaceMountPath")).toString();
+    return fromRust(aibox::ffi::ai_exec_command_text(toRust(name), hasSecrets, toRust(wsMount)));
 }
 
 void Backend::copyAiCommand(const QString &name) {

@@ -5,6 +5,7 @@ pub mod history;
 pub mod i18n;
 pub mod meta;
 pub mod network;
+pub mod provision;
 pub mod secrets;
 pub mod session;
 pub mod settings;

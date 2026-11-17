@@ -3034,6 +3034,260 @@ static QByteArray captureHealth() {
 
     return out;
 }
+
+static QByteArray captureProvision() {
+    QByteArray out;
+
+    // 1. createEnvironmentScript matrix
+    struct CreateCase {
+        const char *label;
+        const char *name;
+        const char *localAlias;
+        const char *remoteImage;
+        const char *workspace;
+        const char *cacheBase;
+        const char *profileFlags;
+        const char *ramGiB;
+        const char *diskGiB;
+        int cpuCores;
+        bool x11;
+        const char *processLimit;
+        const char *ioLimit;
+        bool isVm;
+    };
+    const CreateCase createCases[] = {
+        {"ct_gui_full", "my-box", "aibox-archlinux", "images:archlinux",
+         "/tmp/aibox-golden-home/ws/my-box", "/tmp/aibox-golden-home/cache/archlinux",
+         "-p default -p ai-gui", "6GiB", "35GiB", 4, true, "512", "200MB", false},
+        {"ct_headless_no_limits", "headless-1", "aibox-ubuntu", "images:ubuntu/24.04",
+         "/tmp/aibox-golden-home/custom-ws/headless-1", "/tmp/aibox-golden-home/cache/ubuntu",
+         "-p default -p ai-headless", "4GiB", "25GiB", 2, false, "", "Unlimited", false},
+        {"ct_full_preset_unlimited_proc", "full-1", "aibox-debian", "images:debian/12",
+         "/tmp/aibox-golden-home/ws/full-1", "/tmp/aibox-golden-home/cache/debian",
+         "-p default -p ai-full", "8GiB", "50GiB", 0, true, "Unlimited", "2500iops", false},
+        {"vm_gui_ignores_proc_limit", "vm-box", "aibox-ubuntu", "images:ubuntu/24.04",
+         "/tmp/aibox-golden-home/ws/vm-box", "/tmp/aibox-golden-home/cache/ubuntu",
+         "--vm -p default -p ai-gui", "8GiB", "60GiB", 4, true, "512", "200MB", true},
+        {"vm_no_x11", "vm-headless", "aibox-alpine", "images:alpine/3.20",
+         "/tmp/aibox-golden-home/ws/vm-headless", "/tmp/aibox-golden-home/cache/alpine",
+         "--vm -p default", "2GiB", "20GiB", 2, false, "", "", true},
+        {"quoted_name_and_empty_flags", "box'1", "aibox-arch", "images:archlinux",
+         "/tmp/aibox-golden-home/ws/box'1", "/tmp/aibox-golden-home/cache/arch",
+         "", "4GiB", "30GiB", 2, false, "1024", "100MB", false},
+    };
+    for (const auto &c : createCases) {
+        const QString res = Backend::createEnvironmentScript(
+            QString::fromUtf8(c.name),
+            QString::fromUtf8(c.localAlias),
+            QString::fromUtf8(c.remoteImage),
+            QString::fromUtf8(c.workspace),
+            QString::fromUtf8(c.cacheBase),
+            QString::fromUtf8(c.profileFlags),
+            QString::fromUtf8(c.ramGiB),
+            QString::fromUtf8(c.diskGiB),
+            c.cpuCores,
+            c.x11,
+            QString::fromUtf8(c.processLimit),
+            QString::fromUtf8(c.ioLimit),
+            c.isVm);
+        out += jsonLine(QStringLiteral("Backend::createEnvironmentScript"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("name"), QString::fromUtf8(c.name)},
+                                    {QStringLiteral("localAlias"), QString::fromUtf8(c.localAlias)},
+                                    {QStringLiteral("remoteImage"), QString::fromUtf8(c.remoteImage)},
+                                    {QStringLiteral("workspace"), QString::fromUtf8(c.workspace)},
+                                    {QStringLiteral("cacheBase"), QString::fromUtf8(c.cacheBase)},
+                                    {QStringLiteral("profileFlags"), QString::fromUtf8(c.profileFlags)},
+                                    {QStringLiteral("ramGiB"), QString::fromUtf8(c.ramGiB)},
+                                    {QStringLiteral("diskGiB"), QString::fromUtf8(c.diskGiB)},
+                                    {QStringLiteral("cpuCores"), c.cpuCores},
+                                    {QStringLiteral("x11"), c.x11},
+                                    {QStringLiteral("processLimit"), QString::fromUtf8(c.processLimit)},
+                                    {QStringLiteral("ioLimit"), QString::fromUtf8(c.ioLimit)},
+                                    {QStringLiteral("isVm"), c.isVm}},
+                        res);
+    }
+
+    // 2. cloneEnvironmentScript matrix
+    struct CloneCase {
+        const char *label;
+        const char *sourceName;
+        const char *newName;
+        const char *workspace;
+        const char *diskGiB;
+        const char *ramGiB;
+        int cpuCores;
+        bool startAfter;
+        const char *netMode;
+        const char *netAllowlist;
+        QStringList cidrs;
+        const char *processLimit;
+        const char *ioLimit;
+        bool isVm;
+    };
+    const CloneCase cloneCases[] = {
+        {"online_no_start", "node-tpl", "cloned-1", "/tmp/aibox-golden-home/ws/cloned-1",
+         "40GiB", "8GiB", 4, false, "online", "", {}, "1024", "100MB", false},
+        {"offline_start_after", "node-tpl", "cloned-2", "/tmp/aibox-golden-home/ws/cloned-2",
+         "50GiB", "16GiB", 8, true, "offline", "", {}, "Unlimited", "Unlimited", false},
+        {"allowlist_vm_with_cidrs", "vm-tpl", "cloned-vm", "/tmp/aibox-golden-home/ws/cloned-vm",
+         "60GiB", "8GiB", 4, true, "allowlist", "github.com, 1.1.1.1",
+         {QStringLiteral("140.82.121.4/32"), QStringLiteral("1.1.1.1/32")},
+         "512", "200MB", true},
+        {"empty_limits_and_zero_cpu", "src'1", "dst'1", "/tmp/aibox-golden-home/ws/dst'1",
+         "", "", 0, false, "", "", {}, "", "", false},
+    };
+    for (const auto &c : cloneCases) {
+        const QString res = Backend::cloneEnvironmentScript(
+            QString::fromUtf8(c.sourceName),
+            QString::fromUtf8(c.newName),
+            QString::fromUtf8(c.workspace),
+            QString::fromUtf8(c.diskGiB),
+            QString::fromUtf8(c.ramGiB),
+            c.cpuCores,
+            c.startAfter,
+            QString::fromUtf8(c.netMode),
+            QString::fromUtf8(c.netAllowlist),
+            c.cidrs,
+            QString::fromUtf8(c.processLimit),
+            QString::fromUtf8(c.ioLimit),
+            c.isVm);
+        out += jsonLine(QStringLiteral("Backend::cloneEnvironmentScript"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("sourceName"), QString::fromUtf8(c.sourceName)},
+                                    {QStringLiteral("newName"), QString::fromUtf8(c.newName)},
+                                    {QStringLiteral("workspace"), QString::fromUtf8(c.workspace)},
+                                    {QStringLiteral("diskGiB"), QString::fromUtf8(c.diskGiB)},
+                                    {QStringLiteral("ramGiB"), QString::fromUtf8(c.ramGiB)},
+                                    {QStringLiteral("cpuCores"), c.cpuCores},
+                                    {QStringLiteral("startAfter"), c.startAfter},
+                                    {QStringLiteral("netMode"), QString::fromUtf8(c.netMode)},
+                                    {QStringLiteral("netAllowlist"), QString::fromUtf8(c.netAllowlist)},
+                                    {QStringLiteral("resolvedCidrs"), QJsonArray::fromStringList(c.cidrs)},
+                                    {QStringLiteral("processLimit"), QString::fromUtf8(c.processLimit)},
+                                    {QStringLiteral("ioLimit"), QString::fromUtf8(c.ioLimit)},
+                                    {QStringLiteral("isVm"), c.isVm}},
+                        res);
+    }
+
+    // 3. updateResourcesScript
+    struct UpdateResCase {
+        const char *label;
+        const char *name;
+        int cpuCores;
+        const char *ramGiB;
+        const char *diskGiB;
+        const char *processLimit;
+        const char *ioLimit;
+        bool isVm;
+    };
+    const UpdateResCase updateResCases[] = {
+        {"ct_all", "box1", 6, "12GiB", "80GiB", "2048", "200MB", false},
+        {"vm_unlimited_io", "vm1", 4, "8GiB", "60GiB", "2048", "Unlimited", true},
+        {"ct_unlimited_proc_empty_io", "box1", 2, "4GiB", "20GiB", "Unlimited", "", false},
+        {"empty_and_zero_cpu", "box'1", 0, "", "", "", "", false},
+    };
+    for (const auto &c : updateResCases) {
+        const QString res = Backend::updateResourcesScript(
+            QString::fromUtf8(c.name), c.cpuCores,
+            QString::fromUtf8(c.ramGiB), QString::fromUtf8(c.diskGiB),
+            QString::fromUtf8(c.processLimit), QString::fromUtf8(c.ioLimit), c.isVm);
+        out += jsonLine(QStringLiteral("Backend::updateResourcesScript"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("name"), QString::fromUtf8(c.name)},
+                                    {QStringLiteral("cpuCores"), c.cpuCores},
+                                    {QStringLiteral("ramGiB"), QString::fromUtf8(c.ramGiB)},
+                                    {QStringLiteral("diskGiB"), QString::fromUtf8(c.diskGiB)},
+                                    {QStringLiteral("processLimit"), QString::fromUtf8(c.processLimit)},
+                                    {QStringLiteral("ioLimit"), QString::fromUtf8(c.ioLimit)},
+                                    {QStringLiteral("isVm"), c.isVm}},
+                        res);
+    }
+
+    // 4. buildPrepareScript, startEnvironmentScript, stopEnvironmentScript
+    const QString provDir = QStringLiteral("/tmp/aibox-golden-home/prov-be");
+    QDir(provDir).removeRecursively();
+    QDir().mkpath(provDir);
+    Backend provBe(provDir, Backend::PathMode::ProjectDir);
+
+    out += jsonLine(QStringLiteral("Backend::buildPrepareScript"),
+                    QStringLiteral("no_allow_refresh"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("allowRefresh"), QString()}},
+                    provBe.buildPrepareScript(QStringLiteral("box1"), QString()));
+    out += jsonLine(QStringLiteral("Backend::buildPrepareScript"),
+                    QStringLiteral("with_allow_refresh"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("allowRefresh"), QStringLiteral("echo refresh")}},
+                    provBe.buildPrepareScript(QStringLiteral("box1"), QStringLiteral("echo refresh")));
+
+    out += jsonLine(QStringLiteral("Backend::startEnvironmentScript"),
+                    QStringLiteral("basic"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")}},
+                    provBe.startEnvironmentScript(QStringLiteral("box1")));
+    out += jsonLine(QStringLiteral("Backend::stopEnvironmentScript"),
+                    QStringLiteral("no_autosnap"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("includeAutoSnapshot"), false}},
+                    provBe.stopEnvironmentScript(QStringLiteral("box1"), false));
+    out += jsonLine(QStringLiteral("Backend::stopEnvironmentScript"),
+                    QStringLiteral("with_autosnap_empty_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("includeAutoSnapshot"), true}},
+                    provBe.stopEnvironmentScript(QStringLiteral("box1"), true));
+    QDir(provDir).removeRecursively();
+
+    // 5. enterIncusExecArgs, execIncusCommandArgs, buildEnterCommand
+    const QByteArray prevDisplay = qgetenv("DISPLAY");
+    const QByteArray prevTerm = qgetenv("TERM");
+    qunsetenv("DISPLAY");
+    qunsetenv("TERM");
+    out += jsonLine(QStringLiteral("Backend::enterIncusExecArgs"),
+                    QStringLiteral("defaults_no_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("remoteEnvPath"), QString()},
+                                {QStringLiteral("display"), QString()},
+                                {QStringLiteral("term"), QString()}},
+                    QJsonArray::fromStringList(provBe.enterIncusExecArgs(QStringLiteral("box1"), QString())));
+    qputenv("DISPLAY", ":1");
+    qputenv("TERM", "alacritty");
+    out += jsonLine(QStringLiteral("Backend::enterIncusExecArgs"),
+                    QStringLiteral("custom_env_and_secret_file"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("remoteEnvPath"), QStringLiteral("/run/aibox-env'1")},
+                                {QStringLiteral("display"), QStringLiteral(":1")},
+                                {QStringLiteral("term"), QStringLiteral("alacritty")}},
+                    QJsonArray::fromStringList(provBe.enterIncusExecArgs(QStringLiteral("box1"), QStringLiteral("/run/aibox-env'1"))));
+    if (prevDisplay.isNull()) qunsetenv("DISPLAY"); else qputenv("DISPLAY", prevDisplay);
+    if (prevTerm.isNull()) qunsetenv("TERM"); else qputenv("TERM", prevTerm);
+
+    const QStringList cmdArgs = {QStringLiteral("bash"), QStringLiteral("-lc"), QStringLiteral("echo hi")};
+    out += jsonLine(QStringLiteral("Backend::execIncusCommandArgs"),
+                    QStringLiteral("no_remote_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("cmd"), QJsonArray::fromStringList(cmdArgs)},
+                                {QStringLiteral("remoteEnvPath"), QString()}},
+                    QJsonArray::fromStringList(provBe.execIncusCommandArgs(QStringLiteral("box1"), cmdArgs, QString())));
+    out += jsonLine(QStringLiteral("Backend::execIncusCommandArgs"),
+                    QStringLiteral("with_remote_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("cmd"), QJsonArray::fromStringList(cmdArgs)},
+                                {QStringLiteral("remoteEnvPath"), QStringLiteral("/run/aibox-env")}},
+                    QJsonArray::fromStringList(provBe.execIncusCommandArgs(QStringLiteral("box1"), cmdArgs, QStringLiteral("/run/aibox-env"))));
+
+    out += jsonLine(QStringLiteral("Backend::buildEnterCommand"),
+                    QStringLiteral("no_remote_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                {QStringLiteral("remoteEnvPath"), QString()}},
+                    provBe.buildEnterCommand(QStringLiteral("box'1"), QString()));
+    out += jsonLine(QStringLiteral("Backend::buildEnterCommand"),
+                    QStringLiteral("with_remote_env"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box1")},
+                                {QStringLiteral("remoteEnvPath"), QStringLiteral("/run/aibox-env'1")}},
+                    provBe.buildEnterCommand(QStringLiteral("box1"), QStringLiteral("/run/aibox-env'1")));
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -3073,6 +3327,7 @@ int main(int argc, char *argv[]) {
         {"network", &GoldenCapture::captureNetwork},
         {"backup", &GoldenCapture::captureBackup},
         {"health", &GoldenCapture::captureHealth},
+        {"provision", &GoldenCapture::captureProvision},
     };
 
     bool matched = onlyModule.isEmpty();

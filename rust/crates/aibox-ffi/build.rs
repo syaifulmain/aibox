@@ -7,6 +7,7 @@ fn main() {
         "src/i18n.rs",
         "src/meta.rs",
         "src/network.rs",
+        "src/provision.rs",
         "src/secrets.rs",
         "src/session.rs",
         "src/settings.rs",
