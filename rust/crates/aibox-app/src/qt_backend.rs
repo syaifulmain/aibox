@@ -772,8 +772,8 @@ pub struct BackendRust {
     workspace_base: QString,
     container_workspace_path: QString,
     os_storage_path: QString,
-    default_workspace_base: QString,
-    default_os_storage_path: QString,
+    pub(crate) default_workspace_base: QString,
+    pub(crate) default_os_storage_path: QString,
     config_file_path: QString,
     first_run: bool,
     presets: QListQVariant,
@@ -802,7 +802,7 @@ pub struct BackendRust {
     stale_report: QMapQStringQVariant,
     record_sessions: bool,
     recorded_sessions: QListQVariant,
-    operation_history: QListQVariant,
+    pub(crate) operation_history: QListQVariant,
     egress_logs: QListQVariant,
     egress_logs_env_name: QString,
     backup_archives: QListQVariant,
@@ -820,10 +820,12 @@ pub struct BackendRust {
     pool_info: QMapQStringQVariant,
 
     // Non-QML internal state
-    engine: Engine,
-    demo_mode: bool,
+    pub(crate) engine: Engine,
+    pub(crate) project_mode: bool,
+    pub(crate) remember_system_location: bool,
+    pub(crate) demo_mode: bool,
     demo_environments: Vec<serde_json::Value>,
-    history_seen_id: String,
+    pub(crate) history_seen_id: String,
     last_images_json: Vec<u8>,
     last_refresh_at: Option<Instant>,
     refresh_in_flight: Arc<AtomicBool>,
@@ -917,6 +919,8 @@ impl Default for BackendRust {
             environment_secrets_env_name: QString::default(),
             pool_info: QMapQStringQVariant::default(),
             engine,
+            project_mode: true,
+            remember_system_location: false,
             demo_mode: false,
             demo_environments: Vec::new(),
             history_seen_id: String::new(),
@@ -1005,9 +1009,12 @@ impl qobject::Backend {
         let mut engine = Engine::new(path_opt, project_mode, &cwd);
         engine.secrets.reload_secrets(demo_mode);
 
+        let remember_system_location = !project_mode && path_opt.is_none();
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine = engine;
+            rust.project_mode = project_mode;
+            rust.remember_system_location = remember_system_location;
             rust.demo_mode = demo_mode;
         }
 
@@ -1054,7 +1061,7 @@ impl qobject::Backend {
         }
     }
 
-    fn sync_config_properties(mut self: Pin<&mut Self>) {
+    pub(crate) fn sync_config_properties(mut self: Pin<&mut Self>) {
         let (
             system_path,
             workspace_base,
@@ -1160,7 +1167,7 @@ impl qobject::Backend {
         self.as_mut().secrets_changed();
     }
 
-    fn rebuild_os_catalog(mut self: Pin<&mut Self>) {
+    pub(crate) fn rebuild_os_catalog(mut self: Pin<&mut Self>) {
         let downloading = self.downloading_os_id.to_string();
         let catalog = catalog_for_entries(
             &self.engine.config.os_catalog,
@@ -1224,7 +1231,40 @@ impl qobject::Backend {
         self.as_mut().refresh_stale_report();
     }
 
-    fn start_background_workers(mut self: Pin<&mut Self>) {
+    pub(crate) fn save_config(&self) -> Result<(), String> {
+        aibox_core::config::model::save(&self.engine.paths.config_file_path, &self.engine.config)
+    }
+
+    pub(crate) fn set_status_message(mut self: Pin<&mut Self>, msg: &str) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.status_message = QString::from(msg);
+        }
+        self.as_mut().status_message_changed();
+    }
+
+    pub(crate) fn set_error_message(mut self: Pin<&mut Self>, msg: &str) {
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.error_message = QString::from(msg);
+        }
+        self.as_mut().error_message_changed();
+    }
+
+    pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
+        let q_envs = serialize_to_qvariant_list(&self.engine.environments);
+        let count = self.engine.environments.len() as i32;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.environments = q_envs;
+            rust.count = count;
+        }
+        self.as_mut().environments_changed();
+        self.as_mut().count_changed();
+        self.as_mut().selected_index_changed();
+    }
+
+    pub(crate) fn start_background_workers(mut self: Pin<&mut Self>) {
         if self.poll_started {
             return;
         }
@@ -1618,10 +1658,6 @@ impl qobject::Backend {
         eprintln!("not yet ported: restoreSingleFile");
         QString::default()
     }
-    pub fn save_diff_excludes(self: Pin<&mut Self>, _raw_excludes: &QString) -> QString {
-        eprintln!("not yet ported: saveDiffExcludes");
-        QString::default()
-    }
     pub fn wipe_environment(self: Pin<&mut Self>, _name: &QString, _delete_workspace_files: bool) {
         eprintln!("not yet ported: wipeEnvironment");
     }
@@ -1804,10 +1840,6 @@ impl qobject::Backend {
         eprintln!("not yet ported: resizeStoragePool");
         QString::default()
     }
-    pub fn save_stale_settings(self: Pin<&mut Self>, _days: i32) -> QString {
-        eprintln!("not yet ported: saveStaleSettings");
-        QString::default()
-    }
     pub fn open_orphan_folder(self: Pin<&mut Self>, _path: &QString) {
         eprintln!("not yet ported: openOrphanFolder");
     }
@@ -1821,10 +1853,6 @@ impl qobject::Backend {
         _path: &QString,
     ) -> QString {
         eprintln!("not yet ported: deleteOrphanAsAdmin");
-        QString::default()
-    }
-    pub fn save_session_recording_settings(self: Pin<&mut Self>, _enabled: bool) -> QString {
-        eprintln!("not yet ported: saveSessionRecordingSettings");
         QString::default()
     }
     pub fn set_environment_record_sessions(self: Pin<&mut Self>, _name: &QString, _mode: &QString) {
@@ -1855,85 +1883,9 @@ impl qobject::Backend {
     pub fn remove_os_image(self: Pin<&mut Self>, _os_id: &QString) {
         eprintln!("not yet ported: removeOsImage");
     }
-    pub fn complete_first_run(self: Pin<&mut Self>, _system_path: &QString) -> QString {
-        eprintln!("not yet ported: completeFirstRun");
-        QString::default()
-    }
-    pub fn save_settings(
-        self: Pin<&mut Self>,
-        _workspace_path: &QString,
-        _os_storage_path: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: saveSettings");
-        QString::default()
-    }
-    pub fn save_os_entry(
-        self: Pin<&mut Self>,
-        _original_id: &QString,
-        _id: &QString,
-        _alias: &QString,
-        _name: &QString,
-        _badge: &QString,
-        _description: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: saveOsEntry");
-        QString::default()
-    }
-    pub fn remove_os_entry(self: Pin<&mut Self>, _id: &QString) -> QString {
-        eprintln!("not yet ported: removeOsEntry");
-        QString::default()
-    }
-    pub fn reset_os_catalog(self: Pin<&mut Self>) -> QString {
-        eprintln!("not yet ported: resetOsCatalog");
-        QString::default()
-    }
-    pub fn save_create_options(
-        self: Pin<&mut Self>,
-        _disk_csv: &QString,
-        _ram_csv: &QString,
-        _cpu_csv: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: saveCreateOptions");
-        QString::default()
-    }
-    pub fn save_preset(
-        self: Pin<&mut Self>,
-        _id: &QString,
-        _title: &QString,
-        _subtitle: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: savePreset");
-        QString::default()
-    }
-    pub fn reset_create_options(self: Pin<&mut Self>) -> QString {
-        eprintln!("not yet ported: resetCreateOptions");
-        QString::default()
-    }
-    pub fn save_auto_snapshot_settings(
-        self: Pin<&mut Self>,
-        _enabled: bool,
-        _keep_count: i32,
-    ) -> QString {
-        eprintln!("not yet ported: saveAutoSnapshotSettings");
-        QString::default()
-    }
-    pub fn save_watchdog_settings(
-        self: Pin<&mut Self>,
-        _enabled: bool,
-        _disk_warn: i32,
-        _disk_critical: i32,
-        _auto_stop: bool,
-    ) -> QString {
-        eprintln!("not yet ported: saveWatchdogSettings");
-        QString::default()
-    }
-    pub fn save_idle_stop_settings(self: Pin<&mut Self>, _minutes: i32) -> QString {
-        eprintln!("not yet ported: saveIdleStopSettings");
-        QString::default()
-    }
 }
 
-fn find_executable(name: &str) -> Option<String> {
+pub(crate) fn find_executable(name: &str) -> Option<String> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
         let candidate = dir.join(name);

@@ -6,6 +6,7 @@ use cxx_qt as _;
 use cxx_qt_lib as _;
 
 mod qt_backend;
+mod qt_backend_config;
 mod qt_theme;
 mod qt_translator;
 mod variant;
