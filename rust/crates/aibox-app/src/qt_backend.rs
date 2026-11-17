@@ -436,6 +436,15 @@ pub mod qobject {
         fn set_environment_auto_stop(self: Pin<&mut Backend>, name: &QString, enabled: bool);
 
         #[qinvokable]
+        #[cxx_name = "setNetworkMode"]
+        fn set_network_mode(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            mode: &QString,
+            allowlist: &QString,
+        );
+
+        #[qinvokable]
         #[cxx_name = "refreshNetworkAllowlist"]
         fn refresh_network_allowlist(self: Pin<&mut Backend>, name: &QString);
 
@@ -831,8 +840,8 @@ pub struct BackendRust {
     record_sessions: bool,
     recorded_sessions: QListQVariant,
     pub(crate) operation_history: QListQVariant,
-    egress_logs: QListQVariant,
-    egress_logs_env_name: QString,
+    pub(crate) egress_logs: QListQVariant,
+    pub(crate) egress_logs_env_name: QString,
     backup_archives: QListQVariant,
     diff_excludes: QStringList,
     pub(crate) diff_loading: bool,
@@ -1713,37 +1722,6 @@ impl qobject::Backend {
     }
     pub fn set_environment_auto_stop(self: Pin<&mut Self>, _name: &QString, _enabled: bool) {
         eprintln!("not yet ported: setEnvironmentAutoStop");
-    }
-    pub fn refresh_network_allowlist(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: refreshNetworkAllowlist");
-    }
-    pub fn set_egress_recording(self: Pin<&mut Self>, _name: &QString, _enabled: bool) {
-        eprintln!("not yet ported: setEgressRecording");
-    }
-    pub fn refresh_egress_log(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: refreshEgressLog");
-    }
-    pub fn add_egress_destination_to_allowlist(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _destination_ip: &QString,
-    ) {
-        eprintln!("not yet ported: addEgressDestinationToAllowlist");
-    }
-    pub fn add_port_forward(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _host_port: i32,
-        _guest_port: i32,
-    ) -> QString {
-        eprintln!("not yet ported: addPortForward");
-        QString::default()
-    }
-    pub fn remove_port_forward(self: Pin<&mut Self>, _name: &QString, _device_name: &QString) {
-        eprintln!("not yet ported: removePortForward");
-    }
-    pub fn open_forwarded_port(self: Pin<&mut Self>, _host_port: i32) {
-        eprintln!("not yet ported: openForwardedPort");
     }
     pub fn update_environment_resources(
         self: Pin<&mut Self>,
