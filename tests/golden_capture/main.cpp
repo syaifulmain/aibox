@@ -1,3 +1,4 @@
+#include <QDateTime>
 #include <QGuiApplication>
 #include <QDir>
 #include <QFile>
@@ -2115,6 +2116,387 @@ static QByteArray captureNetwork() {
 
     return out;
 }
+
+static QByteArray captureBackup() {
+    QByteArray out;
+
+    // 1. hasSufficientDiskSpace
+    const qint64 mib = 1024LL * 1024LL;
+    const struct {
+        const char *label;
+        qint64 req;
+        qint64 avail;
+    } spaceCases[] = {
+        {"exact_req_no_margin", 500 * mib, 500 * mib},
+        {"one_byte_short", 500 * mib, 600 * mib - 1},
+        {"exact_margin", 500 * mib, 600 * mib},
+        {"negative_avail", 100, -1},
+        {"negative_req", -1, 1000 * mib},
+    };
+    for (const auto &c : spaceCases) {
+        out += jsonLine(QStringLiteral("Backend::hasSufficientDiskSpace"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("requiredBytes"), c.req},
+                                    {QStringLiteral("availableBytes"), c.avail}},
+                        Backend::hasSufficientDiskSpace(c.req, c.avail));
+    }
+
+    // 2. directorySizeBytes
+    const QString backupWork = QStringLiteral("/tmp/aibox-golden-backup-work");
+    QDir(backupWork).removeRecursively();
+    QDir().mkpath(backupWork + QStringLiteral("/tree/sub"));
+    {
+        QFile f1(backupWork + QStringLiteral("/tree/a.bin"));
+        if (f1.open(QIODevice::WriteOnly)) {
+            f1.write(QByteArray(123, 'a'));
+        }
+        QFile f2(backupWork + QStringLiteral("/tree/.hidden"));
+        if (f2.open(QIODevice::WriteOnly)) {
+            f2.write(QByteArray(45, 'h'));
+        }
+        QFile f3(backupWork + QStringLiteral("/tree/sub/b.bin"));
+        if (f3.open(QIODevice::WriteOnly)) {
+            f3.write(QByteArray(67, 'b'));
+        }
+        QFile fOut(backupWork + QStringLiteral("/outside.bin"));
+        if (fOut.open(QIODevice::WriteOnly)) {
+            fOut.write(QByteArray(999, 'o'));
+        }
+        QFile::link(backupWork + QStringLiteral("/outside.bin"),
+                    backupWork + QStringLiteral("/tree/link.bin"));
+    }
+    out += jsonLine(QStringLiteral("Backend::directorySizeBytes"),
+                    QStringLiteral("empty"),
+                    QJsonObject{{QStringLiteral("dirPath"), QStringLiteral("")}},
+                    Backend::directorySizeBytes(QString()));
+    out += jsonLine(QStringLiteral("Backend::directorySizeBytes"),
+                    QStringLiteral("missing"),
+                    QJsonObject{{QStringLiteral("dirPath"), backupWork + QStringLiteral("/missing")}},
+                    Backend::directorySizeBytes(backupWork + QStringLiteral("/missing")));
+    out += jsonLine(QStringLiteral("Backend::directorySizeBytes"),
+                    QStringLiteral("single_file"),
+                    QJsonObject{{QStringLiteral("dirPath"), backupWork + QStringLiteral("/outside.bin")}},
+                    Backend::directorySizeBytes(backupWork + QStringLiteral("/outside.bin")));
+    out += jsonLine(QStringLiteral("Backend::directorySizeBytes"),
+                    QStringLiteral("tree_with_hidden_and_symlink"),
+                    QJsonObject{{QStringLiteral("dirPath"), backupWork + QStringLiteral("/tree")}},
+                    Backend::directorySizeBytes(backupWork + QStringLiteral("/tree")));
+
+    // 3. scanBackupArchives (with deterministic mtimes)
+    const QString scanDir = backupWork + QStringLiteral("/scan");
+    QDir().mkpath(scanDir);
+    auto writeWithMtime = [](const QString &path, const QByteArray &data, qint64 epochSecs) {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.write(data);
+            f.flush();
+            f.setFileTime(QDateTime::fromSecsSinceEpoch(epochSecs), QFileDevice::FileModificationTime);
+            f.close();
+        }
+    };
+    writeWithMtime(scanDir + QStringLiteral("/alpha-20261113-120000.tar.gz"), QByteArray("backup-data"), 1794571200);
+    writeWithMtime(scanDir + QStringLiteral("/alpha-20261113-120000-workspace.tar.gz"), QByteArray("ws-data"), 1794571205);
+    writeWithMtime(scanDir + QStringLiteral("/beta-20261113-120500.tar.gz"), QByteArray("beta-only"), 1794571500);
+    writeWithMtime(scanDir + QStringLiteral("/ignored.txt"), QByteArray("ignore"), 1794571600);
+    out += jsonLine(QStringLiteral("Backend::scanBackupArchives"),
+                    QStringLiteral("missing_dir"),
+                    QJsonObject{{QStringLiteral("backupsDir"), backupWork + QStringLiteral("/no-scan")}},
+                    QJsonValue::fromVariant(Backend::scanBackupArchives(backupWork + QStringLiteral("/no-scan"))));
+    out += jsonLine(QStringLiteral("Backend::scanBackupArchives"),
+                    QStringLiteral("paired_and_unpaired"),
+                    QJsonObject{{QStringLiteral("backupsDir"), scanDir}},
+                    QJsonValue::fromVariant(Backend::scanBackupArchives(scanDir)));
+
+    // 4. exportEnvironmentScript, exportAndWipeEnvironmentScript, importEnvironmentScript
+    out += jsonLine(QStringLiteral("Backend::exportEnvironmentScript"),
+                    QStringLiteral("with_workspace"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("myenv")},
+                                {QStringLiteral("backupFile"), QStringLiteral("/tmp/backups/myenv.tar.gz")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/myenv")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("/tmp/backups/myenv-workspace.tar.gz")}},
+                    Backend::exportEnvironmentScript(QStringLiteral("myenv"),
+                                                     QStringLiteral("/tmp/backups/myenv.tar.gz"),
+                                                     QStringLiteral("/tmp/ws/myenv"),
+                                                     QStringLiteral("/tmp/backups/myenv-workspace.tar.gz")));
+    out += jsonLine(QStringLiteral("Backend::exportEnvironmentScript"),
+                    QStringLiteral("without_workspace_quoted"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("my'env")},
+                                {QStringLiteral("backupFile"), QStringLiteral("/tmp/b/my'env.tar.gz")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("")}},
+                    Backend::exportEnvironmentScript(QStringLiteral("my'env"),
+                                                     QStringLiteral("/tmp/b/my'env.tar.gz"),
+                                                     QString(),
+                                                     QString()));
+
+    out += jsonLine(QStringLiteral("Backend::exportAndWipeEnvironmentScript"),
+                    QStringLiteral("with_workspace_and_delete"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("stale-env")},
+                                {QStringLiteral("backupFile"), QStringLiteral("/tmp/b/stale.tar.gz")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/stale-env")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("/tmp/b/stale-workspace.tar.gz")},
+                                {QStringLiteral("deleteWorkspaceFiles"), true},
+                                {QStringLiteral("sessionsEnvDir"), QStringLiteral("/tmp/sessions/stale-env")},
+                                {QStringLiteral("environmentSecretsPath"), QStringLiteral("/tmp/secrets/stale-env.json")}},
+                    Backend::exportAndWipeEnvironmentScript(QStringLiteral("stale-env"),
+                                                            QStringLiteral("/tmp/b/stale.tar.gz"),
+                                                            QStringLiteral("/tmp/ws/stale-env"),
+                                                            QStringLiteral("/tmp/b/stale-workspace.tar.gz"),
+                                                            true,
+                                                            QStringLiteral("/tmp/sessions/stale-env"),
+                                                            QStringLiteral("/tmp/secrets/stale-env.json")));
+    out += jsonLine(QStringLiteral("Backend::exportAndWipeEnvironmentScript"),
+                    QStringLiteral("without_workspace_keep_files"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("keep-ws")},
+                                {QStringLiteral("backupFile"), QStringLiteral("/tmp/b/keep.tar.gz")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/keep-ws")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("")},
+                                {QStringLiteral("deleteWorkspaceFiles"), false},
+                                {QStringLiteral("sessionsEnvDir"), QStringLiteral("")},
+                                {QStringLiteral("environmentSecretsPath"), QStringLiteral("")}},
+                    Backend::exportAndWipeEnvironmentScript(QStringLiteral("keep-ws"),
+                                                            QStringLiteral("/tmp/b/keep.tar.gz"),
+                                                            QStringLiteral("/tmp/ws/keep-ws"),
+                                                            QString(),
+                                                            false));
+
+    out += jsonLine(QStringLiteral("Backend::importEnvironmentScript"),
+                    QStringLiteral("with_workspace"),
+                    QJsonObject{{QStringLiteral("backupFile"), QStringLiteral("/tmp/b/myenv.tar.gz")},
+                                {QStringLiteral("targetName"), QStringLiteral("myenv-copy")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/myenv-copy")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("/tmp/b/myenv-workspace.tar.gz")}},
+                    Backend::importEnvironmentScript(QStringLiteral("/tmp/b/myenv.tar.gz"),
+                                                     QStringLiteral("myenv-copy"),
+                                                     QStringLiteral("/tmp/ws/myenv-copy"),
+                                                     QStringLiteral("/tmp/b/myenv-workspace.tar.gz")));
+    out += jsonLine(QStringLiteral("Backend::importEnvironmentScript"),
+                    QStringLiteral("without_workspace"),
+                    QJsonObject{{QStringLiteral("backupFile"), QStringLiteral("/tmp/b/myenv.tar.gz")},
+                                {QStringLiteral("targetName"), QStringLiteral("myenv-copy")},
+                                {QStringLiteral("workspacePath"), QStringLiteral("/tmp/ws/myenv-copy")},
+                                {QStringLiteral("workspaceArchiveFile"), QStringLiteral("")}},
+                    Backend::importEnvironmentScript(QStringLiteral("/tmp/b/myenv.tar.gz"),
+                                                     QStringLiteral("myenv-copy"),
+                                                     QStringLiteral("/tmp/ws/myenv-copy"),
+                                                     QString()));
+
+    // 5. parseActiveIncusExecEnvs
+    const QString pgrepSample = QStringLiteral(
+        "1001 incus exec --cwd /workspace -e FOO=bar --env BAZ=1 dev-box -- bash\n"
+        "1002 /usr/bin/incus exec --user 1000 --mode=interactive alpha-box\n"
+        "1003 incus exec -- dev-box\n"
+        "1004 incus shell other-box\n"
+        "1005 incus exec dev-box -- ls\n");
+    QStringList sortedExecEnvs = Backend::parseActiveIncusExecEnvs(pgrepSample).values();
+    sortedExecEnvs.sort();
+    out += jsonLine(QStringLiteral("Backend::parseActiveIncusExecEnvs"),
+                    QStringLiteral("mixed_flags"),
+                    QJsonObject{{QStringLiteral("pgrepOutput"), pgrepSample}},
+                    QJsonArray::fromStringList(sortedExecEnvs));
+
+    // 6. classifyEnvironmentStaleness
+    const qint64 nowSec = 1794500000LL;
+    auto stalenessToJson = [](const Backend::StalenessResult &r) {
+        return QJsonObject{
+            {QStringLiteral("classification"), static_cast<int>(r.classification)},
+            {QStringLiteral("daysUnused"), r.daysUnused},
+            {QStringLiteral("statusKey"), r.statusKey},
+        };
+    };
+    const struct {
+        const char *label;
+        qint64 lastUsed;
+        bool isTpl;
+        int staleDays;
+    } staleCases[] = {
+        {"template", nowSec - 120 * 86400LL, true, 30},
+        {"unknown_zero", 0, false, 30},
+        {"fresh_5d", nowSec - 5 * 86400LL, false, 30},
+        {"stale_exact_30d", nowSec - 30 * 86400LL, false, 30},
+        {"stale_35d", nowSec - 35 * 86400LL, false, 30},
+        {"clamped_stale_days_zero", nowSec - 2 * 86400LL, false, 0},
+    };
+    for (const auto &c : staleCases) {
+        out += jsonLine(QStringLiteral("Backend::classifyEnvironmentStaleness"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("lastUsedEpoch"), c.lastUsed},
+                                    {QStringLiteral("isTemplate"), c.isTpl},
+                                    {QStringLiteral("staleDays"), c.staleDays},
+                                    {QStringLiteral("nowEpoch"), nowSec}},
+                        stalenessToJson(Backend::classifyEnvironmentStaleness(
+                            c.lastUsed, c.isTpl, c.staleDays, nowSec)));
+    }
+
+    // 7. detectOrphans & buildStaleReport
+    const QString wsBase = backupWork + QStringLiteral("/ws");
+    const QString snapBase = wsBase + QStringLiteral("/.snapshots");
+    const QString bkpDir = backupWork + QStringLiteral("/backups");
+    QDir().mkpath(wsBase + QStringLiteral("/keep-env"));
+    QDir().mkpath(wsBase + QStringLiteral("/stale-env"));
+    QDir().mkpath(wsBase + QStringLiteral("/ghost-ws"));
+    QDir().mkpath(snapBase + QStringLiteral("/keep-env/snap1"));
+    QDir().mkpath(snapBase + QStringLiteral("/ghost-snaps/old1"));
+    QDir().mkpath(bkpDir);
+    writeWithMtime(wsBase + QStringLiteral("/keep-env/app.txt"), QByteArray("active"), 1794500000);
+    writeWithMtime(wsBase + QStringLiteral("/stale-env/readme.md"), QByteArray(4096, 's'), 1794500000);
+    writeWithMtime(wsBase + QStringLiteral("/ghost-ws/leak.bin"), QByteArray(2048, 'g'), 1794500000);
+    writeWithMtime(snapBase + QStringLiteral("/ghost-snaps/old1/data.bin"), QByteArray(1024, 'x'), 1794500000);
+    writeWithMtime(bkpDir + QStringLiteral("/keep-env-20261110-120000.tar.gz"), QByteArray("inst"), 1794500000);
+    writeWithMtime(bkpDir + QStringLiteral("/keep-env-20261110-120000-workspace.tar.gz"), QByteArray("ws"), 1794500000);
+    writeWithMtime(bkpDir + QStringLiteral("/ghost-old-20261001-010203-workspace.tar.gz"), QByteArray(512, 'b'), 1794500000);
+
+    const QVariantList envs = {
+        QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("keep-env")},
+            {QStringLiteral("running"), true},
+            {QStringLiteral("type"), QStringLiteral("CONTAINER")},
+            {QStringLiteral("osName"), QStringLiteral("Ubuntu")},
+            {QStringLiteral("isTemplate"), false},
+            {QStringLiteral("lastUsedEpoch"), nowSec - 2LL * 86400LL},
+            {QStringLiteral("diskUsageBytes"), qint64(10485760LL)},
+            {QStringLiteral("snapshotCount"), 1},
+            {QStringLiteral("snapshotTotalBytes"), qint64(1048576LL)},
+            {QStringLiteral("workspacePath"), wsBase + QStringLiteral("/keep-env")},
+        },
+        QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("stale-env")},
+            {QStringLiteral("running"), false},
+            {QStringLiteral("type"), QStringLiteral("CONTAINER")},
+            {QStringLiteral("osName"), QStringLiteral("Debian")},
+            {QStringLiteral("isTemplate"), false},
+            {QStringLiteral("lastUsedEpoch"), nowSec - 45LL * 86400LL},
+            {QStringLiteral("diskUsageBytes"), qint64(20971520LL)},
+            {QStringLiteral("snapshotCount"), 2},
+            {QStringLiteral("snapshotTotalBytes"), qint64(5242880LL)},
+            {QStringLiteral("workspacePath"), wsBase + QStringLiteral("/stale-env")},
+        },
+        QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("tpl-old")},
+            {QStringLiteral("running"), false},
+            {QStringLiteral("type"), QStringLiteral("CONTAINER")},
+            {QStringLiteral("osName"), QStringLiteral("Arch")},
+            {QStringLiteral("isTemplate"), true},
+            {QStringLiteral("lastUsedEpoch"), nowSec - 180LL * 86400LL},
+            {QStringLiteral("diskUsageBytes"), qint64(5242880LL)},
+            {QStringLiteral("snapshotCount"), 0},
+            {QStringLiteral("snapshotTotalBytes"), qint64(0)},
+            {QStringLiteral("workspacePath"), wsBase + QStringLiteral("/tpl-old")},
+        },
+        QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("never-stamped")},
+            {QStringLiteral("running"), false},
+            {QStringLiteral("type"), QStringLiteral("CONTAINER")},
+            {QStringLiteral("osName"), QStringLiteral("Alpine")},
+            {QStringLiteral("isTemplate"), false},
+            {QStringLiteral("lastUsedEpoch"), qint64(0)},
+            {QStringLiteral("diskUsageBytes"), qint64(1048576LL)},
+            {QStringLiteral("snapshotCount"), 0},
+            {QStringLiteral("snapshotTotalBytes"), qint64(0)},
+            {QStringLiteral("workspacePath"), wsBase + QStringLiteral("/never-stamped")},
+        },
+    };
+    out += jsonLine(QStringLiteral("Backend::detectOrphans"),
+                    QStringLiteral("three_kinds"),
+                    QJsonObject{{QStringLiteral("environments"), QJsonValue::fromVariant(envs)},
+                                {QStringLiteral("workspaceBase"), wsBase},
+                                {QStringLiteral("backupsDir"), bkpDir}},
+                    QJsonValue::fromVariant(Backend::detectOrphans(envs, wsBase, bkpDir)));
+    QVariantMap staleReport = Backend::buildStaleReport(envs, wsBase, bkpDir, 30, nowSec);
+    if (staleReport.value(QStringLiteral("generatedAt")).toString().size() == 19) {
+        staleReport[QStringLiteral("generatedAt")] = QStringLiteral("<NOW>");
+    }
+    out += jsonLine(QStringLiteral("Backend::buildStaleReport"),
+                    QStringLiteral("full_report"),
+                    QJsonObject{{QStringLiteral("environments"), QJsonValue::fromVariant(envs)},
+                                {QStringLiteral("workspaceBase"), wsBase},
+                                {QStringLiteral("backupsDir"), bkpDir},
+                                {QStringLiteral("staleDays"), 30},
+                                {QStringLiteral("nowEpoch"), nowSec}},
+                    QJsonValue::fromVariant(staleReport));
+
+    // 8. deleteOrphanScript & adminDeleteScriptText
+    for (const QString &kind : {QStringLiteral("backup-workspace"),
+                                QStringLiteral("workspace-snapshot"),
+                                QStringLiteral("workspace")}) {
+        const QString target = (kind == QLatin1String("backup-workspace"))
+                                   ? (bkpDir + QStringLiteral("/ghost-old-20261001-010203-workspace.tar.gz"))
+                                   : (kind == QLatin1String("workspace-snapshot"))
+                                         ? (snapBase + QStringLiteral("/ghost-snaps"))
+                                         : (wsBase + QStringLiteral("/ghost-ws"));
+        out += jsonLine(QStringLiteral("Backend::deleteOrphanScript"),
+                        kind,
+                        QJsonObject{{QStringLiteral("kind"), kind},
+                                    {QStringLiteral("targetPath"), target}},
+                        Backend::deleteOrphanScript(kind, target));
+        out += jsonLine(QStringLiteral("Backend::adminDeleteScriptText"),
+                        kind,
+                        QJsonObject{{QStringLiteral("kind"), kind},
+                                    {QStringLiteral("targetPath"), target}},
+                        Backend::adminDeleteScriptText(kind, target));
+    }
+
+    // 9. validateOrphanPath & validation errors
+    {
+        Backend backend(wsBase);
+        const QString bkpBase = backend.backupsDirPath();
+        const struct {
+            const char *label;
+            const char *kind;
+            QString path;
+        } valCases[] = {
+            {"valid_workspace", "workspace", wsBase + QStringLiteral("/ghost-ws")},
+            {"outside_workspace", "workspace", backupWork + QStringLiteral("/outside")},
+            {"snapshots_dir_as_workspace", "workspace", snapBase},
+            {"hidden_workspace", "workspace", wsBase + QStringLiteral("/.secret")},
+            {"valid_snapshot", "workspace-snapshot", snapBase + QStringLiteral("/ghost-snaps")},
+            {"outside_snapshot", "workspace-snapshot", wsBase + QStringLiteral("/ghost-ws")},
+            {"valid_backup_ws", "backup-workspace", bkpBase + QStringLiteral("/foo-workspace.tar.gz")},
+            {"non_ws_backup", "backup-workspace", bkpBase + QStringLiteral("/foo.tar.gz")},
+        };
+        for (const auto &c : valCases) {
+            out += jsonLine(QStringLiteral("Backend::validateOrphanPath"),
+                            QString::fromLatin1(c.label),
+                            QJsonObject{{QStringLiteral("kind"), QString::fromLatin1(c.kind)},
+                                        {QStringLiteral("cleanPath"), c.path},
+                                        {QStringLiteral("workspaceBase"), wsBase},
+                                        {QStringLiteral("backupsDir"), bkpBase}},
+                            backend.validateOrphanPath(QString::fromLatin1(c.kind), c.path));
+        }
+
+        out += jsonLine(QStringLiteral("Backend::exportEnvironment"),
+                        QStringLiteral("missing_env"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("no-such-env")},
+                                    {QStringLiteral("includeWorkspace"), true}},
+                        backend.exportEnvironment(QStringLiteral("no-such-env"), true));
+        out += jsonLine(QStringLiteral("Backend::importEnvironment"),
+                        QStringLiteral("invalid_name"),
+                        QJsonObject{{QStringLiteral("backupFile"), QStringLiteral("/tmp/x.tar.gz")},
+                                    {QStringLiteral("newName"), QStringLiteral("!!!")},
+                                    {QStringLiteral("workspaceArchiveFile"), QStringLiteral("")}},
+                        backend.importEnvironment(QStringLiteral("/tmp/x.tar.gz"), QStringLiteral("!!!"), QString()));
+        out += jsonLine(QStringLiteral("Backend::importEnvironment"),
+                        QStringLiteral("missing_backup_file"),
+                        QJsonObject{{QStringLiteral("backupFile"), QStringLiteral("/tmp/does-not-exist-aibox.tar.gz")},
+                                    {QStringLiteral("newName"), QStringLiteral("valid-env")},
+                                    {QStringLiteral("workspaceArchiveFile"), QStringLiteral("")}},
+                        backend.importEnvironment(QStringLiteral("/tmp/does-not-exist-aibox.tar.gz"),
+                                                  QStringLiteral("valid-env"), QString()));
+        out += jsonLine(QStringLiteral("Backend::deleteOrphan"),
+                        QStringLiteral("empty_path"),
+                        QJsonObject{{QStringLiteral("kind"), QStringLiteral("workspace")},
+                                    {QStringLiteral("path"), QStringLiteral("   ")}},
+                        backend.deleteOrphan(QStringLiteral("workspace"), QStringLiteral("   ")));
+        out += jsonLine(QStringLiteral("Backend::deleteOrphan"),
+                        QStringLiteral("unknown_kind"),
+                        QJsonObject{{QStringLiteral("kind"), QStringLiteral("bogus")},
+                                    {QStringLiteral("path"), wsBase + QStringLiteral("/ghost-ws")}},
+                        backend.deleteOrphan(QStringLiteral("bogus"), wsBase + QStringLiteral("/ghost-ws")));
+    }
+
+    QDir(backupWork).removeRecursively();
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -2152,6 +2534,7 @@ int main(int argc, char *argv[]) {
         {"diff", &GoldenCapture::captureDiff},
         {"workspace", &GoldenCapture::captureWorkspace},
         {"network", &GoldenCapture::captureNetwork},
+        {"backup", &GoldenCapture::captureBackup},
     };
 
     bool matched = onlyModule.isEmpty();

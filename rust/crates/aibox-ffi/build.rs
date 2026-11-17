@@ -1,5 +1,6 @@
 fn main() {
     let bridges = [
+        "src/backup.rs",
         "src/config.rs",
         "src/history.rs",
         "src/i18n.rs",

@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P09 — Backup Export/Import, Stale Report, and Orphan Cleanup
+* **Pure Rust Core (`aibox-core::backup`, `aibox-core::health::idle`)**: Ported disk space checks (`has_sufficient_disk_space`, `directory_size_bytes` without following symlinks, `libc::statvfs`-based `available_disk_bytes`, `check_export_space`), archive scanning (`backups_dir_path`, `scan_backup_archives`), export/export-and-wipe/import script builders (`scripts.rs`), staleness classification and stale report generation (`stale.rs`), orphan detection, path-traversal/symlink-escape validation, and delete/admin-delete script builders (`orphans.rs`), plus `parse_active_incus_exec_envs` moved to `health::idle`.
+* **FFI & Delegation (`aibox-ffi::backup`)**: Bridged backup, stale, orphan, and idle-exec-env functions via `cxx` and delegated `src/cpp/backend_backup.cpp` while keeping `refreshBackups`, `refreshStaleReport`, `openOrphanFolder`, demo-mode UI state, `runShellTask`, and all `Backend` signatures unchanged.
+* **Verification**: Added 7 Rust unit tests (including a stub-`incus` export/import round-trip and hostile orphan-path tests) and 45 `"backup"` golden cases (`tests/golden/backup.jsonl`); `cargo test`, `./bin/golden-capture --check`, `./bin/install`, and `./bin/test` (74/74) all pass.
+
 ### Rust Migration P08 — Network Control, Allowlist, Egress Parsing, and Port Forwards
 * **Pure Rust Core (`aibox-core::network`)**: Ported allowlist parsing and DNS-rebinding protection (`allowlist.rs`), Incus ACL snippet and network control script builders (`acl.rs`), `journalctl -k` egress log parsing (`egress.rs`), and localhost port-forward validation/scripts (`ports.rs`).
 * **FFI & Delegation (`aibox-ffi::network`, `src/cpp/host_resolver.h`)**: Bridged `Backend::HostResolver` via `HostResolverBridge` and delegated `src/cpp/backend_network.cpp`, `aclApplyShellSnippet` in `src/cpp/backend_helpers.h`, and hostname extraction in `src/cpp/backend_env.cpp` (`resolveEnterAllowlistHosts`).
