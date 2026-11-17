@@ -1917,6 +1917,204 @@ static QByteArray captureWorkspace() {
     QDir(wsWork).removeRecursively();
     return out;
 }
+
+static QByteArray captureNetwork() {
+    QByteArray out;
+
+    // 1. parseAllowlistEntries
+    const QStringList allowInputs = {
+        QStringLiteral(""),
+        QStringLiteral("GitHub.com, 1.1.1.1; 10.0.0.0/8\nlocal-rebind.test bad$host github.com"),
+        QStringLiteral("  api.example.com ; 192.168.1.0/24 , 8.8.8.8  invalid_host!  sub-1.domain.org "),
+        QStringLiteral("2001:db8::1, 1.2.3.4/32, [::1]"),
+    };
+    for (int i = 0; i < allowInputs.size(); ++i) {
+        out += jsonLine(QStringLiteral("Backend::parseAllowlistEntries"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("rawText"), allowInputs.at(i)}},
+                        QJsonArray::fromStringList(Backend::parseAllowlistEntries(allowInputs.at(i))));
+    }
+
+    // 2. resolveAllowlistCidrs (with mock resolver, testing all private/reserved IPv4 ranges + valid/invalid entries)
+    {
+        const QStringList entries = {
+            QStringLiteral("github.com"),
+            QStringLiteral("1.1.1.1"),
+            QStringLiteral("10.0.0.0/8"),
+            QStringLiteral("192.168.1.10/24"),
+            QStringLiteral("999.0.0.1/32"),
+            QStringLiteral("1.2.3.4/99"),
+            QStringLiteral("2001:db8::1"),
+            QStringLiteral("bad_host!"),
+            QStringLiteral("-leading.dash"),
+            QStringLiteral("rebind.test"),
+            QStringLiteral("mixed.test"),
+            QStringLiteral("github.com"),
+        };
+        auto resolver = [](const QString &host) -> QStringList {
+            if (host == QLatin1String("github.com"))
+                return {QStringLiteral("140.82.121.4"), QStringLiteral("192.168.1.50"), QStringLiteral("140.82.121.4")};
+            if (host == QLatin1String("rebind.test"))
+                return {
+                    QStringLiteral("0.0.0.1"),
+                    QStringLiteral("10.1.2.3"),
+                    QStringLiteral("100.64.0.1"),
+                    QStringLiteral("100.127.255.254"),
+                    QStringLiteral("127.0.0.1"),
+                    QStringLiteral("169.254.169.254"),
+                    QStringLiteral("172.16.0.1"),
+                    QStringLiteral("172.31.255.254"),
+                    QStringLiteral("192.168.0.1"),
+                    QStringLiteral("224.0.0.1"),
+                    QStringLiteral("255.255.255.255"),
+                    QStringLiteral("::1"),
+                    QStringLiteral("not-an-ip"),
+                };
+            if (host == QLatin1String("mixed.test"))
+                return {QStringLiteral("100.63.255.254"), QStringLiteral("172.15.255.254"), QStringLiteral("172.32.0.1")};
+            return {};
+        };
+        QStringList warnings;
+        const QStringList cidrs = Backend::resolveAllowlistCidrs(entries, resolver, &warnings);
+        out += jsonLine(QStringLiteral("Backend::resolveAllowlistCidrs"),
+                        QStringLiteral("comprehensive"),
+                        QJsonObject{{QStringLiteral("entries"), QJsonArray::fromStringList(entries)}},
+                        QJsonObject{{QStringLiteral("cidrs"), QJsonArray::fromStringList(cidrs)},
+                                    {QStringLiteral("warnings"), QJsonArray::fromStringList(warnings)}});
+    }
+
+    // 3. aclApplyShellSnippet
+    out += jsonLine(QStringLiteral("aclApplyShellSnippet"),
+                    QStringLiteral("with_quotes_and_logging"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("box'1")},
+                                {QStringLiteral("allowlistRaw"), QStringLiteral("github.com, '1.1.1.1'")},
+                                {QStringLiteral("resolvedCidrs"), QJsonArray{QStringLiteral("140.82.121.4/32"), QStringLiteral("1.1.1.1/32'bad")}},
+                                {QStringLiteral("egressLogging"), true}},
+                    aclApplyShellSnippet(QStringLiteral("box'1"),
+                                         QStringLiteral("github.com, '1.1.1.1'"),
+                                         {QStringLiteral("140.82.121.4/32"), QStringLiteral("1.1.1.1/32'bad")},
+                                         true));
+
+    // 4. networkControlScript across modes, egressLogging, and quotes
+    struct NetScriptCase {
+        const char *label;
+        const char *name;
+        const char *mode;
+        const char *allowRaw;
+        QStringList cidrs;
+        bool egress;
+    };
+    const QList<NetScriptCase> netCases = {
+        {"online_plain", "agent-1", "online", "", {}, false},
+        {"online_egress", "agent-1", "online", "", {}, true},
+        {"open_plain", "agent-1", "open", "", {}, false},
+        {"offline_plain", "agent-1", "offline", "", {}, false},
+        {"offline_egress_ignored", "agent-1", "offline", "", {}, true},
+        {"allowlist_plain", "agent-1", "allowlist", "github.com, 1.1.1.1", {QStringLiteral("140.82.121.4/32"), QStringLiteral("1.1.1.1/32")}, false},
+        {"allowlist_egress", "agent-1", "allowlist", "github.com", {QStringLiteral("140.82.121.4/32")}, true},
+        {"allowlist_quotes", "box'1", "allowlist", "a'b", {QStringLiteral("1.2.3.4/32"), QStringLiteral("5.6.7.8/32'x")}, true},
+    };
+    for (const auto &c : netCases) {
+        out += jsonLine(QStringLiteral("Backend::networkControlScript"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("name"), QString::fromLatin1(c.name)},
+                                    {QStringLiteral("mode"), QString::fromLatin1(c.mode)},
+                                    {QStringLiteral("allowlistRaw"), QString::fromLatin1(c.allowRaw)},
+                                    {QStringLiteral("resolvedCidrs"), QJsonArray::fromStringList(c.cidrs)},
+                                    {QStringLiteral("egressLogging"), c.egress}},
+                        Backend::networkControlScript(QString::fromLatin1(c.name),
+                                                      QString::fromLatin1(c.mode),
+                                                      QString::fromLatin1(c.allowRaw),
+                                                      c.cidrs,
+                                                      c.egress));
+    }
+
+    // 5. parseKernelEgressLogs
+    const QString journalSample = QStringLiteral(
+        "2026-11-13T13:10:01+0700 host kernel: eth0-egress-0 IN=veth-box1 OUT=incusbr0 SRC=10.143.44.18 DST=140.82.121.4 LEN=60 PROTO=TCP SPT=50001 DPT=443 \n"
+        "2026-11-13T13:10:03+0700 host kernel: eth0-egress-0 IN=veth-other OUT=incusbr0 SRC=10.143.44.99 DST=9.9.9.9 LEN=60 PROTO=UDP SPT=50002 DPT=53 \n"
+        "2026-11-13T13:10:05+0700 host kernel: eth0-egress-default IN=veth-box1 OUT=incusbr0 SRC=10.143.44.18 DST=104.16.25.34 LEN=60 PROTO=TCP SPT=50003 DPT=443 \n"
+        "Nov 13 13:10:07 host kernel: eth0-egress-0 IN=veth-old OUT=incusbr0 SRC=10.143.44.18 DST=1.1.1.1 LEN=60 PROTO=ICMP \n"
+        "2026-11-13T13:10:09+0700 host kernel: eth0-egress-0 IN=veth-old OUT=incusbr0 SRC=10.143.44.18 DST=140.82.121.4 LEN=60 PROTO=TCP SPT=50004 DPT=443 \n"
+        "2026-11-13T13:10:11+0700 host kernel: unrelated IN=veth-box1 SRC=10.143.44.18 DST=8.8.8.8 PROTO=UDP DPT=53 \n");
+    out += jsonLine(QStringLiteral("Backend::parseKernelEgressLogs"),
+                    QStringLiteral("sample_all"),
+                    QJsonObject{{QStringLiteral("journalOutput"), journalSample},
+                                {QStringLiteral("containerIp"), QStringLiteral("10.143.44.18")},
+                                {QStringLiteral("hostIface"), QStringLiteral("veth-box1")},
+                                {QStringLiteral("maxEntries"), 100}},
+                    QJsonValue::fromVariant(Backend::parseKernelEgressLogs(
+                        journalSample, QStringLiteral("10.143.44.18"), QStringLiteral("veth-box1"), 100)));
+    out += jsonLine(QStringLiteral("Backend::parseKernelEgressLogs"),
+                    QStringLiteral("cap_2_dash_ip"),
+                    QJsonObject{{QStringLiteral("journalOutput"), journalSample},
+                                {QStringLiteral("containerIp"), QStringLiteral("—")},
+                                {QStringLiteral("hostIface"), QStringLiteral("veth-box1")},
+                                {QStringLiteral("maxEntries"), 2}},
+                    QJsonValue::fromVariant(Backend::parseKernelEgressLogs(
+                        journalSample, QStringLiteral("—"), QStringLiteral("veth-box1"), 2)));
+    out += jsonLine(QStringLiteral("Backend::parseKernelEgressLogs"),
+                    QStringLiteral("empty_filters"),
+                    QJsonObject{{QStringLiteral("journalOutput"), journalSample},
+                                {QStringLiteral("containerIp"), QStringLiteral("—")},
+                                {QStringLiteral("hostIface"), QStringLiteral("  ")},
+                                {QStringLiteral("maxEntries"), 10}},
+                    QJsonValue::fromVariant(Backend::parseKernelEgressLogs(
+                        journalSample, QStringLiteral("—"), QStringLiteral("  "), 10)));
+
+    // 6. proxyDeviceName & addPortForwardScript
+    out += jsonLine(QStringLiteral("Backend::proxyDeviceName"),
+                    QStringLiteral("port_3000"),
+                    QJsonObject{{QStringLiteral("hostPort"), 3000}},
+                    Backend::proxyDeviceName(3000));
+    out += jsonLine(QStringLiteral("Backend::addPortForwardScript"),
+                    QStringLiteral("basic"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("web-box")},
+                                {QStringLiteral("hostPort"), 3000},
+                                {QStringLiteral("guestPort"), 8080}},
+                    Backend::addPortForwardScript(QStringLiteral("web-box"), 3000, 8080));
+    out += jsonLine(QStringLiteral("Backend::addPortForwardScript"),
+                    QStringLiteral("quoted_name"),
+                    QJsonObject{{QStringLiteral("name"), QStringLiteral("web'box")},
+                                {QStringLiteral("hostPort"), 8443},
+                                {QStringLiteral("guestPort"), 443}},
+                    Backend::addPortForwardScript(QStringLiteral("web'box"), 8443, 443));
+
+    // 7. addPortForward validation errors
+    const QString netWork = QStringLiteral("/tmp/aibox-golden-net-work");
+    QDir(netWork).removeRecursively();
+    QDir().mkpath(netWork);
+    {
+        Backend backend(netWork + QStringLiteral("/be"));
+        out += jsonLine(QStringLiteral("Backend::addPortForward"),
+                        QStringLiteral("empty_name"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("")},
+                                    {QStringLiteral("hostPort"), 3000},
+                                    {QStringLiteral("guestPort"), 80}},
+                        backend.addPortForward(QStringLiteral(""), 3000, 80));
+        out += jsonLine(QStringLiteral("Backend::addPortForward"),
+                        QStringLiteral("privileged_host_port"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("web-box")},
+                                    {QStringLiteral("hostPort"), 80},
+                                    {QStringLiteral("guestPort"), 80}},
+                        backend.addPortForward(QStringLiteral("web-box"), 80, 80));
+        out += jsonLine(QStringLiteral("Backend::addPortForward"),
+                        QStringLiteral("invalid_guest_port"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("web-box")},
+                                    {QStringLiteral("hostPort"), 3000},
+                                    {QStringLiteral("guestPort"), 0}},
+                        backend.addPortForward(QStringLiteral("web-box"), 3000, 0));
+        out += jsonLine(QStringLiteral("Backend::addPortForward"),
+                        QStringLiteral("missing_env"),
+                        QJsonObject{{QStringLiteral("name"), QStringLiteral("web-box")},
+                                    {QStringLiteral("hostPort"), 3000},
+                                    {QStringLiteral("guestPort"), 8080}},
+                        backend.addPortForward(QStringLiteral("web-box"), 3000, 8080));
+    }
+    QDir(netWork).removeRecursively();
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -1953,6 +2151,7 @@ int main(int argc, char *argv[]) {
         {"snapshot", &GoldenCapture::captureSnapshot},
         {"diff", &GoldenCapture::captureDiff},
         {"workspace", &GoldenCapture::captureWorkspace},
+        {"network", &GoldenCapture::captureNetwork},
     };
 
     bool matched = onlyModule.isEmpty();

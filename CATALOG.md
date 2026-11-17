@@ -35,7 +35,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [aibox.pro](aibox.pro) | Build Config | `qmake6` project file defining Qt6 modules, C++ sources, and compiled resources. |
 | [src/cpp/main.cpp](src/cpp/main.cpp) | Source (C++) | Application entry point dispatching headless CLI (`Cli::run` under `QCoreApplication`), session redaction, and QML GUI (`QGuiApplication` + `QQmlApplicationEngine`). |
 | [src/cpp/cli.h](src/cpp/cli.h) & [cli.cpp](src/cpp/cli.cpp) | Source (C++) | Headless CLI parser, help/usage formatter, and subcommand dispatcher (`list`, `check`, `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `help`) sharing `Backend` script builders and task lock. |
-| [src/cpp/rust_bridge.h](src/cpp/rust_bridge.h) & [port_predicate.h](src/cpp/port_predicate.h) | Source (C++) | `cxx` bridge conversion helpers (`QString`, `QStringList`, `QByteArray`, `QVariant` via JSON) and `PortPredicate` callback wrapper between Qt and Rust. |
+| [src/cpp/rust_bridge.h](src/cpp/rust_bridge.h), [port_predicate.h](src/cpp/port_predicate.h) & [host_resolver.h](src/cpp/host_resolver.h) | Source (C++) | `cxx` bridge conversion helpers (`QString`, `QStringList`, `QByteArray`, `QVariant` via JSON) and callback wrappers (`PortPredicate`, `HostResolverBridge`) between Qt and Rust. |
 | [rust/](rust) | Source (Rust) | Cargo workspace (`aibox-core` pure Rust core, `aibox-ffi` `cxx` staticlib bridge) linked into the `aibox` binary and test suite. |
 | [src/cpp/backend.h](src/cpp/backend.h) | Source (C++) | `Backend` class declaration exposing environments, OS catalog, configuration state, first-run state, and all `Q_INVOKABLE` actions to QML. |
 | [src/cpp/backend.cpp](src/cpp/backend.cpp) | Source (C++) | Core backend: constructors, path resolution, defaults, JSON configuration load/save, OS catalog rebuild, refresh cycle, PTY progress stream parsing (`script -q -e -c`), detached task plumbing, and the enter flow. |
@@ -75,6 +75,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Rust Migration P08 — Network Control, Allowlist, Egress Parsing, and Port Forwards
+* **Pure Rust Core (`aibox-core::network`)**: Ported allowlist parsing and DNS-rebinding protection (`allowlist.rs`), Incus ACL snippet and network control script builders (`acl.rs`), `journalctl -k` egress log parsing (`egress.rs`), and localhost port-forward validation/scripts (`ports.rs`).
+* **FFI & Delegation (`aibox-ffi::network`, `src/cpp/host_resolver.h`)**: Bridged `Backend::HostResolver` via `HostResolverBridge` and delegated `src/cpp/backend_network.cpp`, `aclApplyShellSnippet` in `src/cpp/backend_helpers.h`, and hostname extraction in `src/cpp/backend_env.cpp` (`resolveEnterAllowlistHosts`).
+* **Verification**: Added 6 Rust unit tests and 24 `"network"` golden cases (`tests/golden/network.jsonl`); `cargo test`, `./bin/golden-capture --check`, `./bin/install`, and `./bin/test` (74/74) all pass.
 
 ### Rust Migration P07b — File Access, Extra Mounts, and Pasted Images
 - **Rust core (`rust/crates/aibox-core/src/workspace/{file_access,mounts,paste}.rs`)**: ported localhost SFTP file access state/log/dir path helpers, `/proc/<pid>/cmdline` + `libc::kill` process liveness and stop helpers, `/proc/net/tcp` listening check, port selection (`choose_file_access_port`, `is_host_port_available`), state reconciliation (`apply_file_access_state`), enable validation and script/state builders; extra mount path validation (`validate_extra_mount_path`), device naming (`extra_mount_device_name`), mount/unmount script builders, and `prepare_add_extra_mount`; and pasted image path generation, stale pruning, and container path formatting (`prepare_pasted_image_path`, `prune_stale_pasted_images`, `pasted_image_container_path`), with 4 new Rust unit tests.

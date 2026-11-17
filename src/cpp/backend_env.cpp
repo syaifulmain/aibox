@@ -959,14 +959,9 @@ void Backend::beginEnterPrepare(const QString &name) {
 
 void Backend::resolveEnterAllowlistHosts(const QStringList &entries,
                                          const std::function<void(const QStringList &)> &done) {
-    static const QRegularExpression hostRe(QStringLiteral("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$"));
-    QStringList hostnames;
-    for (const QString &entry : entries) {
-        if (entry.contains(QLatin1Char('/')) || !QHostAddress(entry).isNull())
-            continue;
-        if (hostRe.match(entry).hasMatch() && !hostnames.contains(entry))
-            hostnames.append(entry);
-    }
+    const rust::Vec<rust::String> entriesVec = aibox::ffi::toRustVec(entries);
+    const QStringList hostnames = aibox::ffi::fromRustVec(aibox::ffi::extract_allowlist_hostnames(
+        rust::Slice<const rust::String>(entriesVec.data(), entriesVec.size())));
 
     auto results = std::make_shared<QHash<QString, QStringList>>();
     auto finish = [entries, results, done]() {

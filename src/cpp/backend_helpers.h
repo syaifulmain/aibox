@@ -2,6 +2,7 @@
 
 #include "backend.h"
 #include "rust_bridge.h"
+#include "aibox-ffi/src/network.rs.h"
 #include "aibox-ffi/src/util.rs.h"
 
 #include <QCoreApplication>
@@ -84,36 +85,12 @@ inline bool isGuiSession() {
 
 inline QString aclApplyShellSnippet(const QString &name, const QString &allowlistRaw,
                                     const QStringList &resolvedCidrs, bool egressLogging = false) {
-    const QString qName = QStringLiteral("'") + QString(name).replace('\'', QStringLiteral("'\\''")) + QStringLiteral("'");
-    const QString aclName = QStringLiteral("aibox-") + name;
-    const QString qAcl = QStringLiteral("'") + QString(aclName).replace('\'', QStringLiteral("'\\''")) + QStringLiteral("'");
-    const QString qLogAcl = QStringLiteral("'") + QString(QStringLiteral("aibox-log-") + name).replace('\'', QStringLiteral("'\\''")) + QStringLiteral("'");
-    const QString qAllow = QStringLiteral("'") + QString(allowlistRaw).replace('\'', QStringLiteral("'\\''")) + QStringLiteral("'");
-
-    QStringList lines;
-    lines << QStringLiteral("incus config device remove %1 eth0 >/dev/null 2>&1 || true").arg(qName);
-    lines << QStringLiteral("incus network acl delete %1 >/dev/null 2>&1 || true").arg(qAcl);
-    lines << QStringLiteral("incus network acl delete %1 >/dev/null 2>&1 || true").arg(qLogAcl);
-    lines << QStringLiteral("incus network acl create %1").arg(qAcl);
-    for (const QString &cidr : resolvedCidrs) {
-        const QString qCidr = QStringLiteral("'") + QString(cidr).replace('\'', QStringLiteral("'\\''")) + QStringLiteral("'");
-        if (egressLogging)
-            lines << QStringLiteral("incus network acl rule add %1 egress action=allow destination=%2 state=logged").arg(qAcl, qCidr);
-        else
-            lines << QStringLiteral("incus network acl rule add %1 egress action=allow destination=%2").arg(qAcl, qCidr);
-    }
-    if (egressLogging) {
-        lines << QStringLiteral("incus config device override %1 eth0 security.acls=%2 security.acls.default.egress.action=drop security.acls.default.egress.logged=true")
-                     .arg(qName, qAcl);
-        lines << QStringLiteral("incus config set %1 user.aibox.egresslog true").arg(qName);
-    } else {
-        lines << QStringLiteral("incus config device override %1 eth0 security.acls=%2 security.acls.default.egress.action=drop")
-                     .arg(qName, qAcl);
-        lines << QStringLiteral("incus config unset %1 user.aibox.egresslog >/dev/null 2>&1 || true").arg(qName);
-    }
-    lines << QStringLiteral("incus config set %1 user.aibox.netmode allowlist").arg(qName);
-    lines << QStringLiteral("incus config set %1 user.aibox.netallow %2").arg(qName, qAllow);
-    return lines.join(QLatin1Char('\n'));
+    const rust::Vec<rust::String> cidrsVec = aibox::ffi::toRustVec(resolvedCidrs);
+    return aibox::ffi::fromRust(aibox::ffi::acl_apply_shell_snippet(
+        aibox::ffi::toRust(name),
+        aibox::ffi::toRust(allowlistRaw),
+        rust::Slice<const rust::String>(cidrsVec.data(), cidrsVec.size()),
+        egressLogging));
 }
 
 inline void launchCommandInTerminal(const QString &shellCmd) {

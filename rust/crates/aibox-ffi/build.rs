@@ -4,6 +4,7 @@ fn main() {
         "src/history.rs",
         "src/i18n.rs",
         "src/meta.rs",
+        "src/network.rs",
         "src/secrets.rs",
         "src/session.rs",
         "src/settings.rs",
