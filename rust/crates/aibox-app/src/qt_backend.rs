@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -473,6 +473,17 @@ pub mod qobject {
         fn open_forwarded_port(self: Pin<&mut Backend>, host_port: i32);
 
         #[qinvokable]
+        #[cxx_name = "addExtraMount"]
+        fn add_extra_mount(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            host_path: &QString,
+            mount_name: &QString,
+            read_only: bool,
+            confirm_read_write: bool,
+        ) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "removeExtraMount"]
         fn remove_extra_mount(self: Pin<&mut Backend>, name: &QString, device_name: &QString);
 
@@ -824,11 +835,11 @@ pub struct BackendRust {
     egress_logs_env_name: QString,
     backup_archives: QListQVariant,
     diff_excludes: QStringList,
-    diff_loading: bool,
-    diff_entries: QListQVariant,
-    diff_summary: QMapQStringQVariant,
-    selected_diff_text: QString,
-    selected_diff_info: QString,
+    pub(crate) diff_loading: bool,
+    pub(crate) diff_entries: QListQVariant,
+    pub(crate) diff_summary: QMapQStringQVariant,
+    pub(crate) selected_diff_text: QString,
+    pub(crate) selected_diff_info: QString,
     pub(crate) secrets_error: QString,
     secrets_store_path: QString,
     pub(crate) environment_secrets: QListQVariant,
@@ -849,6 +860,7 @@ pub struct BackendRust {
     stop_flag: Arc<AtomicBool>,
     poll_started: bool,
     task_watch_active: Arc<AtomicBool>,
+    pub(crate) diff_generation: Arc<AtomicU64>,
 }
 
 impl Default for BackendRust {
@@ -947,6 +959,7 @@ impl Default for BackendRust {
             stop_flag: Arc::new(AtomicBool::new(false)),
             poll_started: false,
             task_watch_active: Arc::new(AtomicBool::new(false)),
+            diff_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -1318,7 +1331,31 @@ impl qobject::Backend {
     }
 
     pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
-        let q_envs = serialize_to_qvariant_list(&self.engine.environments);
+        let state_dir = self.engine.paths.state_dir.clone();
+        let fa_inputs: Vec<FileAccessEnvInput> = self
+            .engine
+            .environments
+            .iter()
+            .map(|e| FileAccessEnvInput {
+                name: e.name.clone(),
+                running: e.running,
+            })
+            .collect();
+        let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
+        let mut env_values: Vec<serde_json::Value> = self
+            .engine
+            .environments
+            .iter()
+            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
+            .collect();
+        for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
+            if let Some(obj) = val.as_object_mut() {
+                obj.insert("fileAccessEnabled".into(), serde_json::json!(fa.active));
+                obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
+                obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
+            }
+        }
+        let q_envs = json_array_to_qvariant_list(&env_values);
         let count = self.engine.environments.len() as i32;
         {
             let mut rust = self.as_mut().rust_mut();
@@ -1668,42 +1705,8 @@ impl qobject::Backend {
     pub fn enter_environment(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: enterEnvironment");
     }
-    pub fn open_workspace_folder(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: openWorkspaceFolder");
-    }
-    pub fn enable_file_access(self: Pin<&mut Self>, _name: &QString) -> QString {
-        eprintln!("not yet ported: enableFileAccess");
-        QString::default()
-    }
-    pub fn disable_file_access(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: disableFileAccess");
-    }
-    pub fn open_file_access(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: openFileAccess");
-    }
     pub fn toggle_start_stop(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: toggleStartStop");
-    }
-    pub fn load_workspace_diff(self: Pin<&mut Self>, _name: &QString, _snapshot_name: &QString) {
-        eprintln!("not yet ported: loadWorkspaceDiff");
-    }
-    pub fn load_file_diff(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _snapshot_name: &QString,
-        _relative_path: &QString,
-        _status: &QString,
-    ) {
-        eprintln!("not yet ported: loadFileDiff");
-    }
-    pub fn restore_single_file(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _snapshot_name: &QString,
-        _relative_path: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: restoreSingleFile");
-        QString::default()
     }
     pub fn set_environment_template(self: Pin<&mut Self>, _name: &QString, _is_template: bool) {
         eprintln!("not yet ported: setEnvironmentTemplate");
@@ -1741,13 +1744,6 @@ impl qobject::Backend {
     }
     pub fn open_forwarded_port(self: Pin<&mut Self>, _host_port: i32) {
         eprintln!("not yet ported: openForwardedPort");
-    }
-    pub fn remove_extra_mount(self: Pin<&mut Self>, _name: &QString, _device_name: &QString) {
-        eprintln!("not yet ported: removeExtraMount");
-    }
-    pub fn validate_extra_mount_candidate(&self, _raw_path: &QString) -> QString {
-        eprintln!("not yet ported: validateExtraMountCandidate");
-        QString::default()
     }
     pub fn update_environment_resources(
         self: Pin<&mut Self>,
@@ -1789,10 +1785,6 @@ impl qobject::Backend {
     }
     pub fn copy_ai_command(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: copyAiCommand");
-    }
-    pub fn paste_image_to_workspace(self: Pin<&mut Self>, _name: &QString) -> QString {
-        eprintln!("not yet ported: pasteImageToWorkspace");
-        QString::default()
     }
     pub fn pool_warning_for_create(&self, _disk_spec: &QString) -> QString {
         eprintln!("not yet ported: poolWarningForCreate");
@@ -1857,6 +1849,34 @@ impl qobject::Backend {
     pub fn remove_os_image(self: Pin<&mut Self>, _os_id: &QString) {
         eprintln!("not yet ported: removeOsImage");
     }
+}
+
+pub(crate) fn spawn_detached(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&str>,
+) -> Result<u32, String> {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        if !dir.is_empty() {
+            cmd.current_dir(dir);
+        }
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // SAFETY: `setsid()` is async-signal-safe and detaches the child into its own session.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    cmd.spawn()
+        .map(|child| child.id())
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn find_executable(name: &str) -> Option<String> {
