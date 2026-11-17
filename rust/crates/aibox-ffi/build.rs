@@ -5,6 +5,7 @@ fn main() {
         "src/health.rs",
         "src/history.rs",
         "src/i18n.rs",
+        "src/incus.rs",
         "src/meta.rs",
         "src/network.rs",
         "src/provision.rs",

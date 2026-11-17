@@ -13,6 +13,8 @@
 #include <QVariantMap>
 #include <functional>
 
+#include "aibox-ffi/src/incus.rs.h"
+
 class QImage;
 
 class Backend : public QObject {
@@ -782,7 +784,7 @@ private:
     QString m_egressLogsEnvName;
     QHash<QString, QDateTime> m_lastAutoSnapAttempt;
     QByteArray m_lastImagesJson;
-    QHash<QString, qint64> m_lastCpuUsageNs;
+    rust::Box<aibox::ffi::CounterStateHandle> m_counterState;
     QElapsedTimer m_cpuSampleTimer;
     QProcess *m_refreshProcess = nullptr;
     QTimer m_pollTimer;
@@ -811,7 +813,6 @@ private:
     int m_lastPoolUnboundedCount = 0;
     QByteArray m_lastListJson;
     bool m_demoMode = false;
-    QHash<QString, QPair<qint64, qint64>> m_lastNetCounters;
     QProcess *m_enterPrepareProcess = nullptr;
     QProcess *m_enterSecretProcess = nullptr;
     QString m_enterEnvName;

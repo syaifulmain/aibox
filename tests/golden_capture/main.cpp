@@ -8,6 +8,7 @@
 #include <QLocale>
 #include <QSaveFile>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTextStream>
 
 #include "backend.h"
@@ -3288,6 +3289,255 @@ static QByteArray captureProvision() {
 
     return out;
 }
+
+static QByteArray captureIncus() {
+    QByteArray out;
+
+    // 1. parseIncusListJson: running container with ai-gui, snapshots, port forwards, extra mounts, and legacy /workspace
+    {
+        const QByteArray sampleJson = R"json([
+            {
+                "name": "box-run",
+                "status": "Running",
+                "type": "container",
+                "profiles": ["default", "ai-gui"],
+                "config": {
+                    "image.description": "Ubuntu noble amd64 (20261110)",
+                    "limits.cpu": "4",
+                    "limits.memory": "6GiB",
+                    "limits.processes": "512",
+                    "volatile.eth0.host_name": "veth-anon1",
+                    "user.aibox.autosnap": "true",
+                    "user.aibox.autostop": "false",
+                    "user.aibox.idlestop": "30",
+                    "user.aibox.idlestop_ports": "true",
+                    "user.aibox.record": "true",
+                    "user.aibox.lastused": "1794400000",
+                    "user.aibox.secrets": "ANTHROPIC_API_KEY, GITHUB_TOKEN",
+                    "user.aibox.egresslog": "true"
+                },
+                "devices": {
+                    "root": { "type": "disk", "path": "/", "size": "35GiB", "limits.read": "200MB", "limits.write": "150MB" },
+                    "workspace": { "type": "disk", "source": "/tmp/aibox-golden-ws/box-run", "path": "/workspace" },
+                    "fwd-3000": { "type": "proxy", "listen": "tcp:127.0.0.1:3000", "connect": "tcp:127.0.0.1:8000" },
+                    "mnt-data": { "type": "disk", "source": "/tmp/aibox-golden-data", "path": "/mnt/data", "readonly": "true" }
+                },
+                "state": {
+                    "disk": { "root": { "usage": 10737418240, "total": 37580963840 } },
+                    "memory": { "usage": 524288000, "total": 6442450944 },
+                    "cpu": { "usage": 8000000000 },
+                    "network": {
+                        "lo": {
+                            "addresses": [ { "family": "inet", "scope": "host", "address": "127.0.0.1" } ],
+                            "counters": { "bytes_received": 999, "bytes_sent": 999 }
+                        },
+                        "eth0": {
+                            "addresses": [ { "family": "inet", "scope": "global", "address": "10.143.44.55" } ],
+                            "counters": { "bytes_received": 1048576, "bytes_sent": 524288 }
+                        }
+                    }
+                },
+                "snapshots": [
+                    { "name": "snap-initial", "size": 440401920 },
+                    { "name": "auto-20261113-090000", "size": 193986560 }
+                ]
+            },
+            {
+                "name": "vm-tpl",
+                "status": "Stopped",
+                "type": "virtual-machine",
+                "config": {
+                    "image.os": "Arch Linux",
+                    "image.release": "rolling",
+                    "limits.cpu": "2",
+                    "limits.memory": "8GiB",
+                    "user.aibox.template": "true",
+                    "user.aibox.autosnap": "false",
+                    "user.aibox.netmode": "allowlist",
+                    "user.aibox.netallow": "github.com, 1.1.1.1"
+                },
+                "devices": {
+                    "eth0": { "type": "nic", "security.acls": "aibox-vm-tpl" }
+                },
+                "expanded_devices": {
+                    "root": { "size": "Shared" },
+                    "workspace": { "type": "disk", "source": "/tmp/aibox-golden-ws/custom-vm", "path": "/home/user/workspace" }
+                },
+                "snapshots": [
+                    { "name": "base" }
+                ]
+            },
+            {
+                "name": "airgap-box",
+                "status": "Running",
+                "type": "container",
+                "config": {
+                    "limits.cpu": "0,2-3"
+                },
+                "devices": {
+                    "eth0": { "type": "none" }
+                }
+            }
+        ])json";
+
+        QHash<QString, qint64> cpuSamples;
+        cpuSamples.insert(QStringLiteral("box-run"), 4000000000LL);
+        QHash<QString, QPair<qint64, qint64>> netSamples;
+        netSamples.insert(QStringLiteral("box-run"), qMakePair(qint64(1046528), qint64(523264)));
+
+        const QVariantList envs = Backend::parseIncusListJson(
+            sampleJson, QStringLiteral("/tmp/aibox-golden-ws"),
+            &cpuSamples, 2000000000LL, true, false, false, &netSamples);
+
+        QJsonObject outObj;
+        outObj.insert(QStringLiteral("envs"), QJsonValue::fromVariant(envs));
+        outObj.insert(QStringLiteral("cpuSnapshotBoxRun"), static_cast<double>(cpuSamples.value(QStringLiteral("box-run"))));
+        outObj.insert(QStringLiteral("netSnapshotRx"), static_cast<double>(netSamples.value(QStringLiteral("box-run")).first));
+        outObj.insert(QStringLiteral("netSnapshotTx"), static_cast<double>(netSamples.value(QStringLiteral("box-run")).second));
+
+        out += jsonLine(QStringLiteral("Backend::parseIncusListJson"),
+                        QStringLiteral("mixed_samples_and_counters"),
+                        QJsonObject{{QStringLiteral("json"), QString::fromUtf8(sampleJson)},
+                                    {QStringLiteral("workspaceBase"), QStringLiteral("/tmp/aibox-golden-ws")},
+                                    {QStringLiteral("prevCpuNs"), 4000000000.0},
+                                    {QStringLiteral("elapsedWallNs"), 2000000000.0},
+                                    {QStringLiteral("prevNetRx"), 1046528.0},
+                                    {QStringLiteral("prevNetTx"), 523264.0},
+                                    {QStringLiteral("defaultAutoSnapshot"), true},
+                                    {QStringLiteral("defaultAutoStop"), false},
+                                    {QStringLiteral("defaultRecordSessions"), false}},
+                        outObj);
+    }
+
+    // 2. Two consecutive network counter samples
+    {
+        auto makeNetJson = [](qint64 rx, qint64 tx) {
+            return QStringLiteral(R"json([
+                {
+                    "name": "net-box",
+                    "status": "Running",
+                    "type": "container",
+                    "config": { "limits.cpu": "2" },
+                    "state": {
+                        "network": {
+                            "eth0": {
+                                "addresses": [ { "family": "inet", "scope": "global", "address": "10.1.2.3" } ],
+                                "counters": { "bytes_received": %1, "bytes_sent": %2 }
+                            }
+                        }
+                    }
+                }
+            ])json").arg(rx).arg(tx).toUtf8();
+        };
+        const QByteArray sample1 = makeNetJson(1048576, 524288);
+        const QByteArray sample2 = makeNetJson(1050624, 525312);
+        QHash<QString, QPair<qint64, qint64>> counters;
+        const QVariantList first = Backend::parseIncusListJson(
+            sample1, QStringLiteral("/tmp/aibox-golden-ws"), nullptr, 2000000000LL, true, false, false, &counters);
+        const QVariantList second = Backend::parseIncusListJson(
+            sample2, QStringLiteral("/tmp/aibox-golden-ws"), nullptr, 2000000000LL, true, false, false, &counters);
+
+        out += jsonLine(QStringLiteral("Backend::parseIncusListJson"),
+                        QStringLiteral("two_consecutive_network_samples"),
+                        QJsonObject{{QStringLiteral("sample1"), QString::fromUtf8(sample1)},
+                                    {QStringLiteral("sample2"), QString::fromUtf8(sample2)},
+                                    {QStringLiteral("workspaceBase"), QStringLiteral("/tmp/aibox-golden-ws")},
+                                    {QStringLiteral("elapsedWallNs"), 2000000000.0}},
+                        QJsonObject{{QStringLiteral("first"), QJsonValue::fromVariant(first)},
+                                    {QStringLiteral("second"), QJsonValue::fromVariant(second)}});
+    }
+
+    // 3. buildOsCatalog & catalogForEntries
+    {
+        const QByteArray imagesJson = R"([
+            {
+                "size": 146800640,
+                "aliases": [ { "name": "aibox-ubuntu-24.04" } ]
+            }
+        ])";
+        out += jsonLine(QStringLiteral("Backend::buildOsCatalog"),
+                        QStringLiteral("one_cached_and_one_downloading"),
+                        QJsonObject{{QStringLiteral("imagesJson"), QString::fromUtf8(imagesJson)},
+                                    {QStringLiteral("downloadingId"), QStringLiteral("arch")}},
+                        QJsonValue::fromVariant(Backend::buildOsCatalog(imagesJson, QStringLiteral("arch"))));
+
+        const QString cachePath = QStringLiteral("/tmp/aibox-golden-os-cache");
+        QDir(cachePath).removeRecursively();
+        QDir().mkpath(cachePath);
+        {
+            QFile f1(cachePath + QStringLiteral("/cached-os"));
+            if (f1.open(QIODevice::WriteOnly)) f1.write("metadata");
+            QFile f2(cachePath + QStringLiteral("/cached-os.root"));
+            if (f2.open(QIODevice::WriteOnly)) f2.write("rootfs");
+        }
+        const QVariantList customEntries = {
+            QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("cached-os")},
+                {QStringLiteral("alias"), QStringLiteral("cached/os")},
+                {QStringLiteral("name"), QStringLiteral("Cached OS")},
+                {QStringLiteral("badge"), QStringLiteral("Test")},
+                {QStringLiteral("description"), QStringLiteral("Saved locally")}
+            },
+            QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("uncached-os")},
+                {QStringLiteral("alias"), QStringLiteral("uncached/os")},
+                {QStringLiteral("name"), QStringLiteral("Uncached OS")},
+                {QStringLiteral("badge"), QStringLiteral("Test")},
+                {QStringLiteral("description"), QStringLiteral("Not saved")}
+            }
+        };
+        out += jsonLine(QStringLiteral("Backend::catalogForEntries"),
+                        QStringLiteral("saved_on_disk_and_uncached"),
+                        QJsonObject{{QStringLiteral("entries"), QJsonValue::fromVariant(customEntries)},
+                                    {QStringLiteral("imagesJson"), QStringLiteral("[]")},
+                                    {QStringLiteral("downloadingId"), QString()},
+                                    {QStringLiteral("storagePath"), cachePath}},
+                        QJsonValue::fromVariant(Backend::catalogForEntries(
+                            customEntries, QByteArrayLiteral("[]"), QString(), cachePath)));
+        QDir(cachePath).removeRecursively();
+    }
+
+    // 4. loadDemoData
+    {
+        QTemporaryDir demoTmp;
+        const QByteArray oldDemo = qgetenv("AIBOX_DEMO_MODE");
+        const QByteArray oldSecrets = qgetenv("AIBOX_SECRETS_PATH");
+        const QByteArray oldLocation = qgetenv("AIBOX_LOCATION_FILE");
+        qputenv("AIBOX_DEMO_MODE", "1");
+        qputenv("AIBOX_SECRETS_PATH", (demoTmp.path() + QStringLiteral("/secrets.json")).toUtf8());
+        qputenv("AIBOX_LOCATION_FILE", (demoTmp.path() + QStringLiteral("/location.json")).toUtf8());
+
+        Backend demoBe;
+        const qint64 nowEpoch = QDateTime::currentSecsSinceEpoch();
+        QJsonArray envsArr = QJsonValue::fromVariant(demoBe.environments()).toArray();
+        for (int i = 0; i < envsArr.size(); ++i) {
+            QJsonObject obj = envsArr.at(i).toObject();
+            if (obj.contains(QStringLiteral("lastUsedEpoch"))) {
+                const qint64 ep = static_cast<qint64>(obj.value(QStringLiteral("lastUsedEpoch")).toDouble());
+                const qint64 daysAgo = qRound64(static_cast<double>(nowEpoch - ep) / 86400.0);
+                obj.insert(QStringLiteral("lastUsedEpoch"), QStringLiteral("<DAYS_AGO:%1>").arg(daysAgo));
+            }
+            envsArr[i] = obj;
+        }
+        QJsonObject demoOut;
+        demoOut.insert(QStringLiteral("environments"), envsArr);
+        demoOut.insert(QStringLiteral("operationHistory"), QJsonValue::fromVariant(demoBe.operationHistory()));
+        demoOut.insert(QStringLiteral("poolInfo"), QJsonValue::fromVariant(demoBe.poolInfo()));
+        demoOut.insert(QStringLiteral("recordedSessions"), QJsonValue::fromVariant(demoBe.recordedSessions()));
+        demoOut.insert(QStringLiteral("templateCount"), static_cast<int>(demoBe.templates().size()));
+
+        if (oldDemo.isEmpty()) qunsetenv("AIBOX_DEMO_MODE"); else qputenv("AIBOX_DEMO_MODE", oldDemo);
+        if (oldSecrets.isEmpty()) qunsetenv("AIBOX_SECRETS_PATH"); else qputenv("AIBOX_SECRETS_PATH", oldSecrets);
+        if (oldLocation.isEmpty()) qunsetenv("AIBOX_LOCATION_FILE"); else qputenv("AIBOX_LOCATION_FILE", oldLocation);
+
+        out += jsonLine(QStringLiteral("Backend::loadDemoData"),
+                        QStringLiteral("default_demo_state"),
+                        QJsonObject{{QStringLiteral("recordSessions"), false}},
+                        demoOut);
+    }
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -3328,6 +3578,7 @@ int main(int argc, char *argv[]) {
         {"backup", &GoldenCapture::captureBackup},
         {"health", &GoldenCapture::captureHealth},
         {"provision", &GoldenCapture::captureProvision},
+        {"incus", &GoldenCapture::captureIncus},
     };
 
     bool matched = onlyModule.isEmpty();

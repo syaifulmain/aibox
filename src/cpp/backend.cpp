@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "backend_helpers.h"
+#include "rust_bridge.h"
 #include "aibox-ffi/src/config.rs.h"
 
 #include <QClipboard>
@@ -27,6 +28,7 @@ Backend::Backend(const QString &path, PathMode mode, QObject *parent)
     : QObject(parent),
       m_pathMode(mode),
       m_rememberSystemLocation(path.trimmed().isEmpty()),
+      m_counterState(aibox::ffi::new_counter_state()),
       m_demoMode(qEnvironmentVariableIntValue("AIBOX_DEMO_MODE") == 1) {
     if (mode == PathMode::ProjectDir) {
         const QString aiboxDir = resolveProjectAiboxDir(path);
@@ -491,68 +493,33 @@ QString Backend::resolveWorkspacePath(const QString &rawParent, const QString &e
 
 QVariantList Backend::catalogForEntries(const QVariantList &entries, const QByteArray &imagesJson,
                                         const QString &downloadingId, const QString &storagePath) {
-    QHash<QString, qint64> cachedAliases;
-    const auto doc = QJsonDocument::fromJson(imagesJson);
-    if (doc.isArray()) {
-        for (const auto &val : doc.array()) {
-            const QJsonObject img = val.toObject();
-            const qint64 size = img.value("size").toVariant().toLongLong();
-            for (const auto &aliasVal : img.value("aliases").toArray()) {
-                const QString aliasName = aliasVal.toObject().value("name").toString();
-                if (!aliasName.isEmpty())
-                    cachedAliases.insert(aliasName, size);
-            }
-            const QJsonObject props = img.value("properties").toObject();
-            const QString os = props.value("os").toString().toLower();
-            const QString rel = props.value("release").toString().toLower();
-            if (!os.isEmpty())
-                cachedAliases.insert(os + "/" + rel, size);
-        }
-    }
-
-    QVariantList list;
+    std::vector<aibox::ffi::OsEntryFullFfi> rustEntries;
+    rustEntries.reserve(entries.size());
     for (const auto &value : entries) {
         const QVariantMap entry = value.toMap();
-        const QString id = entry.value("id").toString();
-        if (id.isEmpty())
-            continue;
-
-        const QString localAlias = QStringLiteral("aibox-") + id;
-        const bool inIncus = cachedAliases.contains(localAlias);
-        qint64 sizeBytes = cachedAliases.value(localAlias, 0);
-
-        bool savedOnDisk = false;
-        if (!storagePath.isEmpty()) {
-            const QFileInfo metadata(storagePath + "/" + id);
-            const QFileInfo rootfs(storagePath + "/" + id + ".root");
-            savedOnDisk = metadata.isFile() && metadata.size() > 0 && rootfs.isFile() && rootfs.size() > 0;
-            if (!inIncus && savedOnDisk)
-                sizeBytes = metadata.size() + rootfs.size();
-        }
-
-        const bool downloaded = inIncus || savedOnDisk;
-        QString cacheText = QStringLiteral("Not Cached");
-        if (inIncus)
-            cacheText = QStringLiteral("Cached · %1").arg(formatBytes(sizeBytes));
-        else if (savedOnDisk)
-            cacheText = QStringLiteral("Saved · %1").arg(formatBytes(sizeBytes));
-
-        QVariantMap item;
-        item["id"] = id;
-        item["alias"] = entry.value("alias").toString();
-        item["name"] = entry.value("name").toString();
-        item["badge"] = entry.value("badge").toString();
-        item["description"] = entry.value("description").toString();
-        item["downloaded"] = downloaded;
-        item["downloading"] = (id == downloadingId);
-        item["sizeText"] = cacheText;
-        list.append(item);
+        rustEntries.push_back({
+            aibox::ffi::toRust(entry.value("id").toString()),
+            aibox::ffi::toRust(entry.value("alias").toString()),
+            aibox::ffi::toRust(entry.value("name").toString()),
+            aibox::ffi::toRust(entry.value("badge").toString()),
+            aibox::ffi::toRust(entry.value("description").toString()),
+        });
     }
-    return list;
+    const rust::String outJson = aibox::ffi::catalog_for_entries_json(
+        rust::Slice<const aibox::ffi::OsEntryFullFfi>(rustEntries.data(), rustEntries.size()),
+        rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(imagesJson.constData()),
+                                   static_cast<size_t>(imagesJson.size())),
+        aibox::ffi::toRust(downloadingId),
+        aibox::ffi::toRust(storagePath));
+    return aibox::ffi::fromRustJson(outJson).toList();
 }
 
 QVariantList Backend::buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId) {
-    return catalogForEntries(defaultOsEntries(), imagesJson, downloadingId, {});
+    const rust::String outJson = aibox::ffi::build_os_catalog_json(
+        rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(imagesJson.constData()),
+                                   static_cast<size_t>(imagesJson.size())),
+        aibox::ffi::toRust(downloadingId));
+    return aibox::ffi::fromRustJson(outJson).toList();
 }
 
 void Backend::refresh() {
@@ -583,9 +550,17 @@ void Backend::refresh() {
             const qint64 elapsedWallNs = m_cpuSampleTimer.isValid() ? m_cpuSampleTimer.nsecsElapsed() : 0;
             m_cpuSampleTimer.start();
 
-            QVariantList newEnvs = parseIncusListJson(listJson, m_workspaceBase, &m_lastCpuUsageNs, elapsedWallNs,
-                                                      m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions,
-                                                      &m_lastNetCounters);
+            const rust::String envsJson = aibox::ffi::parse_incus_list_with_state(
+                *m_counterState,
+                rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(listJson.constData()),
+                                           static_cast<size_t>(listJson.size())),
+                aibox::ffi::toRust(m_workspaceBase),
+                elapsedWallNs,
+                m_autoSnapshotEnabled,
+                m_watchdogAutoStop,
+                m_recordSessions,
+                true);
+            QVariantList newEnvs = aibox::ffi::fromRustJson(envsJson).toList();
             applyCachedSnapshotSizes(newEnvs);
             applyFileAccessState(newEnvs);
             for (int i = 0; i < newEnvs.size(); ++i) {
