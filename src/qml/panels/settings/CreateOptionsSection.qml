@@ -7,6 +7,10 @@ ColumnLayout {
     id: root
     property QtObject app: null
 
+    readonly property int badgeWidth: 78
+    readonly property int actionWidth: 66
+    readonly property int labelWidth: 120
+
     Layout.fillWidth: true
     spacing: Style.space12
 
@@ -14,93 +18,143 @@ ColumnLayout {
         app.syncCreateChoiceDrafts()
     }
 
-    Text {
-        text: qsTr("Capability presets")
-        color: theme.foreground
-        font.family: Style.fontSans
-        font.pixelSize: Style.font12
-        font.weight: Font.Medium
-    }
-
-    Text {
+    // Preset titles and subtitles
+    Rectangle {
         Layout.fillWidth: true
-        text: qsTr("These cards appear above the distribution list. Their behavior stays the same; edit the title and subtitle.")
-        color: theme.muted
-        font.family: Style.fontSans
-        font.pixelSize: Style.font10
-        wrapMode: Text.WordWrap
-    }
+        Layout.preferredHeight: presetCardCol.implicitHeight + Style.cardPadding * 2
+        radius: Math.min(Style.radius6, theme.radius)
+        color: Style.surfaceInput
+        border.width: Style.hairline
+        border.color: Style.borderSubtle
 
-    Repeater {
-        model: backend.presets
+        ColumnLayout {
+            id: presetCardCol
+            anchors.fill: parent
+            anchors.margins: Style.cardPadding
+            spacing: Style.space10
 
-        delegate: Rectangle {
-            required property var modelData
-            Layout.fillWidth: true
-            height: 84
-            radius: Math.min(Style.radius6, theme.radius)
-            color: Style.surfaceInput
-            border.width: Style.hairline
-            border.color: Style.borderSubtle
+            Text {
+                text: qsTr("Capability presets")
+                color: theme.foreground
+                font.family: Style.fontSans
+                font.pixelSize: Style.font12
+                font.weight: Font.Medium
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("These cards appear above the distribution list. Their behavior stays the same; edit the title and subtitle.")
+                color: theme.muted
+                font.family: Style.fontSans
+                font.pixelSize: Style.font10
+                wrapMode: Text.WordWrap
+            }
 
             RowLayout {
-                anchors.fill: parent
-                anchors.margins: Style.space12
+                Layout.fillWidth: true
                 spacing: Style.space10
 
                 Text {
-                    Layout.preferredWidth: 58
-                    text: modelData.id
-                    color: theme.accent
-                    font.family: Style.fontMono
+                    Layout.preferredWidth: root.badgeWidth
+                    Layout.alignment: Qt.AlignVCenter
+                    text: qsTr("Preset")
+                    color: theme.muted
+                    font.family: Style.fontSans
                     font.pixelSize: Style.font9
-                    elide: Text.ElideRight
                 }
-
-                ColumnLayout {
+                Text {
                     Layout.fillWidth: true
-                    spacing: Style.space3
-
-                    Text {
-                        text: qsTr("Title")
-                        color: theme.muted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font9
-                    }
-                    FlatInput {
-                        id: presetTitleField
-                        Layout.fillWidth: true
-                        text: modelData.title
-                    }
+                    Layout.alignment: Qt.AlignVCenter
+                    text: qsTr("Title")
+                    color: theme.muted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.font9
                 }
-
-                ColumnLayout {
+                Text {
                     Layout.fillWidth: true
-                    spacing: Style.space3
-
-                    Text {
-                        text: qsTr("Subtitle")
-                        color: theme.muted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font9
-                    }
-                    FlatInput {
-                        id: presetSubField
-                        Layout.fillWidth: true
-                        text: modelData.sub
-                    }
+                    Layout.alignment: Qt.AlignVCenter
+                    text: qsTr("Subtitle")
+                    color: theme.muted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.font9
                 }
+                Item {
+                    Layout.preferredWidth: root.actionWidth
+                }
+            }
 
-                ActionButton {
-                    Layout.alignment: Qt.AlignBottom
-                    label: qsTr("Save")
-                    minWidth: 66
-                    onClicked: {
-                        const error = backend.savePreset(modelData.id, presetTitleField.text, presetSubField.text)
-                        if (error.length > 0)
-                            app.showConfigNotice(error, true)
-                        else
-                            app.showConfigNotice(qsTr("Preset saved."), false)
+            Repeater {
+                model: backend.presets
+
+                delegate: ColumnLayout {
+                    required property var modelData
+                    required property int index
+
+                    Layout.fillWidth: true
+                    spacing: Style.space10
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        visible: index > 0
+                        height: Style.hairline
+                        color: Style.borderSubtle
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.space10
+
+                        Rectangle {
+                            Layout.preferredWidth: root.badgeWidth
+                            Layout.preferredHeight: Style.controlHeightSm
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: Math.min(Style.radius4, theme.radius)
+                            color: Style.surfaceSelected
+                            border.width: Style.hairline
+                            border.color: Style.borderSubtle
+
+                            Text {
+                                anchors.fill: parent
+                                anchors.leftMargin: Style.space8
+                                anchors.rightMargin: Style.space8
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                text: modelData.id
+                                color: theme.accent
+                                font.family: Style.fontMono
+                                font.pixelSize: Style.font9
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        FlatInput {
+                            id: presetTitleField
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            text: modelData.title
+                            placeholder: qsTr("Title")
+                        }
+
+                        FlatInput {
+                            id: presetSubField
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            text: modelData.sub
+                            placeholder: qsTr("Subtitle")
+                        }
+
+                        ActionButton {
+                            Layout.preferredWidth: root.actionWidth
+                            Layout.alignment: Qt.AlignVCenter
+                            label: qsTr("Save")
+                            onClicked: {
+                                const error = backend.savePreset(modelData.id, presetTitleField.text, presetSubField.text)
+                                if (error.length > 0)
+                                    app.showConfigNotice(error, true)
+                                else
+                                    app.showConfigNotice(qsTr("Preset saved."), false)
+                            }
+                        }
                     }
                 }
             }
@@ -120,7 +174,7 @@ ColumnLayout {
             id: quotaCardCol
             anchors.fill: parent
             anchors.margins: Style.cardPadding
-            spacing: Style.space6
+            spacing: Style.space10
 
             Text {
                 text: qsTr("Quota and core choices")
@@ -143,7 +197,7 @@ ColumnLayout {
                 spacing: Style.space10
 
                 Text {
-                    Layout.preferredWidth: 120
+                    Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Disk quota")
                     color: theme.foreground
@@ -159,7 +213,6 @@ ColumnLayout {
                     maxChips: 4
                     maxValue: 65536
                     placeholder: qsTr("Type a size, then Enter")
-                    fullHint: qsTr("Limit 4 — remove one first")
                     onAddRequested: function (value) {
                         app.updateCreateChoices("disk", app.diskChoiceDraft.concat([value]))
                     }
@@ -176,7 +229,7 @@ ColumnLayout {
                 spacing: Style.space10
 
                 Text {
-                    Layout.preferredWidth: 120
+                    Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("RAM limit")
                     color: theme.foreground
@@ -192,7 +245,6 @@ ColumnLayout {
                     maxChips: 4
                     maxValue: 65536
                     placeholder: qsTr("Type a size, then Enter")
-                    fullHint: qsTr("Limit 4 — remove one first")
                     onAddRequested: function (value) {
                         app.updateCreateChoices("ram", app.ramChoiceDraft.concat([value]))
                     }
@@ -209,7 +261,7 @@ ColumnLayout {
                 spacing: Style.space10
 
                 Text {
-                    Layout.preferredWidth: 120
+                    Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("CPU cores")
                     color: theme.foreground
@@ -224,7 +276,6 @@ ColumnLayout {
                     maxChips: 4
                     maxValue: 1024
                     placeholder: qsTr("Type cores, then Enter")
-                    fullHint: qsTr("Limit 4 — remove one first")
                     onAddRequested: function (value) {
                         app.updateCreateChoices("cpu", app.cpuChoiceDraft.concat([value]))
                     }
@@ -235,26 +286,13 @@ ColumnLayout {
                     }
                 }
             }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-                Item { Layout.fillWidth: true }
-
-                ActionButton {
-                    label: qsTr("Save Options")
-                    variant: "primary"
-                    minWidth: 130
-                    onClicked: app.saveQuotaOptions()
-                }
-            }
         }
     }
 
     RowLayout {
         Layout.fillWidth: true
+        Layout.topMargin: Style.space2
         spacing: Style.space10
-        Item { Layout.fillWidth: true }
 
         ActionButton {
             label: qsTr("Restore Create Defaults")
@@ -268,6 +306,15 @@ ColumnLayout {
                     app.showConfigNotice(qsTr("Create options restored."), false)
                 }
             }
+        }
+
+        Item { Layout.fillWidth: true }
+
+        ActionButton {
+            label: qsTr("Save Options")
+            variant: "primary"
+            minWidth: 130
+            onClicked: app.saveQuotaOptions()
         }
     }
 }

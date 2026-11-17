@@ -1,6 +1,6 @@
 import QtQuick
 
-// Compact selectable chip used for quota, network and provisioning choices.
+// Compact selectable chip used for quota and network choices.
 Rectangle {
     id: root
     property string text: ""

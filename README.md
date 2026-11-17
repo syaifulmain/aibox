@@ -19,7 +19,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 - Clone environments in seconds with isolated workspaces and mark environments as reusable templates.
 - Control per-environment network access (`Online`, IP-based `Allowlist` via Incus Network ACLs, or `Offline` kill switch), record outbound connections via **Egress Log**, and allow destinations with one click.
 - Enforce per-container process caps (`limits.processes`) and root disk I/O bandwidth limits (`limits.read` / `limits.write`), edit CPU/RAM/disk/I/O quotas on existing environments (`E`), monitor storage pool capacity with overcommit warnings in **Create** / **Quotas** and `aibox check` (`pool_capacity`), grow loop-file backed pools from **Settings → Storage Pool** (grow-only, validated and confirmed, hides the control for directory-backed pools), monitor disk/CPU/RAM thresholds with a debounced desktop watchdog + opt-in critical auto-stop, optionally auto-stop idle environments while the GUI is running (`idleStopMinutes`, per-env `user.aibox.idlestop`, active `incus exec` / port-forward guards, 1-min desktop warning, auto-snapshot before stop), and view per-snapshot disk sizes.
-- Forward container ports safely to `127.0.0.1` (**Ports**), attach read-only extra host folders under `/home/workspace/<name>` with system/sensitive path protection (**Extra Mounts**), and run optional provisioning presets (`Dev Essentials`, `Node.js`, `Python 3`, `Rust`) on Debian, Ubuntu, and Arch environments.
+- Forward container ports safely to `127.0.0.1` (**Ports**), attach read-only extra host folders under `/home/workspace/<name>` with system/sensitive path protection (**Extra Mounts**), and edit CPU/RAM/disk/I/O quotas on existing environments.
 - Inspect the last 50 background operations and tail-capped logs in the **Operation History** viewer (`H`), plus opt-in interactive **Session Recording** (`script -q -f`, `user.aibox.record`, automatic S3 secret redaction, 20-per-env / 200 MB retention, ANSI-stripped 200 KB log viewer, and `scriptreplay` terminal replay) under **History (`H`) → Sessions**. The `History (N!)` failure badge clears as soon as the viewer is opened, without deleting any entries.
 - Export environments and `/home/workspace` directories to compressed archives with pre-flight free-space checks, import backups into new isolated environments (`B`), audit unused environments (`staleDays`) alongside orphaned workspaces, snapshots, and unpaired backups with verified **Export & Wipe** (`U`); orphan cleanup falls back to **Delete as admin** (terminal `sudo`) when container-written files are root-owned, the error banner offers a **Copy Fix** button for the exact admin command, and host setup issues are diagnosed/repaired with `aibox check --fix`.
 - Follow the active Omarchy theme.
@@ -105,7 +105,7 @@ Source layout:
 - `src/cpp/` holds the C++ sources. The `Backend` class is declared once in
   `backend.h` and implemented across feature modules named `backend_*.cpp`
   (environments, network, snapshots, secrets, sessions, backups, workspace,
-  health, provisioning).
+  health).
 - `src/qml/` holds the interface: `Main.qml` is the window shell, with reusable
   controls in `components/`, modal overlays in `dialogs/`, and layout sections
   in `panels/` (configuration sections live in `panels/settings/`).

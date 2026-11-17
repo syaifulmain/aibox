@@ -479,57 +479,6 @@ ModalDialog {
                 }
             }
 
-            // Provisioning presets (Ubuntu / Debian / Arch)
-            ColumnLayout {
-                visible: !app.createFromTemplate
-                         && (app.newEnvOsId.indexOf("ubuntu") >= 0
-                             || app.newEnvOsId.indexOf("debian") >= 0
-                             || app.newEnvOsId.indexOf("arch") >= 0)
-                Layout.fillWidth: true
-                spacing: Style.space6
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Text {
-                        text: qsTr("Provisioning Presets (Optional)")
-                        color: theme.foreground
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font12
-                        font.weight: Font.Medium
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Text {
-                        text: qsTr("Runs via incus exec after boot (non-fatal)")
-                        color: theme.muted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space8
-
-                    Repeater {
-                        model: backend.provisionBundles
-                        delegate: SelectChip {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            Layout.preferredWidth: 0
-                            selected: app.newEnvProvisionBundles.indexOf(modelData.id) >= 0
-                            text: (selected ? "✓ " : "") + modelData.title
-                            mono: false
-                            selectedTextColor: theme.foreground
-                            mediumWhenSelected: true
-                            onClicked: app.toggleProvisionBundle(modelData.id)
-                        }
-                    }
-                }
-            }
-
             // Storage pool overcommit warning (non-blocking)
             Rectangle {
                 readonly property string warnMsg: app.createVisible ? backend.poolWarningForCreate(app.newEnvDisk) : ""
@@ -566,12 +515,6 @@ ModalDialog {
         Item { Layout.fillWidth: true }
 
         ActionButton {
-            label: qsTr("Cancel")
-            minWidth: 96
-            onClicked: app.createVisible = false
-        }
-
-        ActionButton {
             label: app.createFromTemplate ? qsTr("Create from Template") : qsTr("Create Environment")
             variant: "primary"
             minWidth: 165
@@ -586,7 +529,7 @@ ModalDialog {
                     backend.createEnvironment(app.newEnvName, app.newEnvOsId, app.newEnvPreset,
                                               app.newEnvDisk, app.newEnvRam, app.newEnvCpu,
                                               app.newEnvProcLimit, app.newEnvIoLimit,
-                                              app.newEnvProvisionBundles, app.newEnvSharedPath)
+                                              app.newEnvSharedPath)
                 }
             }
         }

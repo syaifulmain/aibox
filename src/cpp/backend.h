@@ -70,7 +70,6 @@ class Backend : public QObject {
     Q_PROPERTY(int recentFailedHistoryCount READ recentFailedHistoryCount NOTIFY operationHistoryChanged)
     Q_PROPERTY(QVariantList egressLogs READ egressLogs NOTIFY egressLogsChanged)
     Q_PROPERTY(QString egressLogsEnvName READ egressLogsEnvName NOTIFY egressLogsChanged)
-    Q_PROPERTY(QVariantList provisionBundles READ provisionBundles CONSTANT)
     Q_PROPERTY(QString backupsDirPath READ backupsDirPath NOTIFY osStoragePathChanged)
     Q_PROPERTY(QVariantList backupArchives READ backupArchives NOTIFY backupArchivesChanged)
     Q_PROPERTY(QStringList diffExcludes READ diffExcludes NOTIFY diffExcludesChanged)
@@ -172,8 +171,6 @@ public:
     int recentFailedHistoryCount() const;
     QVariantList egressLogs() const { return m_egressLogs; }
     QString egressLogsEnvName() const { return m_egressLogsEnvName; }
-    QVariantList provisionBundles() const;
-    QString provisionDirPath() const;
     QString backupsDirPath() const;
     QVariantList backupArchives() const { return m_backupArchives; }
     QStringList diffExcludes() const { return m_diffExcludes; }
@@ -202,7 +199,6 @@ public:
     Q_INVOKABLE void createEnvironment(const QString &name, const QString &osId, const QString &preset,
                                        const QString &diskGiB, const QString &ramGiB, int cpuCores,
                                        const QString &processLimit = {}, const QString &ioLimit = {},
-                                       const QStringList &provisionBundleIds = {},
                                        const QString &workspaceParent = {});
     Q_INVOKABLE void enterEnvironment(const QString &name);
     Q_INVOKABLE void openWorkspaceFolder(const QString &name);
@@ -331,7 +327,7 @@ public:
                                            const QString &profileFlags, const QString &ramGiB,
                                            const QString &diskGiB, int cpuCores, bool x11,
                                            const QString &processLimit = {}, const QString &ioLimit = {},
-                                           bool isVm = false, const QString &provisionSnippet = {});
+                                           bool isVm = false);
     static QString cloneEnvironmentScript(const QString &sourceName, const QString &newName,
                                           const QString &workspace, const QString &diskGiB,
                                           const QString &ramGiB, int cpuCores, bool startAfter,
@@ -496,12 +492,6 @@ public:
     static QString updateResourcesScript(const QString &name, int cpuCores, const QString &ramGiB,
                                          const QString &diskGiB, const QString &processLimit,
                                          const QString &ioLimit, bool isVm);
-    static QVariantList defaultProvisionBundles();
-    static QString distroFamilyForOsId(const QString &osId, const QString &osAlias = {});
-    static QString provisionScriptForBundle(const QString &bundleId, const QString &distroFamily,
-                                            const QString &customProvisionDir = {});
-    static QString buildProvisionShellSnippet(const QStringList &bundleIds, const QString &osId,
-                                              const QString &osAlias, const QString &customProvisionDir = {});
 
     // Resilience: Export / Import & Health Check Helpers (R1, R2)
     static bool hasSufficientDiskSpace(qint64 requiredBytes, qint64 availableBytes);
@@ -671,7 +661,6 @@ private:
     void evaluateIdleAutoStops();
     void applyCachedSnapshotSizes(QVariantList &envs) const;
     void refreshSelectedSnapshotSizes();
-    void seedProvisionScripts() const;
 
     void loadConfig();
     bool saveConfig() const;

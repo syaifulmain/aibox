@@ -87,7 +87,6 @@ ApplicationWindow {
     property bool staleConfirmDeleteWs: true
     property string newEnvProcLimit: backend.defaultProcessLimit
     property string newEnvIoLimit: backend.defaultIoLimit
-    property var newEnvProvisionBundles: []
     property bool historyVisible: false
     property string selectedHistoryId: ""
     property string selectedHistoryLog: ""
@@ -279,7 +278,6 @@ ApplicationWindow {
         win.newEnvCpu = backend.defaultCpu
         win.newEnvProcLimit = backend.defaultProcessLimit
         win.newEnvIoLimit = backend.defaultIoLimit
-        win.newEnvProvisionBundles = []
         if (templateName && templateName.length > 0) {
             win.createFromTemplate = true
             win.newEnvTemplateName = templateName
@@ -289,16 +287,6 @@ ApplicationWindow {
         }
         backend.clearError()
         win.createVisible = true
-    }
-
-    function toggleProvisionBundle(bundleId) {
-        var next = win.newEnvProvisionBundles.slice()
-        const idx = next.indexOf(bundleId)
-        if (idx >= 0)
-            next.splice(idx, 1)
-        else
-            next.push(bundleId)
-        win.newEnvProvisionBundles = next
     }
 
     function openPortsDialog() {

@@ -619,7 +619,7 @@ private slots:
         const QString createScript = Backend::createEnvironmentScript(
             QStringLiteral("box"), QStringLiteral("aibox-arch"), QStringLiteral("images:arch"),
             dir.filePath("ws/box"), dir.filePath("cache"), {}, QStringLiteral("4GiB"),
-            QStringLiteral("30GiB"), 2, false, {}, {}, false, {});
+            QStringLiteral("30GiB"), 2, false, {}, {}, false);
         QVERIFY2(createScript.contains("WS_PATH='/home/workspace'"), qPrintable(createScript));
         QVERIFY2(createScript.contains("path=\"$WS_PATH\""), qPrintable(createScript));
 
@@ -946,53 +946,6 @@ private slots:
 
         const QString shrinkReset = Backend::updateResourcesScript("box1", 2, "4GiB", "20GiB", "Unlimited", "", false);
         QVERIFY(shrinkReset.contains("config unset 'box1' limits.processes"));
-    }
-
-    void provisioningBundlesOrderAndNonFatalFailure()
-    {
-        QCOMPARE(Backend::distroFamilyForOsId("ubuntu-24.04", "ubuntu/24.04"), QString("apt"));
-        QCOMPARE(Backend::distroFamilyForOsId("debian-12", "debian/12"), QString("apt"));
-        QCOMPARE(Backend::distroFamilyForOsId("archlinux", "archlinux"), QString("pacman"));
-        QCOMPARE(Backend::distroFamilyForOsId("fedora-41", "fedora/41"), QString());
-
-        QTemporaryDir dir;
-        const QString customDir = dir.filePath("provision");
-        QVERIFY(QDir().mkpath(customDir));
-        write(customDir + "/node.apt.sh", "echo CUSTOM_FAIL_STEP && exit 7\n");
-        write(customDir + "/python.apt.sh", "echo CUSTOM_OK_STEP && exit 0\n");
-
-        const QString snippet = Backend::buildProvisionShellSnippet(
-            {"node", "python"}, "ubuntu-24.04", "ubuntu/24.04", customDir);
-        QVERIFY(snippet.indexOf("__AIBOX_PROV_node_1__") < snippet.indexOf("__AIBOX_PROV_python_2__"));
-
-        const QString stubDir = dir.filePath("bin");
-        QVERIFY(QDir().mkpath(stubDir));
-        const QString logPath = dir.filePath("prov.log");
-        writeExecutable(stubDir + "/incus",
-                        "#!/bin/sh\n"
-                        "if [ \"$1\" = \"exec\" ]; then\n"
-                        "  out=$(sh)\n"
-                        "  rc=$?\n"
-                        "  echo \"$out\" >> \"$AIBOX_PROV_LOG\"\n"
-                        "  exit $rc\n"
-                        "fi\n"
-                        "exit 0\n");
-
-        const QString testScript = QStringLiteral("set -euo pipefail\nNAME=test-box\n") + snippet + QStringLiteral("\necho FINISHED_OK\n");
-        const QString scriptPath = dir.filePath("run_prov.sh");
-        write(scriptPath, testScript.toUtf8());
-
-        QProcess proc;
-        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        env.insert("PATH", stubDir + ":" + env.value("PATH"));
-        env.insert("AIBOX_PROV_LOG", logPath);
-        proc.setProcessEnvironment(env);
-        proc.start(QStringLiteral("/bin/bash"), {scriptPath});
-        QVERIFY(proc.waitForFinished(15000));
-        QCOMPARE(proc.exitCode(), 0);
-        const QString stdoutText = QString::fromUtf8(proc.readAllStandardOutput());
-        QVERIFY(stdoutText.contains("WARN: Bundle node failed"));
-        QVERIFY(stdoutText.contains("FINISHED_OK"));
     }
 
     void parseIncusJsonExtractsPortForwardsAndExtraMounts()

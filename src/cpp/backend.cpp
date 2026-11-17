@@ -105,7 +105,6 @@ Backend::Backend(const QString &path, PathMode mode, QObject *parent)
         QDir().mkpath(m_workspaceBase);
         QDir().mkpath(m_osStoragePath);
         QDir().mkpath(m_stateDir);
-        seedProvisionScripts();
         refreshBackups();
         if (isGuiSession())
             refreshRecordedSessions();

@@ -47,7 +47,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/cpp/backend_backup.cpp](src/cpp/backend_backup.cpp) | Source (C++) | Export/import archives, archive scanning, free-space checks, stale and orphan audits. |
 | [src/cpp/backend_workspace.cpp](src/cpp/backend_workspace.cpp) | Source (C++) | Workspace diff and restore, extra mounts, localhost SFTP root-file access, clipboard image bridge. |
 | [src/cpp/backend_health.cpp](src/cpp/backend_health.cpp) | Source (C++) | Watchdog thresholds and hysteresis, idle auto-stop decisions, storage pool info, `aibox check` health checks. |
-| [src/cpp/backend_provision.cpp](src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, provisioning bundles, image cache handling. |
+| [src/cpp/backend_provision.cpp](src/cpp/backend_provision.cpp) | Source (C++) | OS image download/remove, image cache handling, and live resource quota scripts. |
 | [src/cpp/backend_demo.cpp](src/cpp/backend_demo.cpp) | Source (C++) | Demo data used for previews and screenshots. |
 | [src/cpp/theme.h](src/cpp/theme.h) & [theme.cpp](src/cpp/theme.cpp) | Source (C++) | Live file watcher for Omarchy's active theme (`~/.local/state/omarchy/current/theme/colors.toml`) and Hyprland's window rounding. |
 | [src/cpp/translator.h](src/cpp/translator.h) & [translator.cpp](src/cpp/translator.cpp) | Source (C++) | Live translation loader following `~/.config/omarchy/language`. |
@@ -57,7 +57,7 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 | [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `/usr/bin/aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
-| [tests/aibox_tests.pro](tests/aibox_tests.pro) & [aibox_tests.cpp](tests/aibox_tests.cpp) | Unit Tests | 75 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, provisioning bundles, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), global and environment secret scoping and visibility cleanup, network counter rates, `Theme`, and `Translator`. |
+| [tests/aibox_tests.pro](tests/aibox_tests.pro) & [aibox_tests.cpp](tests/aibox_tests.cpp) | Unit Tests | 74 offscreen Qt Test cases covering Incus JSON parsing, workspace device paths, name sanitization, custom shared-location resolution, first-run/config persistence, storage settings, OS catalog CRUD, OS image cache detection, create-option validation, background task state, Phase 1 (auto-snapshots, templates, allowlists), Phase 2 (watchdog hysteresis, snapshot sizes, runaway limits, egress log parser, operation history), Phase 3 (port forwards, extra mounts, live resource editing, Root Files URL/port selection), Phase 4 (backup archive scanning, disk free-space margin check, export/import round-trip scripts, `aibox check` & `--fix` health checks), global and environment secret scoping and visibility cleanup, network counter rates, `Theme`, and `Translator`. |
 | [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
 | [pkgbuild/aibox.desktop](pkgbuild/aibox.desktop) | Launcher | Desktop entry for the Omarchy App Launcher (`Super + Space`). |
 | [pkgbuild/aibox.svg](pkgbuild/aibox.svg) | Asset | Scalable SVG application icon. |
@@ -71,6 +71,19 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 ---
 
 ## 3. Changelog
+
+### Iteration 54 — Remove Provisioning Presets and Duplicate Cancel
+- **Create dialog (`src/qml/dialogs/CreateDialog.qml`)**: removed the optional **Provisioning Presets** block and its `Cancel` footer button. The header **Close** action remains the single dismissal control, and **Create Environment** stays right-aligned.
+- **Backend (`src/cpp/backend.h`, `backend_env.cpp`, `backend_provision.cpp`, `backend.cpp`, `backend_config.cpp`)**: removed `provisionBundles`, `provisionDirPath`, all provisioning bundle helpers, the create-time provisioning snippet, and the script seeding calls. Create environments no longer run package installation presets after boot.
+- **Window state (`src/qml/Main.qml`)**: removed `newEnvProvisionBundles` and `toggleProvisionBundle`.
+- **Tests (`tests/aibox_tests.cpp`)**: removed the provisioning bundle test and adjusted the create-script signature. `./bin/test` now runs 74 tests.
+- **Docs and translations**: removed provisioning references from `README.md` and unused provisioning strings from `src/i18n/da.json`.
+
+### Iteration 53 — Create Options Layout Polish
+- **Create Options (`src/qml/panels/settings/CreateOptionsSection.qml`)**: preset titles and subtitles now share one card instead of three nested boxes. A compact column header aligns **Preset**, **Title**, and **Subtitle**, each preset id renders as an accent badge, rows are separated by hairlines, and every **Save** button aligns with its inputs. The quota card keeps the 120 px label column and moves **Save Options** to the page footer beside **Restore Create Defaults**, so the primary action matches the other settings sections.
+- **Chip input (`src/qml/components/ChipInput.qml`)**: values render as `amount + unit + ×` instead of a leading `×`, with slightly taller chips and a trailing remove mark. The capacity limit now appears as a quiet `TagBadge` (for example `4 / 4`) instead of a floating text fragment at the end of the field.
+- **Translations (`src/i18n/en.json`, `src/i18n/da.json`)**: added the `Preset` / `Forudindstilling` column label.
+- **Tests (`tests/aibox_tests.cpp`)**: no behaviour change; `./bin/test` passes 75 tests.
 
 ### Iteration 52 — Backup Export Row Alignment
 - **Environment Backups (`src/qml/dialogs/BackupsDialog.qml`)**: the **Include Workspace** toggle and **Export Backup** button now sit on the right edge of the export card. A Qt Quick Layouts quirk kept the row at its implicit width when the fill-width child was a nested `ColumnLayout`, so the row stayed narrow and the buttons floated mid-card. An explicit fill-width spacer, plus elision on the title and size lines, keeps the actions right-aligned at every window size and stops long environment names from pushing them.

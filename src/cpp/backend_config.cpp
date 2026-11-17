@@ -65,7 +65,6 @@ QString Backend::completeFirstRun(const QString &systemPath) {
     if (m_rememberSystemLocation && !saveLocationFile(m_systemPath))
         return tr("Could not save the system location preference: %1").arg(defaultLocationFilePath());
 
-    seedProvisionScripts();
     refreshBackups();
     rebuildOsCatalog();
     loadHistorySeenMarker();

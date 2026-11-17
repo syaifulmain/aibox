@@ -10,7 +10,6 @@ Rectangle {
     property int maxChips: 4
     property int maxValue: 1024
     property string placeholder: ""
-    property string fullHint: ""
     readonly property int count: values ? values.length : 0
     readonly property bool atLimit: count >= maxChips
     signal addRequested(string value)
@@ -73,7 +72,7 @@ Rectangle {
                                                   ? modelData.slice(0, modelData.length - chipRoot.unit.length)
                                                   : modelData
 
-                height: Style.controlHeightXxs
+                height: Style.controlHeightXs
                 width: chipRow.implicitWidth + Style.space16
                 radius: Math.min(Style.radius4, theme.radius)
                 color: chipMouse.containsMouse && removable ? Style.surfaceSelected : Style.surfaceCard
@@ -87,12 +86,6 @@ Rectangle {
                     spacing: Style.space5
 
                     Text {
-                        text: "×"
-                        color: chipMouse.containsMouse && removable ? theme.accent : theme.muted
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.font12
-                    }
-                    Text {
                         text: amount
                         color: theme.foreground
                         font.family: Style.fontMono
@@ -104,6 +97,13 @@ Rectangle {
                         color: theme.muted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font9
+                    }
+                    Text {
+                        text: "×"
+                        leftPadding: Style.space2
+                        color: chipMouse.containsMouse && removable ? theme.accent : theme.muted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
                     }
                 }
 
@@ -159,14 +159,11 @@ Rectangle {
             }
         }
 
-        Text {
+        TagBadge {
             visible: chipRoot.atLimit
-            height: Style.controlHeightXxs
-            verticalAlignment: Text.AlignVCenter
-            text: chipHover.hovered ? chipRoot.fullHint : qsTr("%1 / %2").arg(chipRoot.count).arg(chipRoot.maxChips)
-            color: theme.muted
-            font.family: Style.fontSans
-            font.pixelSize: Style.font10
+            text: qsTr("%1 / %2").arg(chipRoot.count).arg(chipRoot.maxChips)
+            tone: "quiet"
+            badgeHeight: Style.controlHeightXxs
         }
     }
 }

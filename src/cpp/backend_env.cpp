@@ -518,7 +518,7 @@ QVariantList Backend::parseIncusListJson(const QByteArray &json, const QString &
 void Backend::createEnvironment(const QString &rawName, const QString &osId, const QString &presetId,
                                 const QString &diskGiB, const QString &ramGiB, int cpuCores,
                                 const QString &processLimit, const QString &ioLimit,
-                                const QStringList &provisionBundleIds, const QString &workspaceParent) {
+                                const QString &workspaceParent) {
     if (m_busy) {
         setError(tr("Another operation is currently in progress. Please wait or cancel it first."));
         return;
@@ -593,7 +593,6 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
     const QString cacheBase = cacheBasePath(entryId);
     const QString flags = preset.value("flags").toString();
     const bool isVm = flags.contains(QLatin1String("--vm"));
-    const QString provisionSnippet = buildProvisionShellSnippet(provisionBundleIds, entryId, osAlias, provisionDirPath());
 
     const QString script = createEnvironmentScript(name,
                                                    localAlias,
@@ -607,8 +606,7 @@ void Backend::createEnvironment(const QString &rawName, const QString &osId, con
                                                    preset.value("x11").toBool(),
                                                    cleanProc,
                                                    cleanIo,
-                                                   isVm,
-                                                   provisionSnippet);
+                                                   isVm);
 
     runShellTask(tr("Creating environment '%1'").arg(name), script, name, name);
 }
@@ -617,7 +615,7 @@ QString Backend::createEnvironmentScript(const QString &name, const QString &loc
                                          const QString &workspace, const QString &cacheBase,
                                          const QString &profileFlags, const QString &ramGiB, const QString &diskGiB,
                                          int cpuCores, bool x11, const QString &processLimit, const QString &ioLimit,
-                                         bool isVm, const QString &provisionSnippet) {
+                                         bool isVm) {
     QString rootOpts = QStringLiteral("size=%1").arg(diskGiB.trimmed());
     const QString cleanIo = ioLimit.trimmed();
     if (!cleanIo.isEmpty() && cleanIo.compare(QLatin1String("unlimited"), Qt::CaseInsensitive) != 0)
@@ -635,7 +633,7 @@ NAME=%1
 LOCAL_ALIAS=%2
 REMOTE_IMAGE=%3
 WORKSPACE=%4
-WS_PATH=%12
+WS_PATH=%11
 CACHE=%5
 CACHE_ROOT=%6
 PROFILE_ARGS=(%7)
@@ -643,7 +641,7 @@ QUOTA_ARGS=(%8)
 X11=%9
 
 echo "@@STAGE:8:Step 1/4 — Preparing shared workspace directory..."
-%11
+%10
 if command -v setfacl >/dev/null 2>&1; then
     ACL_USER="${SUDO_USER:-${USER:-$(id -un)}}"
     setfacl -R -m "u:${ACL_USER}:rwx" -m "m::rwx" -d -m "u:${ACL_USER}:rwx" -d -m "m::rwx" "$WORKSPACE" 2>/dev/null || true
@@ -705,7 +703,6 @@ echo "@@STAGE:100:Environment ready!"
                                     shellArrayWords(profileFlags),
                                     shellArrayWords(quotaArgs),
                                     x11 ? QStringLiteral("1") : QStringLiteral("0"),
-                                    provisionSnippet,
                                     workspaceCreateSnippet(workspace))
                                 .arg(shellQuote(kContainerWorkspacePath));
 }
