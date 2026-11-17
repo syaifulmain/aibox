@@ -14,6 +14,7 @@ fn main() {
     let cpp_sources = [
         cpp_dir.join("main.cpp"),
         cpp_dir.join("cli.cpp"),
+        cpp_dir.join("shim/clipboard_shim.cpp"),
         cpp_dir.join("shim/qml_helpers.cpp"),
         cpp_dir.join("shim/translator_shim.cpp"),
     ];

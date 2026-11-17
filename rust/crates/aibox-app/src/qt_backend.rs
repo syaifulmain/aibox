@@ -64,6 +64,10 @@ pub mod qobject {
 
         include!("cxx-qt-lib/qvariant.h");
         type QVariant = cxx_qt_lib::QVariant;
+
+        include!("shim/clipboard_shim.h");
+        fn aibox_clipboard_set_text(text: &QString) -> bool;
+        fn aibox_clipboard_image_png() -> Vec<u8>;
     }
 
     unsafe extern "RustQt" {
@@ -516,6 +520,10 @@ pub mod qobject {
         fn copy_ai_command(self: Pin<&mut Backend>, name: &QString);
 
         #[qinvokable]
+        #[cxx_name = "copyText"]
+        fn copy_text(self: Pin<&mut Backend>, text: &QString, label: &QString) -> bool;
+
+        #[qinvokable]
         #[cxx_name = "pasteImageToWorkspace"]
         fn paste_image_to_workspace(self: Pin<&mut Backend>, name: &QString) -> QString;
 
@@ -812,11 +820,11 @@ pub struct BackendRust {
     diff_summary: QMapQStringQVariant,
     selected_diff_text: QString,
     selected_diff_info: QString,
-    secrets_error: QString,
+    pub(crate) secrets_error: QString,
     secrets_store_path: QString,
-    environment_secrets: QListQVariant,
-    environment_secrets_error: QString,
-    environment_secrets_env_name: QString,
+    pub(crate) environment_secrets: QListQVariant,
+    pub(crate) environment_secrets_error: QString,
+    pub(crate) environment_secrets_env_name: QString,
     pool_info: QMapQStringQVariant,
 
     // Non-QML internal state
@@ -1249,6 +1257,41 @@ impl qobject::Backend {
             rust.error_message = QString::from(msg);
         }
         self.as_mut().error_message_changed();
+    }
+
+    pub(crate) fn copy_text_with_status(
+        mut self: Pin<&mut Self>,
+        text: &str,
+        status_msg: &str,
+    ) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        let q_text = QString::from(text);
+        if !qobject::aibox_clipboard_set_text(&q_text) {
+            return false;
+        }
+        self.as_mut().set_status_message(status_msg);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(3000));
+            let _ = qt_thread.queue(|mut qobject| {
+                if !*qobject.busy() {
+                    qobject.as_mut().set_status_message("");
+                }
+            });
+        });
+        true
+    }
+
+    pub(crate) fn run_shell_task(
+        self: Pin<&mut Self>,
+        stage: &str,
+        _script: &str,
+        _on_success_msg: &str,
+        _pending_env: &str,
+    ) {
+        eprintln!("not yet ported (P17c): runShellTask: {stage}");
     }
 
     pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
@@ -1751,73 +1794,6 @@ impl qobject::Backend {
     }
     pub fn paste_image_to_workspace(self: Pin<&mut Self>, _name: &QString) -> QString {
         eprintln!("not yet ported: pasteImageToWorkspace");
-        QString::default()
-    }
-    pub fn save_secret(self: Pin<&mut Self>, _name: &QString, _value: &QString) -> QString {
-        eprintln!("not yet ported: saveSecret");
-        QString::default()
-    }
-    pub fn delete_secret(self: Pin<&mut Self>, _name: &QString) -> QString {
-        eprintln!("not yet ported: deleteSecret");
-        QString::default()
-    }
-    pub fn copy_secret(self: Pin<&mut Self>, _name: &QString) -> bool {
-        eprintln!("not yet ported: copySecret");
-        false
-    }
-    pub fn reload_secrets(self: Pin<&mut Self>) {
-        eprintln!("not yet ported: reloadSecrets");
-    }
-    pub fn set_environment_secrets(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _secret_names: &QStringList,
-    ) {
-        eprintln!("not yet ported: setEnvironmentSecrets");
-    }
-    pub fn reload_environment_secrets(self: Pin<&mut Self>, _env_name: &QString) {
-        eprintln!("not yet ported: reloadEnvironmentSecrets");
-    }
-    pub fn save_environment_secret(
-        self: Pin<&mut Self>,
-        _env_name: &QString,
-        _name: &QString,
-        _value: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: saveEnvironmentSecret");
-        QString::default()
-    }
-    pub fn delete_environment_secret(
-        self: Pin<&mut Self>,
-        _env_name: &QString,
-        _name: &QString,
-    ) -> QString {
-        eprintln!("not yet ported: deleteEnvironmentSecret");
-        QString::default()
-    }
-    pub fn copy_environment_secret(
-        self: Pin<&mut Self>,
-        _env_name: &QString,
-        _name: &QString,
-    ) -> bool {
-        eprintln!("not yet ported: copyEnvironmentSecret");
-        false
-    }
-    pub fn set_environment_local_secret_enabled(
-        self: Pin<&mut Self>,
-        _env_name: &QString,
-        _name: &QString,
-        _enabled: bool,
-    ) -> QString {
-        eprintln!("not yet ported: setEnvironmentLocalSecretEnabled");
-        QString::default()
-    }
-    pub fn set_global_secret_instance_visible(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _visible: bool,
-    ) -> QString {
-        eprintln!("not yet ported: setGlobalSecretInstanceVisible");
         QString::default()
     }
     pub fn pool_warning_for_create(&self, _disk_spec: &QString) -> QString {
