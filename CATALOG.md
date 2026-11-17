@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P17a — `Backend` QObject State, Properties, and Async Refresh (Branch `rust-qobject`)
+* **Variant Converter (`rust/crates/aibox-app/src/variant.rs`)**: Added `serde_json::Value` to `QVariant` / `QList<QVariant>` / `QMap<QString, QVariant>` / `QStringList` converters preserving `i32` and `i64` integers directly without Stage 1 JSON round-tripping.
+* **Rust `Backend` QObject (`rust/crates/aibox-app/src/qt_backend.rs`, `build.rs`, `main.rs`, `src/cpp/main.cpp`)**: Implemented the `#[cxx_qt::bridge]` `Backend` QObject wrapping `aibox_core::engine::Engine` and GUI-only state, exposing all 68 `Q_PROPERTY` declarations and 31 signals, `configure` (`ProjectDir`/`WorkspaceDir` + `AIBOX_SELECT_INDEX` + `AIBOX_DEMO_MODE`), `setSelectedIndex`, non-blocking worker-thread `refresh` + 4s polling / 250ms task-watch loop via `CxxQtThread`, and P17b/P17c invokable stubs. Removed `backend*.cpp` from `aibox-app/build.rs` while keeping the C++ facade in `tests/aibox_tests.pro` until P18.
+* **Verification**: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `./bin/build`, `./bin/test` (111 Rust + 74/74 Qt), and offscreen QML grabs (`AIBOX_DEMO_MODE=1` + live mode) all pass with zero QML warnings.
+
 ### Rust Migration P16 — `Theme` and `TranslatorState` QObjects in Rust
 * **Rust `cxx-qt` QObjects (`rust/crates/aibox-app/src/qt_theme.rs`, `qt_translator.rs`)**: Replaced the C++ `Theme` and `Translator` in the `aibox` binary with `#[cxx_qt::bridge]` QObjects (`Theme` with all 11 QML properties, `changed` signal, `configure` invokable, `notify`-based 80ms debounced filesystem watching, and background `hyprctl` rounding polling; `TranslatorState` with `language` property, `changed` signal, `configure` invokable, and `notify`-based language file watching).
 * **Tiny C++ Shims (`src/cpp/shim/translator_shim.{h,cpp}`, `qml_helpers.{h,cpp}`, `src/cpp/main.cpp`)**: Added `TranslatorShim` (`QTranslator` subclass forwarding `isEmpty()` and `translate()` to Rust `TranslatorState`) and `aibox_set_context_property` / `aibox_apply_locale` / `aibox_read_qt_resource` helpers; updated `main.cpp` and `aibox-app/build.rs` while keeping `src/cpp/theme.{h,cpp}` and `translator.{h,cpp}` only in `tests/aibox_tests.pro` until P18.
