@@ -30,6 +30,12 @@ pub(crate) fn unique_id128() -> String {
 
 /// Returns the default host path for the global secrets store (`~/.config/aibox/secrets.json`).
 pub fn default_secrets_store_path() -> String {
+    if let Ok(override_path) = std::env::var("AIBOX_SECRETS_PATH") {
+        let trimmed = override_path.trim();
+        if !trimmed.is_empty() {
+            return clean_path(trimmed);
+        }
+    }
     let raw = xdg_config_dir().join("aibox/secrets.json");
     clean_path(&raw.to_string_lossy())
 }

@@ -10,10 +10,12 @@
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include "backend.h"
 #include "backend_helpers.h"
+#include "cli.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -3673,6 +3675,288 @@ static QByteArray captureTask() {
 
     return out;
 }
+
+static QString cliCommandToString(Cli::Command cmd) {
+    switch (cmd) {
+    case Cli::Command::None: return QStringLiteral("none");
+    case Cli::Command::Help: return QStringLiteral("help");
+    case Cli::Command::List: return QStringLiteral("list");
+    case Cli::Command::Check: return QStringLiteral("check");
+    case Cli::Command::Enter: return QStringLiteral("enter");
+    case Cli::Command::Exec: return QStringLiteral("exec");
+    case Cli::Command::Start: return QStringLiteral("start");
+    case Cli::Command::Stop: return QStringLiteral("stop");
+    case Cli::Command::Snapshot: return QStringLiteral("snapshot");
+    case Cli::Command::Snapshots: return QStringLiteral("snapshots");
+    case Cli::Command::Restore: return QStringLiteral("restore");
+    case Cli::Command::Diff: return QStringLiteral("diff");
+    }
+    return QStringLiteral("none");
+}
+
+static QJsonObject cliParsedToJson(const Cli::ParsedArgs &p) {
+    QJsonObject obj;
+    obj.insert(QStringLiteral("valid"), p.valid);
+    obj.insert(QStringLiteral("exitCode"), p.exitCode);
+    obj.insert(QStringLiteral("errorMessage"), p.errorMessage);
+    obj.insert(QStringLiteral("command"), cliCommandToString(p.command));
+    obj.insert(QStringLiteral("helpTarget"), cliCommandToString(p.helpTarget));
+    obj.insert(QStringLiteral("projectDir"), p.projectDir);
+    obj.insert(QStringLiteral("envName"), p.envName);
+    obj.insert(QStringLiteral("snapshotName"), p.snapshotName);
+    obj.insert(QStringLiteral("execCommand"), QJsonArray::fromStringList(p.execCommand));
+    obj.insert(QStringLiteral("jsonOutput"), p.jsonOutput);
+    obj.insert(QStringLiteral("fix"), p.fix);
+    obj.insert(QStringLiteral("systemOnly"), p.systemOnly);
+    obj.insert(QStringLiteral("workspaceOnly"), p.workspaceOnly);
+    obj.insert(QStringLiteral("yes"), p.yes);
+    return obj;
+}
+
+static QByteArray captureCli() {
+    QByteArray out;
+
+    // 1. helpText for every Command
+    const QList<QPair<QString, Cli::Command>> helpCases = {
+        {QStringLiteral("none"), Cli::Command::None},
+        {QStringLiteral("help"), Cli::Command::Help},
+        {QStringLiteral("list"), Cli::Command::List},
+        {QStringLiteral("check"), Cli::Command::Check},
+        {QStringLiteral("enter"), Cli::Command::Enter},
+        {QStringLiteral("exec"), Cli::Command::Exec},
+        {QStringLiteral("start"), Cli::Command::Start},
+        {QStringLiteral("stop"), Cli::Command::Stop},
+        {QStringLiteral("snapshot"), Cli::Command::Snapshot},
+        {QStringLiteral("snapshots"), Cli::Command::Snapshots},
+        {QStringLiteral("restore"), Cli::Command::Restore},
+        {QStringLiteral("diff"), Cli::Command::Diff},
+    };
+    for (const auto &hc : helpCases) {
+        QJsonObject args;
+        args.insert(QStringLiteral("cmd"), hc.first);
+        out += jsonLine(QStringLiteral("Cli::helpText"), hc.first, args, Cli::helpText(hc.second));
+    }
+
+    // 2. parseArgs for valid and invalid cases
+    const QList<QPair<QString, QStringList>> parseCases = {
+        {QStringLiteral("empty"), {}},
+        {QStringLiteral("list_project_json"), {QStringLiteral("--project"), QStringLiteral("/tmp/myproj"), QStringLiteral("list"), QStringLiteral("--json")}},
+        {QStringLiteral("check_fix_json"), {QStringLiteral("check"), QStringLiteral("--fix"), QStringLiteral("--json")}},
+        {QStringLiteral("enter_project_eq"), {QStringLiteral("enter"), QStringLiteral("dev-box"), QStringLiteral("--project=/tmp/p2")}},
+        {QStringLiteral("exec_with_help_tail"), {QStringLiteral("exec"), QStringLiteral("dev-box"), QStringLiteral("--"), QStringLiteral("ls"), QStringLiteral("-la"), QStringLiteral("--help")}},
+        {QStringLiteral("start"), {QStringLiteral("start"), QStringLiteral("dev-box")}},
+        {QStringLiteral("stop"), {QStringLiteral("stop"), QStringLiteral("dev-box")}},
+        {QStringLiteral("snapshot_sanitized"), {QStringLiteral("snapshot"), QStringLiteral("dev-box"), QStringLiteral("Pre Edit!")}},
+        {QStringLiteral("snapshot_auto_name"), {QStringLiteral("snapshot"), QStringLiteral("dev-box")}},
+        {QStringLiteral("snapshots_json"), {QStringLiteral("snapshots"), QStringLiteral("dev-box"), QStringLiteral("--json")}},
+        {QStringLiteral("restore_flags"), {QStringLiteral("restore"), QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("--system-only"), QStringLiteral("--yes")}},
+        {QStringLiteral("restore_ws_only"), {QStringLiteral("restore"), QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("--workspace-only"), QStringLiteral("-y")}},
+        {QStringLiteral("diff_json"), {QStringLiteral("diff"), QStringLiteral("dev-box"), QStringLiteral("snap-1"), QStringLiteral("--json")}},
+        {QStringLiteral("diff_latest"), {QStringLiteral("diff"), QStringLiteral("dev-box")}},
+        {QStringLiteral("help_topic"), {QStringLiteral("help"), QStringLiteral("exec")}},
+        {QStringLiteral("subcommand_help_flag"), {QStringLiteral("restore"), QStringLiteral("--help")}},
+        {QStringLiteral("short_help_flag"), {QStringLiteral("-h")}},
+        {QStringLiteral("project_only_for_gui"), {QStringLiteral("--project"), QStringLiteral("/tmp/myproj")}},
+        // Usage errors
+        {QStringLiteral("err_unknown_cmd"), {QStringLiteral("unknowncmd")}},
+        {QStringLiteral("err_unknown_opt"), {QStringLiteral("list"), QStringLiteral("--bogus")}},
+        {QStringLiteral("err_project_missing_val"), {QStringLiteral("--project")}},
+        {QStringLiteral("err_project_empty_eq"), {QStringLiteral("--project=")}},
+        {QStringLiteral("err_exec_no_dash"), {QStringLiteral("exec"), QStringLiteral("dev-box"), QStringLiteral("ls")}},
+        {QStringLiteral("err_exec_empty_tail"), {QStringLiteral("exec"), QStringLiteral("dev-box"), QStringLiteral("--")}},
+        {QStringLiteral("err_exec_no_env"), {QStringLiteral("exec"), QStringLiteral("--"), QStringLiteral("ls")}},
+        {QStringLiteral("err_json_unsupported"), {QStringLiteral("start"), QStringLiteral("dev-box"), QStringLiteral("--json")}},
+        {QStringLiteral("err_fix_unsupported"), {QStringLiteral("list"), QStringLiteral("--fix")}},
+        {QStringLiteral("err_restore_flags_other"), {QStringLiteral("start"), QStringLiteral("dev-box"), QStringLiteral("--yes")}},
+        {QStringLiteral("err_restore_both_only"), {QStringLiteral("restore"), QStringLiteral("dev-box"), QStringLiteral("s1"), QStringLiteral("--system-only"), QStringLiteral("--workspace-only")}},
+        {QStringLiteral("err_snapshot_invalid_name"), {QStringLiteral("snapshot"), QStringLiteral("dev-box"), QStringLiteral("!!!")}},
+        {QStringLiteral("err_missing_subcommand_json"), {QStringLiteral("--json")}},
+        {QStringLiteral("err_help_invalid_opt"), {QStringLiteral("help"), QStringLiteral("--json")}},
+        {QStringLiteral("err_help_unknown_topic"), {QStringLiteral("help"), QStringLiteral("nope")}},
+        {QStringLiteral("err_help_extra_arg"), {QStringLiteral("help"), QStringLiteral("list"), QStringLiteral("extra")}},
+        {QStringLiteral("err_list_extra_arg"), {QStringLiteral("list"), QStringLiteral("extra")}},
+        {QStringLiteral("err_enter_missing_env"), {QStringLiteral("enter")}},
+        {QStringLiteral("err_restore_missing_snap"), {QStringLiteral("restore"), QStringLiteral("dev-box")}},
+    };
+    for (const auto &pc : parseCases) {
+        QJsonObject args;
+        args.insert(QStringLiteral("args"), QJsonArray::fromStringList(pc.second));
+        out += jsonLine(QStringLiteral("Cli::parseArgs"), pc.first, args, cliParsedToJson(Cli::parseArgs(pc.second)));
+    }
+
+    // 3. isCliInvocation
+    const QList<QPair<QString, QStringList>> invCases = {
+        {QStringLiteral("no_args"), {}},
+        {QStringLiteral("project_only"), {QStringLiteral("--project"), QStringLiteral("/tmp/p")}},
+        {QStringLiteral("list"), {QStringLiteral("list")}},
+        {QStringLiteral("help_flag"), {QStringLiteral("-h")}},
+        {QStringLiteral("unknown_cmd"), {QStringLiteral("bogus")}},
+        {QStringLiteral("exec"), {QStringLiteral("exec"), QStringLiteral("dev"), QStringLiteral("--"), QStringLiteral("true")}},
+    };
+    for (const auto &ic : invCases) {
+        std::vector<QByteArray> bufs;
+        bufs.push_back(QByteArrayLiteral("aibox"));
+        for (const QString &s : ic.second)
+            bufs.push_back(s.toUtf8());
+        std::vector<char *> argv;
+        for (QByteArray &b : bufs)
+            argv.push_back(b.data());
+        const bool res = Cli::isCliInvocation(static_cast<int>(argv.size()), argv.data());
+        QJsonObject args;
+        args.insert(QStringLiteral("args"), QJsonArray::fromStringList(ic.second));
+        out += jsonLine(QStringLiteral("Cli::isCliInvocation"), ic.first, args, res);
+    }
+
+    // 4. execute with stub incus
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-cli");
+    QDir(workDir).removeRecursively();
+    const QString stubDir = workDir + QStringLiteral("/bin");
+    const QString projDir = workDir + QStringLiteral("/proj");
+    const QString wsBase = projDir + QStringLiteral("/.aibox/workspaces");
+    const QString stateDir = projDir + QStringLiteral("/.aibox/state");
+    QDir().mkpath(stubDir);
+    QDir().mkpath(wsBase + QStringLiteral("/dev"));
+    QDir().mkpath(stateDir);
+    {
+        QFile cfg(projDir + QStringLiteral("/.aibox/config.json"));
+        cfg.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        cfg.write(R"({"firstRunCompleted":true,"autoSnapshot":true,"autoSnapshotKeep":5})");
+    }
+    const QString incusLog = workDir + QStringLiteral("/incus.log");
+    const QString listJsonFile = workDir + QStringLiteral("/list.json");
+    {
+        const QString listJson = QStringLiteral(R"json([
+  {
+    "name": "dev",
+    "type": "container",
+    "status": "Stopped",
+    "config": { "user.aibox.autosnap": "true", "user.aibox.wssnap": "false" },
+    "expanded_devices": { "workspace": { "source": "%1/dev", "path": "/workspace" } },
+    "snapshots": ["snap-1"]
+  },
+  {
+    "name": "tpl",
+    "type": "container",
+    "status": "Stopped",
+    "config": { "user.aibox.template": "true" },
+    "expanded_devices": {},
+    "snapshots": []
+  }
+])json").arg(wsBase);
+        QFile lj(listJsonFile);
+        lj.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        lj.write(listJson.toUtf8());
+    }
+    {
+        const QString stubPath = stubDir + QStringLiteral("/incus");
+        QFile sf(stubPath);
+        sf.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        const QString script = QStringLiteral(R"sh(#!/bin/sh
+echo "incus $*" >> "%1"
+if [ "$1" = "list" ]; then
+    cat "%2"
+    exit 0
+fi
+if [ "$1" = "info" ]; then
+    echo "Status: STOPPED"
+    exit 0
+fi
+if [ "$1" = "exec" ]; then
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--" ]; then
+            shift
+            break
+        fi
+        shift
+    done
+    exec "$@"
+fi
+if [ "$1" = "query" ]; then
+    echo '[{"name":"snap-1","size":1048576}]'
+    exit 0
+fi
+exit 0
+)sh").arg(incusLog, listJsonFile);
+        sf.write(script.toUtf8());
+        sf.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    }
+
+    const QByteArray oldPath = qgetenv("PATH");
+    qputenv("PATH", (stubDir.toUtf8() + ":" + oldPath));
+
+    auto runCaptured = [&](const QString &caseName, const QStringList &cliArgs) {
+        QFile::remove(incusLog);
+        const QString outFile = workDir + QStringLiteral("/stdout.txt");
+        const QString errFile = workDir + QStringLiteral("/stderr.txt");
+        std::fflush(stdout);
+        std::fflush(stderr);
+        const int savedOut = ::dup(STDOUT_FILENO);
+        const int savedErr = ::dup(STDERR_FILENO);
+        const int fdOut = ::open(outFile.toUtf8().constData(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        const int fdErr = ::open(errFile.toUtf8().constData(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        ::dup2(fdOut, STDOUT_FILENO);
+        ::dup2(fdErr, STDERR_FILENO);
+        ::close(fdOut);
+        ::close(fdErr);
+
+        const int rc = Cli::execute(Cli::parseArgs(cliArgs));
+
+        std::fflush(stdout);
+        std::fflush(stderr);
+        ::dup2(savedOut, STDOUT_FILENO);
+        ::dup2(savedErr, STDERR_FILENO);
+        ::close(savedOut);
+        ::close(savedErr);
+
+        auto readUtf8 = [](const QString &p) {
+            QFile f(p);
+            if (!f.open(QIODevice::ReadOnly))
+                return QString();
+            return QString::fromUtf8(f.readAll());
+        };
+        // Normalize auto-snapshot timestamp (auto-YYYYMMDD-HHMMSS) and lastused epoch so golden is deterministic.
+        static const QRegularExpression autoRe(QStringLiteral(R"(auto-\d{8}-\d{6})"));
+        static const QRegularExpression lastUsedRe(QStringLiteral(R"(user\.aibox\.lastused \d+)"));
+        QString stdoutText = readUtf8(outFile);
+        QString stderrText = readUtf8(errFile);
+        QString logText = readUtf8(incusLog);
+        stdoutText.replace(autoRe, QStringLiteral("auto-<TS>"));
+        stderrText.replace(autoRe, QStringLiteral("auto-<TS>"));
+        logText.replace(autoRe, QStringLiteral("auto-<TS>"));
+        logText.replace(lastUsedRe, QStringLiteral("user.aibox.lastused <EPOCH>"));
+
+        QJsonObject argsObj;
+        argsObj.insert(QStringLiteral("args"), QJsonArray::fromStringList(cliArgs));
+        QJsonObject outObj;
+        outObj.insert(QStringLiteral("exitCode"), rc);
+        outObj.insert(QStringLiteral("stdout"), stdoutText);
+        outObj.insert(QStringLiteral("stderr"), stderrText);
+        outObj.insert(QStringLiteral("incusLog"), logText);
+        out += jsonLine(QStringLiteral("Cli::execute"), caseName, argsObj, outObj);
+    };
+
+    runCaptured(QStringLiteral("help"), {QStringLiteral("help")});
+    runCaptured(QStringLiteral("help_restore"), {QStringLiteral("help"), QStringLiteral("restore")});
+    runCaptured(QStringLiteral("usage_error"), {QStringLiteral("unknowncmd")});
+    runCaptured(QStringLiteral("list"), {QStringLiteral("--project"), projDir, QStringLiteral("list")});
+    runCaptured(QStringLiteral("exec_true"), {QStringLiteral("--project"), projDir, QStringLiteral("exec"), QStringLiteral("dev"), QStringLiteral("--"), QStringLiteral("true")});
+    runCaptured(QStringLiteral("exec_false"), {QStringLiteral("--project"), projDir, QStringLiteral("exec"), QStringLiteral("dev"), QStringLiteral("--"), QStringLiteral("false")});
+    runCaptured(QStringLiteral("exec_missing"), {QStringLiteral("--project"), projDir, QStringLiteral("exec"), QStringLiteral("missing"), QStringLiteral("--"), QStringLiteral("true")});
+    runCaptured(QStringLiteral("exec_tpl"), {QStringLiteral("--project"), projDir, QStringLiteral("exec"), QStringLiteral("tpl"), QStringLiteral("--"), QStringLiteral("true")});
+    runCaptured(QStringLiteral("start_tpl"), {QStringLiteral("--project"), projDir, QStringLiteral("start"), QStringLiteral("tpl")});
+    runCaptured(QStringLiteral("start_dev"), {QStringLiteral("--project"), projDir, QStringLiteral("start"), QStringLiteral("dev")});
+    runCaptured(QStringLiteral("stop_already"), {QStringLiteral("--project"), projDir, QStringLiteral("stop"), QStringLiteral("dev")});
+    runCaptured(QStringLiteral("snapshots_table"), {QStringLiteral("--project"), projDir, QStringLiteral("snapshots"), QStringLiteral("dev")});
+    runCaptured(QStringLiteral("snapshots_json"), {QStringLiteral("--project"), projDir, QStringLiteral("snapshots"), QStringLiteral("dev"), QStringLiteral("--json")});
+    runCaptured(QStringLiteral("snapshot_named"), {QStringLiteral("--project"), projDir, QStringLiteral("snapshot"), QStringLiteral("dev"), QStringLiteral("my-snap")});
+    runCaptured(QStringLiteral("restore_missing"), {QStringLiteral("--project"), projDir, QStringLiteral("restore"), QStringLiteral("dev"), QStringLiteral("nope"), QStringLiteral("--yes")});
+    runCaptured(QStringLiteral("restore_sys_yes"), {QStringLiteral("--project"), projDir, QStringLiteral("restore"), QStringLiteral("dev"), QStringLiteral("snap-1"), QStringLiteral("--system-only"), QStringLiteral("--yes")});
+    runCaptured(QStringLiteral("diff_no_ws_snaps"), {QStringLiteral("--project"), projDir, QStringLiteral("diff"), QStringLiteral("dev")});
+
+    qputenv("PATH", oldPath);
+    QDir(workDir).removeRecursively();
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -3715,6 +3999,7 @@ int main(int argc, char *argv[]) {
         {"provision", &GoldenCapture::captureProvision},
         {"incus", &GoldenCapture::captureIncus},
         {"task", &GoldenCapture::captureTask},
+        {"cli", &GoldenCapture::captureCli},
     };
 
     bool matched = onlyModule.isEmpty();

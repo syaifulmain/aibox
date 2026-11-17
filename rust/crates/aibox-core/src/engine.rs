@@ -100,8 +100,7 @@ impl Engine {
         paths.os_storage_path = config.os_storage_path.clone();
 
         let mut secrets = SecretsState::new(String::new());
-        secrets.reload_secrets(false);
-        secrets.refresh_instance_secret_values_cache(false);
+        secrets.set_secrets_store_path("", false);
 
         Self {
             paths,

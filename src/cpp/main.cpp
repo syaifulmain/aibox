@@ -1,6 +1,5 @@
 // aibox — Isolated Linux OS environment manager for AI, desktop, and mobile projects.
 
-#include <QCoreApplication>
 #include <QFile>
 #include <QGuiApplication>
 #include <QIcon>
@@ -17,6 +16,7 @@
 #include "backend.h"
 #include "cli.h"
 #include "rust_bridge.h"
+#include "aibox-ffi/src/cli.rs.h"
 #include "aibox-ffi/src/meta.rs.h"
 #include "aibox-ffi/src/session.rs.h"
 #include "theme.h"
@@ -30,13 +30,15 @@ int main(int argc, char *argv[]) {
             aibox::ffi::toRust(logPath), aibox::ffi::toRust(sessionsDir));
     }
 
-    if (Cli::isCliInvocation(argc, argv)) {
-        qunsetenv("QT_QPA_PLATFORMTHEME");
-        qputenv("QT_QPA_PLATFORM", "offscreen");
-        QCoreApplication app(argc, argv);
-        app.setApplicationName("aibox");
-        app.setApplicationVersion(aibox::ffi::fromRust(aibox::ffi::core_version()));
-        return Cli::run(argc, argv);
+    if (argc > 1) {
+        std::vector<rust::String> cliArgs;
+        cliArgs.reserve(static_cast<size_t>(argc - 1));
+        for (int i = 1; i < argc; ++i)
+            cliArgs.push_back(aibox::ffi::toRust(QString::fromLocal8Bit(argv[i])));
+        const rust::Slice<const rust::String> cliSlice(cliArgs.data(), cliArgs.size());
+        if (aibox::ffi::cli_is_invocation(cliSlice)) {
+            return aibox::ffi::cli_run(cliSlice);
+        }
     }
 
     QGuiApplication app(argc, argv);
