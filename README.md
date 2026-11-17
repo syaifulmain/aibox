@@ -108,7 +108,11 @@ Source layout:
   health, provisioning).
 - `src/qml/` holds the interface: `Main.qml` is the window shell, with reusable
   controls in `components/`, modal overlays in `dialogs/`, and layout sections
-  in `panels/`.
+  in `panels/` (configuration sections live in `panels/settings/`).
+- `src/qml/components/Style.qml` is the design-token singleton: surfaces,
+  spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is
+  the shared modal shell, so dialogs only declare their own content. Live
+  Omarchy colours and rounding still come from the C++ `theme` object.
 - `src/i18n/` holds the translation catalogs and `src/resources.qrc` bundles
   them with the QML files.
 - `tests/aibox_tests.cpp` holds the test suite.

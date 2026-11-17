@@ -1,36 +1,33 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../components"
 
 Rectangle {
-    property QtObject app: null
     id: statusBannerRoot
+    property QtObject app: null
     Layout.fillWidth: true
     Layout.preferredHeight: visible ? (backend.busy ? 68 : 42) : 0
     visible: (!app.createVisible && backend.busy) || backend.errorMessage.length > 0 || (!backend.busy && backend.statusMessage.length > 0)
-    color: backend.errorMessage.length > 0 ? "#241217" : app.surfaceCard
+    color: backend.errorMessage.length > 0 ? Style.dangerSurfaceDeep : Style.surfaceCard
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: 20
-        anchors.rightMargin: 20
-        anchors.topMargin: 8
-        anchors.bottomMargin: 8
-        spacing: 6
+        anchors.leftMargin: Style.space20
+        anchors.rightMargin: Style.space20
+        anchors.topMargin: Style.space8
+        anchors.bottomMargin: Style.space8
+        spacing: Style.space6
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 12
+            spacing: Style.space12
 
             Text {
                 visible: backend.busy
                 text: backend.taskProgress + "%"
                 color: theme.accent
-                font.family: app.monoFont
-                font.pixelSize: 12
+                font.family: Style.fontMono
+                font.pixelSize: Style.font12
             }
 
             Text {
@@ -40,8 +37,8 @@ Rectangle {
                       ? backend.errorMessage
                       : (backend.busy ? backend.taskStage : backend.statusMessage)
                 color: backend.errorMessage.length > 0 ? theme.red : theme.foreground
-                font.family: app.sansFont
-                font.pixelSize: 12
+                font.family: Style.fontSans
+                font.pixelSize: Style.font12
             }
 
             Text {
@@ -50,24 +47,22 @@ Rectangle {
                 elide: Text.ElideLeft
                 text: backend.taskLog
                 color: theme.muted
-                font.family: app.monoFont
-                font.pixelSize: 11
+                font.family: Style.fontMono
+                font.pixelSize: Style.font11
             }
 
             ActionButton {
-                app: statusBannerRoot.app
                 visible: backend.busy
-                implicitHeight: 26
+                implicitHeight: Style.controlHeightXs
                 label: qsTr("Cancel")
                 danger: true
                 onClicked: backend.cancelTask()
             }
 
             ActionButton {
-                app: statusBannerRoot.app
                 visible: backend.errorMessage.length > 0
                          && backend.adminFixCommand(backend.errorMessage).length > 0
-                implicitHeight: 26
+                implicitHeight: Style.controlHeightXs
                 label: qsTr("Copy Fix")
                 accent: true
                 onClicked: backend.copyText(backend.adminFixCommand(backend.errorMessage),
@@ -75,36 +70,29 @@ Rectangle {
             }
 
             ActionButton {
-                app: statusBannerRoot.app
                 visible: backend.errorMessage.length > 0
-                implicitHeight: 26
+                implicitHeight: Style.controlHeightXs
                 label: qsTr("Dismiss")
                 onClicked: backend.clearError()
             }
         }
 
-        // Progress track when busy
-        Rectangle {
+        // Progress track while busy
+        MeterBar {
             visible: backend.busy
             Layout.fillWidth: true
-            height: 4
-            radius: 2
-            color: app.surfaceInput
-
-            Rectangle {
-                height: parent.height
-                width: parent.width * (Math.max(4, backend.taskProgress) / 100.0)
-                radius: 2
-                color: theme.accent
-                Behavior on width { NumberAnimation { duration: 150 } }
-            }
+            implicitHeight: 4
+            value: Math.max(4, backend.taskProgress)
+            trackColor: Style.surfaceInput
+            showAtZero: true
+            animationMs: 150
         }
     }
 
     Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
-        height: 1
-        color: backend.errorMessage.length > 0 ? theme.red : app.borderSubtle
+        height: Style.hairline
+        color: backend.errorMessage.length > 0 ? theme.red : Style.borderSubtle
     }
 }

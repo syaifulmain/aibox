@@ -1,12 +1,10 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
+// Editable list of numeric chips, used for the create-option choices.
 Rectangle {
-    property QtObject app: null
     id: chipRoot
+    property QtObject app: null
     property var values: []
     property string unit: ""
     property int maxChips: 4
@@ -18,12 +16,12 @@ Rectangle {
     signal addRequested(string value)
     signal removeRequested(int index)
 
-    implicitHeight: chipFlow.implicitHeight + 8
+    implicitHeight: chipFlow.implicitHeight + Style.space8
     Layout.preferredHeight: implicitHeight
-    radius: Math.min(6, theme.radius)
-    color: app.surfaceInput
-    border.width: 1
-    border.color: chipInput.activeFocus ? theme.accent : app.borderSubtle
+    radius: Math.min(Style.radius6, theme.radius)
+    color: Style.surfaceInput
+    border.width: Style.hairline
+    border.color: chipInput.activeFocus ? theme.accent : Style.borderSubtle
 
     HoverHandler { id: chipHover }
 
@@ -61,8 +59,8 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: 4
-        spacing: 6
+        anchors.margins: Style.space4
+        spacing: Style.space6
 
         Repeater {
             model: chipRoot.values
@@ -75,37 +73,37 @@ Rectangle {
                                                   ? modelData.slice(0, modelData.length - chipRoot.unit.length)
                                                   : modelData
 
-                height: 24
-                width: chipRow.implicitWidth + 16
-                radius: Math.min(4, theme.radius)
-                color: chipMouse.containsMouse && removable ? app.surfaceSelected : app.surfaceCard
-                border.width: 1
-                border.color: chipMouse.containsMouse && removable ? theme.accent : app.borderSubtle
-                opacity: removable ? 1.0 : 0.65
+                height: Style.controlHeightXxs
+                width: chipRow.implicitWidth + Style.space16
+                radius: Math.min(Style.radius4, theme.radius)
+                color: chipMouse.containsMouse && removable ? Style.surfaceSelected : Style.surfaceCard
+                border.width: Style.hairline
+                border.color: chipMouse.containsMouse && removable ? theme.accent : Style.borderSubtle
+                opacity: removable ? 1.0 : Style.opacityInactive
 
                 Row {
                     id: chipRow
                     anchors.centerIn: parent
-                    spacing: 5
+                    spacing: Style.space5
 
                     Text {
                         text: "×"
                         color: chipMouse.containsMouse && removable ? theme.accent : theme.muted
-                        font.family: app.monoFont
-                        font.pixelSize: 12
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font12
                     }
                     Text {
                         text: amount
                         color: theme.foreground
-                        font.family: app.monoFont
-                        font.pixelSize: 12
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font12
                     }
                     Text {
                         visible: suffix.length > 0
                         text: suffix
                         color: theme.muted
-                        font.family: app.monoFont
-                        font.pixelSize: 9
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font9
                     }
                 }
 
@@ -126,8 +124,8 @@ Rectangle {
 
         Item {
             visible: !chipRoot.atLimit
-            height: 24
-            width: Math.min(Math.max(176, chipFlow.width - 220), Math.max(176, chipInput.implicitWidth + 4))
+            height: Style.controlHeightXxs
+            width: Math.min(Math.max(176, chipFlow.width - 220), Math.max(176, chipInput.implicitWidth + Style.space4))
 
             TextInput {
                 id: chipInput
@@ -139,8 +137,8 @@ Rectangle {
                 selectByMouse: true
                 clip: true
                 inputMethodHints: Qt.ImhDigitsOnly
-                font.family: app.monoFont
-                font.pixelSize: 12
+                font.family: Style.fontMono
+                font.pixelSize: Style.font12
                 validator: IntValidator { bottom: 1; top: chipRoot.maxValue }
                 onAccepted: chipRoot.submit()
                 Keys.onBackPressed: {
@@ -155,20 +153,20 @@ Rectangle {
                 visible: chipInput.text.length === 0
                 text: chipRoot.placeholder
                 color: theme.muted
-                font.family: app.sansFont
-                font.pixelSize: 11
+                font.family: Style.fontSans
+                font.pixelSize: Style.font11
                 elide: Text.ElideRight
             }
         }
 
         Text {
             visible: chipRoot.atLimit
-            height: 24
+            height: Style.controlHeightXxs
             verticalAlignment: Text.AlignVCenter
             text: chipHover.hovered ? chipRoot.fullHint : qsTr("%1 / %2").arg(chipRoot.count).arg(chipRoot.maxChips)
             color: theme.muted
-            font.family: app.sansFont
-            font.pixelSize: 10
+            font.family: Style.fontSans
+            font.pixelSize: Style.font10
         }
     }
 }

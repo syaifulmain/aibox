@@ -1,274 +1,244 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../components"
 
-Rectangle {
+ModalDialog {
     id: secretsDialogRoot
     property QtObject app: null
-    visible: app.secretsVisible
-    anchors.fill: parent
-    color: "#c406070a"
-    z: 27
+    open: app.secretsVisible
+    zOrder: 27
+    cardWidth: Math.min(760, parent.width - Style.modalGutter)
+    cardHeight: Math.min(600, parent.height - Style.modalEdge)
+    onDismissed: app.secretsVisible = false
 
-    MouseArea {
-        anchors.fill: parent
-        onClicked: app.secretsVisible = false
+    ModalHeader {
+        title: qsTr("Secrets Manager")
+        subtitle: backend.secretsStorePath + " (0600)"
+        subtitleMono: true
+        onClosed: app.secretsVisible = false
+    }
+
+    // Store permission or form error banner
+    Rectangle {
+        visible: backend.secretsError.length > 0 || app.secretFormError.length > 0
+        Layout.fillWidth: true
+        implicitHeight: secErrTxt.implicitHeight + Style.space14
+        radius: Math.min(Style.radius4, theme.radius)
+        color: Style.dangerSurfaceAlt
+        border.width: Style.hairline
+        border.color: theme.red
+        Text {
+            id: secErrTxt
+            anchors.fill: parent
+            anchors.margins: Style.space7
+            text: app.secretFormError.length > 0 ? app.secretFormError : backend.secretsError
+            color: theme.red
+            font.family: Style.fontSans
+            font.pixelSize: Style.font11
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Text {
+        text: qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
+        color: theme.muted
+        font.family: Style.fontSans
+        font.pixelSize: Style.font11
+        font.weight: Font.Medium
+    }
+
+    Text {
+        visible: (backend.selectedEnvironment.name || "").length > 0
+        text: qsTr("Inject into '%1' at session start (names only stored in user.aibox.secrets):").arg(backend.selectedEnvironment.name || "")
+        color: theme.muted
+        font.family: Style.fontSans
+        font.pixelSize: Style.font11
+        wrapMode: Text.WordWrap
+        Layout.fillWidth: true
+    }
+
+    Text {
+        visible: backend.secretsList.length === 0
+        text: qsTr("No secrets configured yet. Add one below.")
+        color: theme.muted
+        font.family: Style.fontSans
+        font.pixelSize: Style.font11
+    }
+
+    ScrollView {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        clip: true
+
+        ListView {
+            width: parent.width
+            spacing: Style.space8
+            model: backend.secretsList
+
+            delegate: Rectangle {
+                required property var modelData
+                readonly property bool revealed: (app.secretRevealMap || {})[modelData.name] === true
+                readonly property bool assigned: (backend.selectedEnvironment.secretNames || []).indexOf(modelData.name) >= 0
+                readonly property bool hasEnv: (backend.selectedEnvironment.name || "").length > 0
+                width: ListView.view.width
+                implicitHeight: 46
+                radius: Math.min(Style.radius4, theme.radius)
+                color: Style.surfaceInput
+                border.width: Style.hairline
+                border.color: Style.borderSubtle
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space12
+                    anchors.rightMargin: Style.space10
+                    spacing: Style.space10
+
+                    // Toggle whether this secret is injected into the selected environment
+                    Rectangle {
+                        visible: hasEnv
+                        Layout.preferredWidth: 16
+                        Layout.preferredHeight: 16
+                        radius: Style.radius2
+                        color: assigned ? theme.accent : "transparent"
+                        border.width: Style.hairline
+                        border.color: assigned ? theme.accent : Style.borderSubtle
+
+                        Text {
+                            anchors.centerIn: parent
+                            visible: assigned
+                            text: "x"
+                            color: theme.accentForeground
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
+                            font.weight: Font.Bold
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -Style.space8
+                            enabled: !backend.busy
+                            cursorShape: backend.busy ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+                            onClicked: app.toggleEnvSecret(modelData.name)
+                        }
+                    }
+
+                    Text {
+                        text: modelData.name
+                        color: theme.accent
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font12
+                        font.weight: Font.Medium
+                        Layout.preferredWidth: 195
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        text: revealed ? modelData.value : modelData.maskedValue
+                        color: theme.foreground
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font11
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    ActionButton {
+                        label: revealed ? qsTr("Hide") : qsTr("Show")
+                        minWidth: 64
+                        onClicked: app.toggleSecretReveal(modelData.name)
+                    }
+
+                    ActionButton {
+                        label: qsTr("Copy")
+                        minWidth: 62
+                        onClicked: {
+                            if (!backend.copySecret(modelData.name))
+                                app.secretFormError = qsTr("Could not copy secret '%1' to the clipboard.").arg(modelData.name)
+                        }
+                    }
+
+                    ActionButton {
+                        label: qsTr("Delete")
+                        variant: "danger"
+                        minWidth: 68
+                        onClicked: {
+                            const err = backend.deleteSecret(modelData.name)
+                            if (err.length > 0)
+                                app.secretFormError = err
+                            else
+                                app.secretFormError = ""
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Rectangle {
-        width: Math.min(760, parent.width - 56)
-        height: Math.min(600, parent.height - 56)
-        anchors.centerIn: parent
-        radius: Math.min(8, theme.radius)
-        color: app.surfaceCard
-        border.width: 1
-        border.color: theme.accent
+        Layout.fillWidth: true
+        height: Style.hairline
+        color: Style.borderSubtle
+    }
 
-        MouseArea { anchors.fill: parent }
+    // Add / update secret form
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space8
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 24
-            spacing: 12
+        Text {
+            text: qsTr("Add or Update Secret (values are injected only at session start via tmpfs, never written to containers or backups):")
+            color: theme.muted
+            font.family: Style.fontSans
+            font.pixelSize: Style.font11
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
 
-            ModalHeader {
-                app: secretsDialogRoot.app
-                title: qsTr("Secrets Manager")
-                subtitle: backend.secretsStorePath + " (0600)"
-                subtitleMono: true
-                onClosed: app.secretsVisible = false
-            }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space10
 
-            // Store permission or form error banner
-            Rectangle {
-                visible: backend.secretsError.length > 0 || app.secretFormError.length > 0
-                Layout.fillWidth: true
-                implicitHeight: secErrTxt.implicitHeight + 14
-                radius: Math.min(4, theme.radius)
-                color: "#291418"
-                border.width: 1
-                border.color: app.redColor
-                Text {
-                    id: secErrTxt
-                    anchors.fill: parent
-                    anchors.margins: 7
-                    text: app.secretFormError.length > 0 ? app.secretFormError : backend.secretsError
-                    color: app.redColor
-                    font.family: app.sansFont
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
+            FlatInput {
+                Layout.preferredWidth: 210
+                text: app.secretNameDraft
+                placeholder: "ANTHROPIC_API_KEY"
+                onTextChanged: {
+                    if (text !== app.secretNameDraft)
+                        app.secretNameDraft = text
                 }
             }
 
-            // Global secret list
-            Text {
-                text: qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
-                color: theme.muted
-                font.family: app.sansFont
-                font.pixelSize: 11
-                font.weight: Font.Medium
-            }
-
-            Text {
-                visible: (backend.selectedEnvironment.name || "").length > 0
-                text: qsTr("Inject into '%1' at session start (names only stored in user.aibox.secrets):").arg(backend.selectedEnvironment.name || "")
-                color: theme.muted
-                font.family: app.sansFont
-                font.pixelSize: 11
-                wrapMode: Text.WordWrap
+            FlatInput {
                 Layout.fillWidth: true
-            }
-
-            Text {
-                visible: backend.secretsList.length === 0
-                text: qsTr("No secrets configured yet. Add one below.")
-                color: theme.muted
-                font.family: app.sansFont
-                font.pixelSize: 11
-            }
-
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-
-                ListView {
-                    width: parent.width
-                    spacing: 8
-                    model: backend.secretsList
-
-                    delegate: Rectangle {
-                        required property var modelData
-                        readonly property bool revealed: (app.secretRevealMap || {})[modelData.name] === true
-                        readonly property bool assigned: (backend.selectedEnvironment.secretNames || []).indexOf(modelData.name) >= 0
-                        readonly property bool hasEnv: (backend.selectedEnvironment.name || "").length > 0
-                        width: ListView.view.width
-                        implicitHeight: 46
-                        radius: Math.min(4, theme.radius)
-                        color: app.surfaceInput
-                        border.width: 1
-                        border.color: app.borderSubtle
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 10
-                            spacing: 10
-
-                            Rectangle {
-                                visible: hasEnv
-                                Layout.preferredWidth: 16
-                                Layout.preferredHeight: 16
-                                radius: 2
-                                color: assigned ? theme.accent : "transparent"
-                                border.width: 1
-                                border.color: assigned ? theme.accent : app.borderSubtle
-
-                                Text {
-                                    anchors.centerIn: parent
-                                    visible: assigned
-                                    text: "x"
-                                    color: theme.accentForeground
-                                    font.family: app.monoFont
-                                    font.pixelSize: 10
-                                    font.weight: Font.Bold
-                                }
-
-                                MouseArea {
-                                    anchors.fill: parent
-                                    anchors.margins: -8
-                                    enabled: !backend.busy
-                                    cursorShape: backend.busy ? Qt.ForbiddenCursor : Qt.PointingHandCursor
-                                    onClicked: app.toggleEnvSecret(modelData.name)
-                                }
-                            }
-
-                            Text {
-                                text: modelData.name
-                                color: theme.accent
-                                font.family: app.monoFont
-                                font.pixelSize: 12
-                                font.weight: Font.Medium
-                                Layout.preferredWidth: 195
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                text: revealed ? modelData.value : modelData.maskedValue
-                                color: theme.foreground
-                                font.family: app.monoFont
-                                font.pixelSize: 11
-                                Layout.fillWidth: true
-                                elide: Text.ElideRight
-                            }
-
-                            ActionButton {
-                                app: secretsDialogRoot.app
-                                label: revealed ? qsTr("Hide") : qsTr("Show")
-                                minWidth: 64
-                                onClicked: app.toggleSecretReveal(modelData.name)
-                            }
-
-                            ActionButton {
-                                app: secretsDialogRoot.app
-                                label: qsTr("Copy")
-                                minWidth: 62
-                                onClicked: {
-                                    if (!backend.copySecret(modelData.name))
-                                        app.secretFormError = qsTr("Could not copy secret '%1' to the clipboard.").arg(modelData.name)
-                                }
-                            }
-
-                            ActionButton {
-                                app: secretsDialogRoot.app
-                                label: qsTr("Delete")
-                                variant: "danger"
-                                minWidth: 68
-                                onClicked: {
-                                    const err = backend.deleteSecret(modelData.name)
-                                    if (err.length > 0)
-                                        app.secretFormError = err
-                                    else
-                                        app.secretFormError = ""
-                                }
-                            }
-                        }
-                    }
+                text: app.secretValueDraft
+                echoMode: app.secretDraftShow ? TextInput.Normal : TextInput.Password
+                placeholder: qsTr("Secret value")
+                onTextChanged: {
+                    if (text !== app.secretValueDraft)
+                        app.secretValueDraft = text
                 }
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: app.borderSubtle }
+            ActionButton {
+                label: app.secretDraftShow ? qsTr("Hide") : qsTr("Show")
+                minWidth: 64
+                onClicked: app.secretDraftShow = !app.secretDraftShow
+            }
 
-            // Add / update secret form
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                Text {
-                    text: qsTr("Add or Update Secret (values are injected only at session start via tmpfs, never written to containers or backups):")
-                    color: theme.muted
-                    font.family: app.sansFont
-                    font.pixelSize: 11
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
-
-                    FlatInput {
-                        app: secretsDialogRoot.app
-                        Layout.preferredWidth: 210
-                        implicitHeight: 34
-                        text: app.secretNameDraft
-                        placeholder: "ANTHROPIC_API_KEY"
-                        onTextChanged: {
-                            if (text !== app.secretNameDraft)
-                                app.secretNameDraft = text
-                        }
-                    }
-
-                    FlatInput {
-                        app: secretsDialogRoot.app
-                        Layout.fillWidth: true
-                        implicitHeight: 34
-                        text: app.secretValueDraft
-                        echoMode: app.secretDraftShow ? TextInput.Normal : TextInput.Password
-                        placeholder: qsTr("Secret value")
-                        onTextChanged: {
-                            if (text !== app.secretValueDraft)
-                                app.secretValueDraft = text
-                        }
-                    }
-
-                    ActionButton {
-                        app: secretsDialogRoot.app
-                        label: app.secretDraftShow ? qsTr("Hide") : qsTr("Show")
-                        minWidth: 64
-                        onClicked: app.secretDraftShow = !app.secretDraftShow
-                    }
-
-                    ActionButton {
-                        app: secretsDialogRoot.app
-                        label: qsTr("Save Secret")
-                        variant: "primary"
-                        minWidth: 116
-                        disabled: app.secretNameDraft.trim().length === 0
-                        onClicked: {
-                            const err = backend.saveSecret(app.secretNameDraft.trim(), app.secretValueDraft)
-                            if (err.length > 0) {
-                                app.secretFormError = err
-                            } else {
-                                app.secretFormError = ""
-                                app.secretNameDraft = ""
-                                app.secretValueDraft = ""
-                                app.secretDraftShow = false
-                            }
-                        }
+            ActionButton {
+                label: qsTr("Save Secret")
+                variant: "primary"
+                minWidth: 116
+                disabled: app.secretNameDraft.trim().length === 0
+                onClicked: {
+                    const err = backend.saveSecret(app.secretNameDraft.trim(), app.secretValueDraft)
+                    if (err.length > 0) {
+                        app.secretFormError = err
+                    } else {
+                        app.secretFormError = ""
+                        app.secretNameDraft = ""
+                        app.secretValueDraft = ""
+                        app.secretDraftShow = false
                     }
                 }
             }

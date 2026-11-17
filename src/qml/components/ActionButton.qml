@@ -1,11 +1,8 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
+// Flat action button with an optional keyboard hint chip.
 Rectangle {
-    property QtObject app: null
     id: btn
     property string label: ""
     property string shortcutHint: ""
@@ -20,57 +17,48 @@ Rectangle {
     readonly property bool hovered: btnMouse.containsMouse
     signal clicked()
 
-    readonly property bool isPrimary: primary || variant === "primary"
-    readonly property bool isDanger: danger || variant === "danger"
-    readonly property bool isSuccess: success || variant === "success"
-    readonly property bool isAccent: accent || variant === "accent" || variant === "theme"
-    readonly property color contentColor: btn.isPrimary
-                                          ? theme.accentForeground
-                                          : (btn.isDanger
-                                             ? theme.red
-                                             : (btn.isAccent
-                                                ? theme.accent
-                                                : (btn.isSuccess ? theme.green : theme.foreground)))
+    readonly property string tone: btn.primary || btn.variant === "primary" ? "primary"
+                                 : (btn.danger || btn.variant === "danger") ? "danger"
+                                 : (btn.accent || btn.variant === "accent" || btn.variant === "theme") ? "accent"
+                                 : (btn.success || btn.variant === "success") ? "success"
+                                 : "default"
+    readonly property bool isPrimary: tone === "primary"
+    readonly property bool isDefault: tone === "default"
+    readonly property color toneColor: btn.isDefault ? theme.foreground
+                                    : btn.isPrimary ? theme.accent
+                                    : btn.tone === "danger" ? theme.red
+                                    : btn.tone === "success" ? theme.green
+                                    : theme.accent
+    readonly property color contentColor: btn.isPrimary ? theme.accentForeground : btn.toneColor
 
-    implicitHeight: 34
-    implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + 24)
-                                : (label === "?" ? 34 : btnRow.implicitWidth + 24)
+    // Tinted hover surface used by every non-primary, non-default tone.
+    function tint(color, alpha) {
+        return Qt.rgba(color.r, color.g, color.b, alpha)
+    }
+
+    implicitHeight: Style.controlHeight
+    implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + Style.space24)
+                                : (label === "?" ? Style.controlHeight : btnRow.implicitWidth + Style.space24)
     Layout.preferredHeight: implicitHeight
     Layout.preferredWidth: implicitWidth
-    radius: Math.min(4, theme.radius)
-    opacity: btn.disabled ? 0.4 : (btnMouse.containsMouse ? 0.9 : 1.0)
-    color: btn.isPrimary
-           ? theme.accent
-           : (btn.isDanger
-              ? (btnMouse.containsMouse
-                 ? Qt.rgba(app.redColor.r, app.redColor.g, app.redColor.b, 0.22)
-                 : Qt.rgba(app.redColor.r, app.redColor.g, app.redColor.b, 0.12))
-              : (btn.isAccent
-                 ? (btnMouse.containsMouse
-                    ? Qt.rgba(app.accentColor.r, app.accentColor.g, app.accentColor.b, 0.22)
-                    : Qt.rgba(app.accentColor.r, app.accentColor.g, app.accentColor.b, 0.12))
-                 : (btn.isSuccess
-                    ? (btnMouse.containsMouse
-                       ? Qt.rgba(app.greenColor.r, app.greenColor.g, app.greenColor.b, 0.22)
-                       : Qt.rgba(app.greenColor.r, app.greenColor.g, app.greenColor.b, 0.12))
-                    : (btnMouse.containsMouse ? theme.lighterBackground : app.surfaceCard))))
+    radius: Math.min(Style.radius4, theme.radius)
+    opacity: btn.disabled ? Style.opacityDisabled : (btnMouse.containsMouse ? Style.opacityHover : 1.0)
 
-    border.width: btn.isPrimary ? 0 : 1
-    border.color: btn.isDanger
-                  ? theme.red
-                  : (btn.isAccent
-                     ? theme.accent
-                     : (btn.isSuccess
-                        ? theme.green
-                        : (btnMouse.containsMouse ? theme.muted : app.borderSubtle)))
+    color: btn.isPrimary ? theme.accent
+         : btn.isDefault ? (btnMouse.containsMouse ? theme.lighterBackground : Style.surfaceCard)
+         : btn.tint(btn.toneColor, btnMouse.containsMouse ? 0.22 : 0.12)
+
+    border.width: btn.isPrimary ? 0 : Style.hairline
+    border.color: btn.isPrimary ? "transparent"
+                : btn.isDefault ? (btnMouse.containsMouse ? theme.muted : Style.borderSubtle)
+                : btn.toneColor
 
     RowLayout {
         id: btnRow
         anchors.centerIn: parent
-        spacing: 8
+        spacing: Style.space8
 
         SlidersIcon {
-            app: btn.app
             visible: btn.slidersIcon
             color: btn.contentColor
             Layout.alignment: Qt.AlignVCenter
@@ -80,47 +68,33 @@ Rectangle {
             visible: btn.label.length > 0
             text: btn.label
             color: btn.contentColor
-            font.family: app.sansFont
-            font.pixelSize: 12
+            font.family: Style.fontSans
+            font.pixelSize: Style.font12
             font.weight: btn.isPrimary ? Font.Medium : Font.Normal
         }
 
         Rectangle {
             visible: btn.shortcutHint.length > 0
-            height: 18
-            width: hintText.implicitWidth + 10
-            radius: 2
-            color: btn.isPrimary
-                   ? Qt.rgba(0, 0, 0, 0.18)
-                   : (btn.isDanger
-                      ? Qt.rgba(app.redColor.r, app.redColor.g, app.redColor.b, 0.18)
-                      : (btn.isAccent
-                         ? Qt.rgba(app.accentColor.r, app.accentColor.g, app.accentColor.b, 0.18)
-                         : (btn.isSuccess
-                            ? Qt.rgba(app.greenColor.r, app.greenColor.g, app.greenColor.b, 0.18)
-                            : app.surfaceInput)))
-            border.width: btn.isPrimary ? 0 : 1
-            border.color: btn.isDanger
-                          ? Qt.rgba(app.redColor.r, app.redColor.g, app.redColor.b, 0.35)
-                          : (btn.isAccent
-                             ? Qt.rgba(app.accentColor.r, app.accentColor.g, app.accentColor.b, 0.35)
-                             : (btn.isSuccess
-                                ? Qt.rgba(app.greenColor.r, app.greenColor.g, app.greenColor.b, 0.35)
-                                : app.borderSubtle))
+            height: Style.badgeHeight
+            width: hintText.implicitWidth + Style.space10
+            radius: Style.radius2
+            color: btn.isPrimary ? Qt.rgba(0, 0, 0, 0.18)
+                 : btn.isDefault ? Style.surfaceInput
+                 : btn.tint(btn.toneColor, 0.18)
+            border.width: btn.isPrimary ? 0 : Style.hairline
+            border.color: btn.isPrimary ? "transparent"
+                        : btn.isDefault ? Style.borderSubtle
+                        : btn.tint(btn.toneColor, 0.35)
 
             Text {
                 id: hintText
                 anchors.centerIn: parent
                 text: btn.shortcutHint
-                color: btn.isPrimary
-                       ? theme.accentForeground
-                       : (btn.isDanger
-                          ? theme.red
-                          : (btn.isAccent
-                             ? theme.accent
-                             : (btn.isSuccess ? theme.green : theme.muted)))
-                font.family: app.monoFont
-                font.pixelSize: 10
+                color: btn.isPrimary ? theme.accentForeground
+                     : btn.isDefault ? theme.muted
+                     : btn.toneColor
+                font.family: Style.fontMono
+                font.pixelSize: Style.font10
             }
         }
     }

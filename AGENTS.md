@@ -107,8 +107,11 @@ When you add a source file, register it in `aibox.pro` and in
   braces on the same line, `QStringLiteral` for literal strings. Follow the
   surrounding file.
 - QML: 4-space indent, one property per line, `id` first, bindings over
-  assignments. Reusable controls belong in `src/qml/components` and are
-  injected with the window reference instead of reaching for a global id.
+  assignments. Reusable controls belong in `src/qml/components`. Never hardcode
+  colours, font families, font sizes, spacing, radii or control heights: use
+  `Style.qml`, the design-token singleton. Dialogs build on `ModalDialog` and
+  only declare their own content. Pass the window reference only when a control
+  needs window functions, not just colours or fonts.
 - Every new user-visible string uses `qsTr()` and is added to both
   `src/i18n/en.json` and `src/i18n/da.json`.
 - Comments explain why, not what. Keep them short and in English.

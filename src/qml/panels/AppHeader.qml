@@ -1,128 +1,67 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../components"
 
 Rectangle {
-    property QtObject app: null
     id: appHeaderRoot
+    property QtObject app: null
     Layout.fillWidth: true
-    Layout.preferredHeight: 54
+    Layout.preferredHeight: Style.headerHeight
     color: theme.darkBackground
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 20
-        anchors.rightMargin: 20
-        spacing: 16
+        anchors.leftMargin: Style.space20
+        anchors.rightMargin: Style.space20
+        spacing: Style.space16
 
-        // Minimalist App Brand
+        // App brand
         RowLayout {
-            spacing: 10
-            Rectangle {
-                width: 28
-                height: 28
-                radius: Math.min(4, theme.radius)
-                color: app.surfaceSelected
-                border.width: 1
-                border.color: theme.accent
-                Text {
-                    anchors.centerIn: parent
-                    text: ">_"
-                    color: theme.accent
-                    font.family: app.monoFont
-                    font.pixelSize: 12
-                }
-            }
+            spacing: Style.space10
+
+            BrandMark { markSize: 28 }
+
             Text {
                 text: qsTr("AIBox")
                 color: theme.foreground
-                font.family: app.sansFont
-                font.pixelSize: 15
+                font.family: Style.fontSans
+                font.pixelSize: Style.font15
                 font.weight: Font.Medium
             }
             Text {
                 text: "·"
                 color: theme.muted
-                font.pixelSize: 14
+                font.pixelSize: Style.font14
             }
             Text {
                 text: qsTr("Isolated Linux OS Manager")
                 color: theme.muted
-                font.family: app.sansFont
-                font.pixelSize: 12
+                font.family: Style.fontSans
+                font.pixelSize: Style.font12
             }
         }
 
-        // Segmented Tab Switcher
-        Rectangle {
-            Layout.leftMargin: 12
-            Layout.preferredHeight: 34
-            Layout.preferredWidth: segRow.implicitWidth + 8
+        // Main tab switcher
+        SegmentedTabs {
+            Layout.leftMargin: Style.space12
             Layout.alignment: Qt.AlignVCenter
-            radius: Math.min(4, theme.radius)
-            color: app.surfaceInput
-            border.width: 1
-            border.color: app.borderSubtle
-
-            RowLayout {
-                id: segRow
-                anchors.centerIn: parent
-                spacing: 4
-
-                Repeater {
-                    model: [
-                        { label: qsTr("%n Environments", "", backend.environments.length), key: "1", tab: 0 },
-                        { label: qsTr("OS Images & Downloads"), key: "2", tab: 1 }
-                    ]
-                    delegate: Rectangle {
-                        required property var modelData
-                        height: 28
-                        width: tabItemRow.implicitWidth + 18
-                        radius: Math.min(3, theme.radius)
-                        color: app.activeTab === modelData.tab ? app.surfaceSelected : "transparent"
-                        border.width: app.activeTab === modelData.tab ? 1 : 0
-                        border.color: theme.accent
-
-                        RowLayout {
-                            id: tabItemRow
-                            anchors.centerIn: parent
-                            spacing: 8
-                            Text {
-                                text: modelData.label
-                                color: app.activeTab === modelData.tab ? theme.foreground : theme.muted
-                                font.family: app.sansFont
-                                font.pixelSize: 12
-                                font.weight: app.activeTab === modelData.tab ? Font.Medium : Font.Normal
-                            }
-                            Text {
-                                text: modelData.key
-                                color: theme.muted
-                                font.family: app.monoFont
-                                font.pixelSize: 10
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: app.activeTab = modelData.tab
-                        }
-                    }
-                }
-            }
+            tabs: [
+                { label: qsTr("%n Environments", "", backend.environments.length), key: "1", value: 0 },
+                { label: qsTr("OS Images & Downloads"), key: "2", value: 1 }
+            ]
+            currentValue: app.activeTab
+            mediumWhenSelected: true
+            onSelected: function (value) { app.activeTab = value }
         }
 
         Item { Layout.fillWidth: true }
 
         RowLayout {
-            spacing: 10
+            spacing: Style.space10
             Layout.alignment: Qt.AlignVCenter
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: qsTr("Secrets")
                 shortcutHint: "A"
                 minWidth: 96
@@ -132,7 +71,6 @@ Rectangle {
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: qsTr("Backups")
                 shortcutHint: "B"
                 minWidth: 96
@@ -142,7 +80,6 @@ Rectangle {
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: backend.recentFailedHistoryCount > 0
                        ? qsTr("History (%1!)").arg(backend.recentFailedHistoryCount)
                        : qsTr("History")
@@ -155,9 +92,8 @@ Rectangle {
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 slidersIcon: true
-                minWidth: 34
+                minWidth: Style.controlHeight
                 disabled: backend.firstRun || backend.busy
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: app.openSettings(0)
@@ -166,7 +102,6 @@ Rectangle {
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: qsTr("Refresh")
                 shortcutHint: "R"
                 minWidth: 96
@@ -176,15 +111,13 @@ Rectangle {
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: "?"
-                minWidth: 34
+                minWidth: Style.controlHeight
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: app.helpVisible = !app.helpVisible
             }
 
             ActionButton {
-                app: appHeaderRoot.app
                 label: qsTr("+ New Environment")
                 shortcutHint: "N"
                 variant: "primary"
@@ -199,7 +132,7 @@ Rectangle {
     Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
-        height: 1
-        color: app.borderSubtle
+        height: Style.hairline
+        color: Style.borderSubtle
     }
 }

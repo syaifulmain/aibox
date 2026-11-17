@@ -1,11 +1,8 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
+// Title, optional subtitle, extra actions and the shared Close button.
 ColumnLayout {
-    property QtObject app: null
     id: mh
     property string title: ""
     property string subtitle: ""
@@ -16,23 +13,23 @@ ColumnLayout {
     signal closed()
 
     Layout.fillWidth: true
-    spacing: 12
+    spacing: Style.space12
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: 10
+        spacing: Style.space10
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            spacing: 2
+            spacing: Style.space2
 
             Text {
                 Layout.fillWidth: true
                 text: mh.title
                 color: theme.foreground
-                font.family: app.sansFont
-                font.pixelSize: 16
+                font.family: Style.fontSans
+                font.pixelSize: Style.font16
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -43,8 +40,8 @@ ColumnLayout {
                 Layout.minimumWidth: 0
                 text: mh.subtitle
                 color: theme.muted
-                font.family: mh.subtitleMono ? app.monoFont : app.sansFont
-                font.pixelSize: mh.subtitleMono ? 10 : 11
+                font.family: mh.subtitleMono ? Style.fontMono : Style.fontSans
+                font.pixelSize: mh.subtitleMono ? Style.font10 : Style.font11
                 wrapMode: mh.subtitleMono ? Text.NoWrap : Text.WordWrap
                 elide: mh.subtitleMono ? Text.ElideMiddle : Text.ElideNone
             }
@@ -52,12 +49,11 @@ ColumnLayout {
 
         RowLayout {
             id: extraRow
-            spacing: 10
+            spacing: Style.space10
             Layout.alignment: Qt.AlignTop | Qt.AlignRight
         }
 
         ActionButton {
-            app: mh.app
             visible: mh.showClose
             label: qsTr("Close")
             shortcutHint: "Esc"
@@ -70,7 +66,7 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
-        height: 1
-        color: app.borderSubtle
+        height: Style.hairline
+        color: Style.borderSubtle
     }
 }

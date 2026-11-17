@@ -1,11 +1,7 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
-import QtQuick.Layouts
 
+// Monochrome sliders glyph used by the configuration button.
 Item {
-    property QtObject app: null
     id: slidersIcon
     property color color: theme.foreground
     implicitWidth: 14

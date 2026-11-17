@@ -1,11 +1,8 @@
 import QtQuick
-import QtQuick.Controls
-import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 
+// Single-line flat text field with a static placeholder.
 Rectangle {
-    property QtObject app: null
     id: root
     property alias text: textInput.text
     property alias echoMode: textInput.echoMode
@@ -13,32 +10,32 @@ Rectangle {
     property bool readOnly: false
     signal accepted()
 
-    implicitHeight: 34
+    implicitHeight: Style.controlHeight
     Layout.preferredHeight: implicitHeight
-    radius: Math.min(4, theme.radius)
-    color: app.surfaceInput
-    border.width: 1
-    border.color: textInput.activeFocus ? theme.accent : app.borderSubtle
+    radius: Math.min(Style.radius4, theme.radius)
+    color: Style.surfaceInput
+    border.width: Style.hairline
+    border.color: textInput.activeFocus ? theme.accent : Style.borderSubtle
 
     Text {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
+        anchors.leftMargin: Style.space12
+        anchors.rightMargin: Style.space12
         anchors.verticalCenter: parent.verticalCenter
         visible: textInput.text.length === 0
         text: root.placeholder
         color: theme.muted
-        font.family: app.sansFont
-        font.pixelSize: 12
+        font.family: Style.fontSans
+        font.pixelSize: Style.font12
         elide: Text.ElideRight
     }
 
     TextInput {
         id: textInput
         anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
+        anchors.leftMargin: Style.space12
+        anchors.rightMargin: Style.space12
         verticalAlignment: TextInput.AlignVCenter
         color: theme.foreground
         selectionColor: theme.accent
@@ -46,8 +43,8 @@ Rectangle {
         selectByMouse: true
         clip: true
         readOnly: root.readOnly
-        font.family: app.sansFont
-        font.pixelSize: 13
+        font.family: Style.fontSans
+        font.pixelSize: Style.font13
         onAccepted: root.accepted()
     }
 }

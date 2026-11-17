@@ -21,16 +21,6 @@ ApplicationWindow {
     Material.accent: theme.accent
     Material.roundedScale: theme.radius
 
-    readonly property string sansFont: "Adwaita Sans"
-    readonly property string monoFont: "JetBrainsMono Nerd Font"
-    readonly property color borderSubtle: "#232738"
-    readonly property color surfaceCard: "#12131c"
-    readonly property color surfaceInput: "#0b0c12"
-    readonly property color surfaceSelected: "#192136"
-    readonly property color accentColor: theme.accent
-    readonly property color redColor: theme.red
-    readonly property color greenColor: theme.green
-
     property int activeTab: 0
     property bool helpVisible: false
     property bool createVisible: false
@@ -844,12 +834,19 @@ ApplicationWindow {
         // ======================================================================
         // MODAL 5: FIRST-RUN SYSTEM STORAGE SETUP
         // ======================================================================
-        Rectangle {
+        ModalDialog {
             id: firstRunOverlay
-            anchors.fill: parent
-            visible: backend.firstRun
-            color: "#e006070a"
-            z: 100
+            open: backend.firstRun
+            scrimColor: Style.scrimStrong
+            zOrder: 100
+            cardWidth: Math.min(parent.width - Style.modalGutterWide, 600)
+            contentSpacing: Style.space14
+
+            readonly property string resolvedPreview: {
+                const raw = firstRunPathField.text.trim()
+                const base = raw.length > 0 ? raw : backend.defaultSystemPath
+                return base.length > 1 && base.endsWith("/") ? base.slice(0, -1) : base
+            }
 
             onVisibleChanged: {
                 if (visible) {
@@ -858,197 +855,160 @@ ApplicationWindow {
                 }
             }
 
-            MouseArea { anchors.fill: parent }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Style.space12
 
-            Rectangle {
-                anchors.centerIn: parent
-                width: Math.min(parent.width - 60, 600)
-                height: firstRunColumn.implicitHeight + 48
-                radius: Math.min(8, theme.radius)
-                color: win.surfaceCard
-                border.width: 1
-                border.color: theme.accent
+                BrandMark {
+                    markSize: 40
+                    markRadius: Style.radius6
+                    textSize: Style.font14
+                }
 
                 ColumnLayout {
-                    id: firstRunColumn
-                    anchors.fill: parent
-                    anchors.margins: 24
-                    spacing: 14
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    spacing: Style.space2
 
-                    readonly property string resolvedPreview: {
-                        const raw = firstRunPathField.text.trim()
-                        const base = raw.length > 0 ? raw : backend.defaultSystemPath
-                        return base.length > 1 && base.endsWith("/") ? base.slice(0, -1) : base
-                    }
-
-                    RowLayout {
+                    Text {
                         Layout.fillWidth: true
-                        spacing: 12
-
-                        Rectangle {
-                            width: 40
-                            height: 40
-                            radius: Math.min(6, theme.radius)
-                            color: win.surfaceSelected
-                            border.width: 1
-                            border.color: theme.accent
-                            Text {
-                                anchors.centerIn: parent
-                                text: ">_"
-                                color: theme.accent
-                                font.family: win.monoFont
-                                font.pixelSize: 14
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            spacing: 2
-                            Text {
-                                Layout.fillWidth: true
-                                text: qsTr("Welcome to AIBox")
-                                color: theme.foreground
-                                font.family: win.sansFont
-                                font.pixelSize: 18
-                                font.weight: Font.Medium
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                wrapMode: Text.WordWrap
-                                text: qsTr("Choose where AIBox stores its system data, shared workspaces, OS images, and backups. You can keep the default or pick a custom location.")
-                                color: theme.muted
-                                font.family: win.sansFont
-                                font.pixelSize: 11
-                            }
-                        }
+                        text: qsTr("Welcome to AIBox")
+                        color: theme.foreground
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.font18
+                        font.weight: Font.Medium
                     }
-
-                    Rectangle {
+                    Text {
                         Layout.fillWidth: true
-                        height: 1
-                        color: win.borderSubtle
+                        wrapMode: Text.WordWrap
+                        text: qsTr("Choose where AIBox stores its system data, shared workspaces, OS images, and backups. You can keep the default or pick a custom location.")
+                        color: theme.muted
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.font11
                     }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: Style.hairline
+                color: Style.borderSubtle
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space8
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("System Storage Location")
+                    color: theme.foreground
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.font12
+                    font.weight: Font.Medium
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space10
+
+                    FlatInput {
+                        id: firstRunPathField
+                        Layout.fillWidth: true
+                        text: backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
+                        placeholder: backend.defaultSystemPath
+                        onAccepted: win.submitFirstRun()
+                    }
+
+                    ActionButton {
+                        label: qsTr("Browse...")
+                        minWidth: 96
+                        onClicked: firstRunFolderDialog.open()
+                    }
+
+                    ActionButton {
+                        label: qsTr("Default")
+                        minWidth: 84
+                        onClicked: firstRunPathField.text = backend.defaultSystemPath
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: previewGrid.implicitHeight + Style.space20
+                    radius: Math.min(Style.radius4, theme.radius)
+                    color: Style.surfaceInput
+                    border.width: Style.hairline
+                    border.color: Style.borderSubtle
 
                     ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
+                        id: previewGrid
+                        anchors.fill: parent
+                        anchors.margins: Style.space10
+                        spacing: Style.space4
 
                         Text {
                             Layout.fillWidth: true
-                            text: qsTr("System Storage Location")
-                            color: theme.foreground
-                            font.family: win.sansFont
-                            font.pixelSize: 12
-                            font.weight: Font.Medium
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideMiddle
+                            text: qsTr("Workspaces:  %1/workspaces").arg(firstRunOverlay.resolvedPreview)
+                            color: theme.muted
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
                         }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 10
-
-                            FlatInput {
-                                app: win
-                                id: firstRunPathField
-                                Layout.fillWidth: true
-                                text: backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
-                                placeholder: backend.defaultSystemPath
-                                onAccepted: win.submitFirstRun()
-                            }
-
-                            ActionButton {
-                                app: win
-                                label: qsTr("Browse...")
-                                minWidth: 96
-                                onClicked: firstRunFolderDialog.open()
-                            }
-
-                            ActionButton {
-                                app: win
-                                label: qsTr("Default")
-                                minWidth: 84
-                                onClicked: firstRunPathField.text = backend.defaultSystemPath
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: previewGrid.implicitHeight + 20
-                            radius: Math.min(4, theme.radius)
-                            color: win.surfaceInput
-                            border.width: 1
-                            border.color: win.borderSubtle
-
-                            ColumnLayout {
-                                id: previewGrid
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 4
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    elide: Text.ElideMiddle
-                                    text: qsTr("Workspaces:  %1/workspaces").arg(firstRunColumn.resolvedPreview)
-                                    color: theme.muted
-                                    font.family: win.monoFont
-                                    font.pixelSize: 10
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    elide: Text.ElideMiddle
-                                    text: qsTr("OS Images:   %1/os-images").arg(firstRunColumn.resolvedPreview)
-                                    color: theme.muted
-                                    font.family: win.monoFont
-                                    font.pixelSize: 10
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    elide: Text.ElideMiddle
-                                    text: qsTr("State & Cfg: %1/state, config.json").arg(firstRunColumn.resolvedPreview)
-                                    color: theme.muted
-                                    font.family: win.monoFont
-                                    font.pixelSize: 10
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        visible: win.firstRunError.length > 0
-                        Layout.fillWidth: true
-                        implicitHeight: firstRunErrTxt.implicitHeight + 14
-                        radius: Math.min(4, theme.radius)
-                        color: "#261319"
-                        border.width: 1
-                        border.color: theme.red
                         Text {
-                            id: firstRunErrTxt
-                            anchors.fill: parent
-                            anchors.margins: 7
-                            wrapMode: Text.WordWrap
-                            text: win.firstRunError
-                            color: theme.red
-                            font.family: win.sansFont
-                            font.pixelSize: 11
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideMiddle
+                            text: qsTr("OS Images:   %1/os-images").arg(firstRunOverlay.resolvedPreview)
+                            color: theme.muted
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideMiddle
+                            text: qsTr("State & Cfg: %1/state, config.json").arg(firstRunOverlay.resolvedPreview)
+                            color: theme.muted
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.font10
                         }
                     }
+                }
+            }
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.topMargin: 4
-                        spacing: 10
-                        Item { Layout.fillWidth: true }
-                        ActionButton {
-                            app: win
-                            label: qsTr("Continue")
-                            variant: "primary"
-                            minWidth: 128
-                            onClicked: win.submitFirstRun()
-                        }
-                    }
+            Rectangle {
+                visible: win.firstRunError.length > 0
+                Layout.fillWidth: true
+                implicitHeight: firstRunErrTxt.implicitHeight + Style.space14
+                radius: Math.min(Style.radius4, theme.radius)
+                color: Style.dangerSurface
+                border.width: Style.hairline
+                border.color: theme.red
+                Text {
+                    id: firstRunErrTxt
+                    anchors.fill: parent
+                    anchors.margins: Style.space7
+                    wrapMode: Text.WordWrap
+                    text: win.firstRunError
+                    color: theme.red
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.font11
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.space4
+                spacing: Style.space10
+                Item { Layout.fillWidth: true }
+
+                ActionButton {
+                    label: qsTr("Continue")
+                    variant: "primary"
+                    minWidth: 128
+                    onClicked: win.submitFirstRun()
                 }
             }
         }
