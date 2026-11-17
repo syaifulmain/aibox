@@ -28,6 +28,7 @@
 #include <cmath>
 #include <csignal>
 #include <fcntl.h>
+#include <memory>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -430,6 +431,16 @@ Backend::~Backend() {
         m_netProbeProcess->kill();
         m_netProbeProcess->waitForFinished(500);
     }
+    if (m_enterPrepareProcess && m_enterPrepareProcess->state() != QProcess::NotRunning) {
+        m_enterPrepareProcess->kill();
+        m_enterPrepareProcess->waitForFinished(500);
+    }
+    if (m_enterSecretProcess && m_enterSecretProcess->state() != QProcess::NotRunning) {
+        m_enterSecretProcess->kill();
+        m_enterSecretProcess->waitForFinished(500);
+    }
+    if (!m_enterHostSecretFile.isEmpty())
+        QFile::remove(m_enterHostSecretFile);
 }
 
 QString Backend::defaultSystemPath() {
@@ -3955,8 +3966,11 @@ echo "@@STAGE:100:Clone ready!"
 }
 
 QString Backend::prepareEnvironmentScript(const QString &name) {
+    return buildPrepareScript(name, buildAllowlistRefreshIfNeeded(name));
+}
+
+QString Backend::buildPrepareScript(const QString &name, const QString &allowRefresh) {
     const QString autoSnap = buildAutoSnapshotIfNeeded(name);
-    const QString allowRefresh = buildAllowlistRefreshIfNeeded(name);
 
     return QStringLiteral(R"sh(
 if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
@@ -4070,45 +4084,190 @@ void Backend::enterEnvironment(const QString &name) {
         setError(tr("Templates cannot be entered directly. Create a new environment from this template first."));
         return;
     }
+    if (m_enterPrepareProcess && m_enterPrepareProcess->state() != QProcess::NotRunning)
+        return;
+    if (m_enterSecretProcess && m_enterSecretProcess->state() != QProcess::NotRunning)
+        return;
 
-    const QString script = prepareEnvironmentScript(name);
-
-    QProcess preProc;
-    preProc.setProcessChannelMode(QProcess::MergedChannels);
-    preProc.start(QStringLiteral("/bin/bash"), {QStringLiteral("-c"), script});
-    preProc.waitForFinished(60000);
-    const QByteArray preOut = preProc.readAllStandardOutput();
-    if (preOut.contains("Warning:")) {
-        recordOperationHistory(tr("Auto-snapshot warning for '%1'").arg(name), name,
-                               QStringLiteral("warning"), preProc.exitCode(),
-                               QDateTime::currentDateTimeUtc().toString(Qt::ISODate), preOut);
+    m_enterEnvName = name;
+    m_enterAllowlistSnippet.clear();
+    m_enterHostSecretFile.clear();
+    m_enterRemoteEnvPath.clear();
+    if (m_statusMessage != tr("Preparing environment '%1'...").arg(name)) {
+        m_statusMessage = tr("Preparing environment '%1'...").arg(name);
+        emit statusMessageChanged();
     }
+    beginEnterPrepare(name);
+}
 
-    QString remoteEnvPath;
-    QString secretErr;
-    if (!pushEnvironmentSecretsToContainer(name, &remoteEnvPath, &secretErr)) {
-        setError(secretErr);
-        refresh();
+void Backend::beginEnterPrepare(const QString &name) {
+    const QVariantMap env = environmentByName(name);
+    const QString rawAllow = env.value(QStringLiteral("networkAllowlist")).toString();
+    const QStringList entries = parseAllowlistEntries(rawAllow);
+    if (env.value(QStringLiteral("networkMode")).toString() != QLatin1String("allowlist") || entries.isEmpty()) {
+        startEnterPrepareProcess();
         return;
     }
 
-    QString enterCmd;
+    // Hostname lookups must not block the GUI thread, so resolve them first.
+    resolveEnterAllowlistHosts(entries, [this, rawAllow](const QStringList &cidrs) {
+        if (m_enterEnvName.isEmpty())
+            return;
+        const QVariantMap current = environmentByName(m_enterEnvName);
+        if (!cidrs.isEmpty()) {
+            m_enterAllowlistSnippet = aclApplyShellSnippet(m_enterEnvName, rawAllow, cidrs,
+                                                           current.value("egressRecording").toBool());
+        }
+        startEnterPrepareProcess();
+    });
+}
+
+void Backend::resolveEnterAllowlistHosts(const QStringList &entries,
+                                         const std::function<void(const QStringList &)> &done) {
+    static const QRegularExpression hostRe(QStringLiteral("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$"));
+    QStringList hostnames;
+    for (const QString &entry : entries) {
+        if (entry.contains(QLatin1Char('/')) || !QHostAddress(entry).isNull())
+            continue;
+        if (hostRe.match(entry).hasMatch() && !hostnames.contains(entry))
+            hostnames.append(entry);
+    }
+
+    auto results = std::make_shared<QHash<QString, QStringList>>();
+    auto finish = [entries, results, done]() {
+        done(resolveAllowlistCidrs(entries, [results](const QString &host) {
+            return results->value(host);
+        }));
+    };
+    if (hostnames.isEmpty()) {
+        finish();
+        return;
+    }
+
+    auto pending = std::make_shared<int>(hostnames.size());
+    for (const QString &host : hostnames) {
+        QHostInfo::lookupHost(host, this,
+                              [host, pending, results, finish](const QHostInfo &info) {
+            QStringList ips;
+            for (const QHostAddress &addr : info.addresses()) {
+                if (addr.protocol() == QAbstractSocket::IPv4Protocol)
+                    ips.append(addr.toString());
+            }
+            results->insert(host, ips);
+            if (--(*pending) == 0)
+                finish();
+        });
+    }
+}
+
+void Backend::startEnterPrepareProcess() {
+    if (m_enterEnvName.isEmpty())
+        return;
+    if (!m_enterPrepareProcess) {
+        m_enterPrepareProcess = new QProcess(this);
+        m_enterPrepareProcess->setProcessChannelMode(QProcess::MergedChannels);
+        connect(m_enterPrepareProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this](int exitCode, QProcess::ExitStatus) { handleEnterPrepared(exitCode); });
+        connect(m_enterPrepareProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart)
+                finishEnter(tr("Could not start environment preparation."));
+        });
+    }
+    if (m_enterPrepareProcess->state() != QProcess::NotRunning)
+        return;
+    m_enterPrepareProcess->start(QStringLiteral("/bin/bash"),
+                                 {QStringLiteral("-c"), buildPrepareScript(m_enterEnvName, m_enterAllowlistSnippet)});
+}
+
+void Backend::handleEnterPrepared(int exitCode) {
+    if (m_enterEnvName.isEmpty())
+        return;
+    const QByteArray preOut = m_enterPrepareProcess->readAllStandardOutput();
+    if (preOut.contains("Warning:")) {
+        recordOperationHistory(tr("Auto-snapshot warning for '%1'").arg(m_enterEnvName), m_enterEnvName,
+                               QStringLiteral("warning"), exitCode,
+                               QDateTime::currentDateTimeUtc().toString(Qt::ISODate), preOut);
+    }
+    pushEnterSecrets();
+}
+
+void Backend::pushEnterSecrets() {
+    if (m_enterEnvName.isEmpty())
+        return;
+    QString secretErr;
+    const QList<QPair<QString, QString>> pairs = resolveEnvironmentSecrets(m_enterEnvName, &secretErr);
+    if (!secretErr.isEmpty()) {
+        finishEnter(secretErr);
+        return;
+    }
+    if (pairs.isEmpty()) {
+        launchEnterTerminal(QString());
+        return;
+    }
+
+    QString tmpErr;
+    m_enterHostSecretFile = createHostTempSecretFile(buildSecretEnvFileContent(pairs), &tmpErr);
+    if (m_enterHostSecretFile.isEmpty()) {
+        finishEnter(tmpErr);
+        return;
+    }
+    m_enterRemoteEnvPath = QStringLiteral("/dev/shm/aibox-%1.env")
+                               .arg(QUuid::createUuid().toString(QUuid::Id128));
+
+    if (!m_enterSecretProcess) {
+        m_enterSecretProcess = new QProcess(this);
+        connect(m_enterSecretProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, [this](int exitCode, QProcess::ExitStatus status) {
+            handleEnterSecretsPushed(exitCode, status);
+        });
+    }
+    m_enterSecretProcess->start(QStringLiteral("incus"),
+                                {QStringLiteral("file"), QStringLiteral("push"),
+                                 QStringLiteral("--mode"), QStringLiteral("0400"),
+                                 m_enterHostSecretFile, m_enterEnvName + m_enterRemoteEnvPath});
+}
+
+void Backend::handleEnterSecretsPushed(int exitCode, QProcess::ExitStatus status) {
+    QString errText;
+    if (exitCode != 0 || status != QProcess::NormalExit) {
+        errText = QString::fromUtf8(m_enterSecretProcess->readAllStandardError()).trimmed();
+        if (errText.isEmpty())
+            errText = tr("Failed to inject secrets into container.");
+    }
+    if (!m_enterHostSecretFile.isEmpty())
+        QFile::remove(m_enterHostSecretFile);
+    m_enterHostSecretFile.clear();
+    if (!errText.isEmpty()) {
+        finishEnter(errText);
+        return;
+    }
+    launchEnterTerminal(m_enterRemoteEnvPath);
+}
+
+QString Backend::buildEnterCommand(const QString &name, const QString &remoteEnvPath) const {
     const QString wsMountArg = QStringLiteral(
         "\"$(incus config device get %1 workspace path 2>/dev/null || echo %2)\"")
         .arg(shellQuote(name), shellQuote(kContainerWorkspacePath));
     if (remoteEnvPath.isEmpty()) {
-        enterCmd = QStringLiteral(
+        return QStringLiteral(
             "incus exec %1 --cwd %2 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- bash -l || "
             "incus exec %1 --cwd %2 -- sh").arg(shellQuote(name), wsMountArg);
-    } else {
-        enterCmd = QStringLiteral(
-            "incus exec %1 --cwd %3 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- "
-            "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter %2 || "
-            "incus exec %1 --cwd %3 -- "
-            "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter %2")
-                       .arg(shellQuote(name), shellQuote(remoteEnvPath), wsMountArg);
     }
+    return QStringLiteral(
+        "incus exec %1 --cwd %3 --env DISPLAY=\"${DISPLAY:-:0}\" --env TERM=\"${TERM:-xterm-256color}\" -- "
+        "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter %2 || "
+        "incus exec %1 --cwd %3 -- "
+        "sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter %2")
+                   .arg(shellQuote(name), shellQuote(remoteEnvPath), wsMountArg);
+}
 
+void Backend::launchEnterTerminal(const QString &remoteEnvPath) {
+    const QString name = m_enterEnvName;
+    if (name.isEmpty())
+        return;
+
+    QString enterCmd = buildEnterCommand(name, remoteEnvPath);
+    const QVariantMap env = environmentByName(name);
     if (env.value(QStringLiteral("recordEnabled")).toBool()) {
         QString logFile;
         QString timingFile;
@@ -4120,7 +4279,26 @@ void Backend::enterEnvironment(const QString &name) {
         }
     }
 
+    m_enterEnvName.clear();
+    m_enterAllowlistSnippet.clear();
+    m_enterRemoteEnvPath.clear();
+    m_statusMessage.clear();
+    emit statusMessageChanged();
     launchCommandInTerminal(enterCmd);
+    refresh();
+}
+
+void Backend::finishEnter(const QString &errorMessage) {
+    if (!m_enterHostSecretFile.isEmpty())
+        QFile::remove(m_enterHostSecretFile);
+    m_enterHostSecretFile.clear();
+    m_enterRemoteEnvPath.clear();
+    m_enterEnvName.clear();
+    m_enterAllowlistSnippet.clear();
+    m_statusMessage.clear();
+    emit statusMessageChanged();
+    if (!errorMessage.isEmpty())
+        setError(errorMessage);
     refresh();
 }
 

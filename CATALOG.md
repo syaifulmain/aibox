@@ -57,6 +57,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 44 — Non-Blocking Enter OS Terminal
+- **Enter Terminal (`src/backend.{h,cpp}`)**: `Backend::enterEnvironment()` no longer runs the preparation script, secret injection, or allowlist DNS lookups on the GUI thread. Preparation now runs as an asynchronous `QProcess`, hostnames resolve through `QHostInfo::lookupHost`, and the terminal opens from the finished callbacks. The window stays responsive, so the desktop no longer shows the "Application Not Responding" dialog while a stopped container starts or an auto-snapshot runs.
+- **Status Bar (`src/backend.cpp`)**: entering an environment shows `Preparing environment '<name>'...` until the terminal launches, then clears the message or shows the failure reason.
+- **Tests (`tests/aibox_tests.cpp`)**: new `enterEnvironmentReturnsWithoutBlocking` test uses a stub `incus` that delays `info`, asserts the call returns in under 500 ms, and verifies the terminal command launches afterwards.
+
 ### Iteration 43 — Create Dialog Fits Its Content
 - **Create Dialog (`src/Main.qml`)**: the modal height now follows the form instead of a fixed height, so template mode no longer leaves a large empty area below the quota rows. The form still scrolls when fresh-OS creation needs more room than the window offers.
 - **Quota Chips (`src/Main.qml`)**: disk, RAM, CPU, process, and I/O chips now share the row width equally and elide long labels, so narrow windows no longer squeeze or clip the chip rows.

@@ -677,6 +677,17 @@ private:
     QVariantMap environmentByName(const QString &name) const;
     QString buildAutoSnapshotIfNeeded(const QString &name);
     QString buildAllowlistRefreshIfNeeded(const QString &name) const;
+    QString buildPrepareScript(const QString &name, const QString &allowRefresh);
+    void beginEnterPrepare(const QString &name);
+    void resolveEnterAllowlistHosts(const QStringList &entries,
+                                    const std::function<void(const QStringList &)> &done);
+    void startEnterPrepareProcess();
+    void handleEnterPrepared(int exitCode);
+    void pushEnterSecrets();
+    void handleEnterSecretsPushed(int exitCode, QProcess::ExitStatus status);
+    QString buildEnterCommand(const QString &name, const QString &remoteEnvPath) const;
+    void launchEnterTerminal(const QString &remoteEnvPath);
+    void finishEnter(const QString &errorMessage);
     QString fileAccessDirPath() const;
     QString fileAccessStatePath(const QString &name) const;
     QString fileAccessLogPath(const QString &name) const;
@@ -789,4 +800,10 @@ private:
     QString m_netGateway;
     double m_netPingMs = -1.0;
     double m_netPacketLoss = -1.0;
+    QProcess *m_enterPrepareProcess = nullptr;
+    QProcess *m_enterSecretProcess = nullptr;
+    QString m_enterEnvName;
+    QString m_enterAllowlistSnippet;
+    QString m_enterHostSecretFile;
+    QString m_enterRemoteEnvPath;
 };

@@ -1813,6 +1813,76 @@ exit 0
         QCOMPARE(Cli::execute(Cli::parseArgs({"--project", projDir, "snapshots", "dev", "--json"})), 0);
     }
 
+    void enterEnvironmentReturnsWithoutBlocking()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString stubDir = dir.filePath("bin");
+        const QString projDir = dir.filePath("proj");
+        const QString wsBase = projDir + "/.aibox/workspaces";
+        const QString stateDir = projDir + "/.aibox/state";
+        QVERIFY(QDir().mkpath(stubDir));
+        QVERIFY(QDir().mkpath(wsBase + "/dev"));
+        QVERIFY(QDir().mkpath(stateDir));
+        write(projDir + "/.aibox/config.json", R"({"firstRunCompleted":true})");
+
+        const QString listJsonFile = dir.filePath("list.json");
+        write(listJsonFile, QStringLiteral(R"json([
+  {
+    "name": "dev",
+    "type": "container",
+    "status": "Stopped",
+    "config": {},
+    "expanded_devices": { "workspace": { "source": "%1/dev", "path": "/home/workspace" } },
+    "snapshots": []
+  }
+])json").arg(wsBase).toUtf8());
+
+        // Slow incus info keeps the preparation step running for three seconds.
+        const QString incusStub = QStringLiteral(R"sh(#!/bin/sh
+if [ "$1" = "list" ]; then
+    cat "%1"
+    exit 0
+fi
+if [ "$1" = "info" ]; then
+    sleep 3
+    echo "Status: RUNNING"
+    exit 0
+fi
+exit 0
+)sh").arg(listJsonFile);
+        writeExecutable(stubDir + "/incus", incusStub.toUtf8());
+
+        const QString markerPath = dir.filePath("terminal-opened");
+        writeExecutable(stubDir + "/xdg-terminal-exec",
+                        QStringLiteral("#!/bin/sh\necho \"$@\" > '%1'\n").arg(markerPath).toUtf8());
+
+        const QByteArray oldPath = qgetenv("PATH");
+        qputenv("PATH", (stubDir + ":" + QString::fromLocal8Bit(oldPath)).toLocal8Bit());
+        struct PathRestore {
+            QByteArray orig;
+            ~PathRestore() { qputenv("PATH", orig); }
+        } restorePath{oldPath};
+
+        Backend backend(projDir, Backend::PathMode::ProjectDir);
+        QString err;
+        QVERIFY2(backend.refreshSync(&err), qPrintable(err));
+        QVERIFY(!backend.findEnvironment("dev").isEmpty());
+
+        QElapsedTimer elapsed;
+        elapsed.start();
+        backend.enterEnvironment("dev");
+        const qint64 callMs = elapsed.elapsed();
+        QVERIFY2(callMs < 500,
+                 qPrintable(QStringLiteral("enterEnvironment blocked the GUI thread for %1 ms").arg(callMs)));
+
+        QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(markerPath), 15000);
+        QFile marker(markerPath);
+        QVERIFY(marker.open(QIODevice::ReadOnly));
+        const QString launched = QString::fromUtf8(marker.readAll());
+        QVERIFY2(launched.contains("incus exec"), qPrintable(launched));
+    }
+
     void secretsValidationQuotingAndRedaction()
     {
         QVERIFY(Backend::isValidSecretName("OPENAI_API_KEY"));
