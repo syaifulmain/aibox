@@ -34,6 +34,11 @@ pub fn now_epoch_secs() -> i64 {
     Utc::now().timestamp()
 }
 
+/// Returns the current Unix timestamp in milliseconds.
+pub fn now_epoch_millis() -> i64 {
+    Utc::now().timestamp_millis()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

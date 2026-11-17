@@ -14,6 +14,7 @@ mod qt_backend_provision;
 mod qt_backend_secrets;
 mod qt_backend_sessions;
 mod qt_backend_snapshot;
+mod qt_backend_task;
 mod qt_backend_workspace;
 mod qt_theme;
 mod qt_translator;

@@ -1,25 +1,5 @@
 fn main() {
-    let bridges = [
-        "src/backup.rs",
-        "src/cli.rs",
-        "src/config.rs",
-        "src/health.rs",
-        "src/history.rs",
-        "src/i18n.rs",
-        "src/incus.rs",
-        "src/meta.rs",
-        "src/network.rs",
-        "src/provision.rs",
-        "src/secrets.rs",
-        "src/session.rs",
-        "src/settings.rs",
-        "src/snapshot.rs",
-        "src/task.rs",
-        "src/theme.rs",
-        "src/util.rs",
-        "src/workspace_diff.rs",
-        "src/workspace_workflow.rs",
-    ];
+    let bridges = ["src/cli.rs", "src/meta.rs"];
     cxx_build::bridges(bridges)
         .include("../../../src/cpp")
         .std("c++17")

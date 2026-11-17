@@ -1,7 +1,6 @@
-// TODO(P17c): remove once all signals and task/diff fields are wired.
-#![allow(dead_code)]
 #![allow(clippy::too_many_arguments)]
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
@@ -18,6 +17,7 @@ use aibox_core::config::defaults::{
 };
 use aibox_core::config::settings::stale_day_options;
 use aibox_core::engine::Engine;
+use aibox_core::health::idle::IdleCpuSample;
 use aibox_core::health::pool::{
     parse_incus_storage_info, sum_root_disk_quotas_bytes, StoragePoolInfo,
 };
@@ -69,6 +69,9 @@ pub mod qobject {
         include!("shim/clipboard_shim.h");
         fn aibox_clipboard_set_text(text: &QString) -> bool;
         fn aibox_clipboard_image_png() -> Vec<u8>;
+
+        include!("shim/qml_helpers.h");
+        fn aibox_is_gui_session() -> bool;
     }
 
     unsafe extern "RustQt" {
@@ -870,12 +873,12 @@ pub struct BackendRust {
     environments: QListQVariant,
     os_catalog: QListQVariant,
     pub(crate) selected_index: i32,
-    busy: bool,
-    task_progress: i32,
-    task_stage: QString,
-    task_log: QString,
-    pending_env_name: QString,
-    status_message: QString,
+    pub(crate) busy: bool,
+    pub(crate) task_progress: i32,
+    pub(crate) task_stage: QString,
+    pub(crate) task_log: QString,
+    pub(crate) pending_env_name: QString,
+    pub(crate) status_message: QString,
     error_message: QString,
     pub(crate) downloading_os_id: QString,
     system_path: QString,
@@ -943,8 +946,21 @@ pub struct BackendRust {
     refresh_in_flight: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
     poll_started: bool,
-    task_watch_active: Arc<AtomicBool>,
+    pub(crate) task_watch_active: Arc<AtomicBool>,
     pub(crate) diff_generation: Arc<AtomicU64>,
+    pub(crate) log_offset: i64,
+    pub(crate) has_exit_code: bool,
+    pub(crate) last_exit_code: i32,
+    pub(crate) enter_env_name: String,
+    pub(crate) enter_allowlist_snippet: String,
+    pub(crate) watchdog_disk_level: HashMap<String, i32>,
+    pub(crate) watchdog_cpu_level: HashMap<String, i32>,
+    pub(crate) watchdog_cpu_high_streak: HashMap<String, i32>,
+    pub(crate) watchdog_ram_level: HashMap<String, i32>,
+    pub(crate) watchdog_ram_high_streak: HashMap<String, i32>,
+    pub(crate) idle_samples: HashMap<String, Vec<IdleCpuSample>>,
+    pub(crate) idle_warned: HashSet<String>,
+    pub(crate) idle_check_in_flight: Arc<AtomicBool>,
 }
 
 impl Default for BackendRust {
@@ -1045,6 +1061,19 @@ impl Default for BackendRust {
             poll_started: false,
             task_watch_active: Arc::new(AtomicBool::new(false)),
             diff_generation: Arc::new(AtomicU64::new(0)),
+            log_offset: 0,
+            has_exit_code: false,
+            last_exit_code: -1,
+            enter_env_name: String::new(),
+            enter_allowlist_snippet: String::new(),
+            watchdog_disk_level: HashMap::new(),
+            watchdog_cpu_level: HashMap::new(),
+            watchdog_cpu_high_streak: HashMap::new(),
+            watchdog_ram_level: HashMap::new(),
+            watchdog_ram_high_streak: HashMap::new(),
+            idle_samples: HashMap::new(),
+            idle_warned: HashSet::new(),
+            idle_check_in_flight: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -1174,6 +1203,7 @@ impl qobject::Backend {
             self.as_mut().start_background_workers();
             self.as_mut().refresh();
         }
+        self.as_mut().attach_existing_task();
     }
 
     pub(crate) fn sync_config_properties(mut self: Pin<&mut Self>) {
@@ -1405,16 +1435,6 @@ impl qobject::Backend {
         )
     }
 
-    pub(crate) fn run_shell_task(
-        self: Pin<&mut Self>,
-        stage: &str,
-        _script: &str,
-        _on_success_msg: &str,
-        _pending_env: &str,
-    ) {
-        eprintln!("not yet ported (P17c): runShellTask: {stage}");
-    }
-
     pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
         let state_dir = self.engine.paths.state_dir.clone();
         let fa_inputs: Vec<FileAccessEnvInput> = self
@@ -1491,9 +1511,8 @@ impl qobject::Backend {
                     return;
                 }
                 if task_watch_active.load(Ordering::Relaxed) {
-                    let _ = qt_thread_watch.queue(|backend| {
-                        // Task watcher hook (wired in P17c)
-                        let _ = backend;
+                    let _ = qt_thread_watch.queue(|mut backend| {
+                        backend.as_mut().check_background_task();
                     });
                 }
             }
@@ -1690,6 +1709,8 @@ impl qobject::Backend {
                 self.as_mut().refresh_stale_report();
             }
         }
+        self.as_mut().evaluate_all_watchdogs();
+        self.as_mut().trigger_idle_auto_stops_check();
         self.as_mut().rebuild_os_catalog();
     }
 
@@ -1783,14 +1804,6 @@ impl qobject::Backend {
             rust.stale_report = q_report;
         }
         self.as_mut().stale_report_changed();
-    }
-
-    // ---- Stubs for P17b / P17c ----
-    pub fn cancel_task(self: Pin<&mut Self>) {
-        eprintln!("not yet ported: cancelTask");
-    }
-    pub fn enter_environment(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: enterEnvironment");
     }
 }
 
