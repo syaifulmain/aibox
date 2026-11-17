@@ -1123,6 +1123,12 @@ ApplicationWindow {
         onActivated: backend.copyAiCommand(backend.selectedEnvironment.name || "")
     }
     Shortcut {
+        sequence: "I"
+        context: Qt.ApplicationShortcut
+        enabled: !win.anyModalOpen && win.activeTab === 0 && backend.environments.length > 0 && !(backend.selectedEnvironment.isTemplate || false)
+        onActivated: backend.pasteImageToWorkspace(backend.selectedEnvironment.name || "")
+    }
+    Shortcut {
         sequence: "D"
         context: Qt.ApplicationShortcut
         enabled: !win.anyModalOpen && win.activeTab === 0 && !backend.busy && backend.environments.length > 0
@@ -2090,6 +2096,15 @@ ApplicationWindow {
                                     disabled: backend.selectedEnvironment.isTemplate || false
                                     Layout.alignment: Qt.AlignVCenter
                                     onClicked: backend.copyAiCommand(backend.selectedEnvironment.name || "")
+                                }
+
+                                ActionButton {
+                                    label: qsTr("Paste Image")
+                                    shortcutHint: "I"
+                                    minWidth: 112
+                                    disabled: backend.selectedEnvironment.isTemplate || false
+                                    Layout.alignment: Qt.AlignVCenter
+                                    onClicked: backend.pasteImageToWorkspace(backend.selectedEnvironment.name || "")
                                 }
 
                                 Item { Layout.fillWidth: true }
@@ -5187,6 +5202,7 @@ ApplicationWindow {
                             { k: "T", d: qsTr("Mark or unmark environment as template") },
                             { k: "K", d: qsTr("Kill or restore environment network") },
                             { k: "C", d: qsTr("Copy AI agent execution command") },
+                            { k: "I", d: qsTr("Save clipboard image to workspace and copy its path") },
                             { k: "H", d: qsTr("View operation history and full task logs") },
                             { k: "B", d: qsTr("Export and import environment backups") },
                             { k: "A", d: qsTr("Manage global and per-environment secrets") },

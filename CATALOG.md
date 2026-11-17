@@ -57,6 +57,12 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 45 — Clipboard Image Paste Bridge
+- **Paste Image (`src/backend.{h,cpp}`, `src/Main.qml`)**: new **Paste Image** action (`I`) reads an image from the host clipboard, writes it as PNG to `<workspace>/.aibox-paste/paste-<timestamp>.png`, and puts the container path (for example `/home/workspace/.aibox-paste/paste-20261117-105500.png`) on the clipboard. The shared workspace mount delivers the file to the environment, so an agent inside a headless container can read the image after a normal terminal paste.
+- **Cleanup & Diff Noise**: pasted images older than seven days are pruned automatically, and `.aibox-paste/` is added to the default diff excludes so change review stays clean.
+- **Errors**: empty clipboard, unknown environment, or failed writes report a clear message instead of failing silently.
+- **Tests (`tests/aibox_tests.cpp`)**: new `pastedImagesAreStoredInsideWorkspaceAndExcludedFromDiff` test covers PNG storage, unique file names, empty-image rejection, and the new diff exclude.
+
 ### Iteration 44 — Non-Blocking Enter OS Terminal
 - **Enter Terminal (`src/backend.{h,cpp}`)**: `Backend::enterEnvironment()` no longer runs the preparation script, secret injection, or allowlist DNS lookups on the GUI thread. Preparation now runs as an asynchronous `QProcess`, hostnames resolve through `QHostInfo::lookupHost`, and the terminal opens from the finished callbacks. The window stays responsive, so the desktop no longer shows the "Application Not Responding" dialog while a stopped container starts or an auto-snapshot runs.
 - **Status Bar (`src/backend.cpp`)**: entering an environment shows `Preparing environment '<name>'...` until the terminal launches, then clears the message or shows the failure reason.

@@ -11,9 +11,11 @@
 #include <QGuiApplication>
 #include <QHostAddress>
 #include <QHostInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMimeData>
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
@@ -5309,6 +5311,105 @@ void Backend::copyAiCommand(const QString &name) {
     }
 }
 
+QString Backend::storePastedImage(const QImage &image, const QString &workspacePath,
+                                  QString *errorOut) {
+    if (image.isNull()) {
+        if (errorOut)
+            *errorOut = tr("The clipboard does not contain an image. Copy a screenshot or an image file first.");
+        return {};
+    }
+
+    const QString pasteDir = QDir(workspacePath).filePath(QStringLiteral(".aibox-paste"));
+    if (!QDir().mkpath(pasteDir)) {
+        if (errorOut)
+            *errorOut = tr("Could not create the paste folder '%1'.").arg(pasteDir);
+        return {};
+    }
+
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    QString fileName = QStringLiteral("paste-%1.png").arg(stamp);
+    for (int suffix = 2; QFileInfo::exists(QDir(pasteDir).filePath(fileName)); ++suffix)
+        fileName = QStringLiteral("paste-%1-%2.png").arg(stamp).arg(suffix);
+    const QString hostPath = QDir(pasteDir).filePath(fileName);
+    if (!image.save(hostPath, "PNG")) {
+        if (errorOut)
+            *errorOut = tr("Could not save the clipboard image to '%1'.").arg(hostPath);
+        return {};
+    }
+
+    // Keep the paste folder small: drop images older than a week.
+    const QDateTime cutoff = QDateTime::currentDateTime().addDays(-7);
+    const QFileInfoList stale = QDir(pasteDir).entryInfoList(
+        {QStringLiteral("paste-*.png")}, QDir::Files, QDir::Time | QDir::Reversed);
+    for (const QFileInfo &entry : stale) {
+        if (entry.lastModified() < cutoff)
+            QFile::remove(entry.absoluteFilePath());
+    }
+
+    return hostPath;
+}
+
+QString Backend::pasteImageToWorkspace(const QString &name) {
+    const QString envName = name.trimmed();
+    if (envName.isEmpty()) {
+        setError(tr("Select an environment before pasting an image."));
+        return {};
+    }
+    if (environmentByName(envName).isEmpty()) {
+        setError(tr("The environment '%1' is not available.").arg(envName));
+        return {};
+    }
+
+    auto *cb = QGuiApplication::clipboard();
+    if (!cb) {
+        setError(tr("The clipboard is not available in this session."));
+        return {};
+    }
+
+    QImage image = cb->image();
+    if (image.isNull() && cb->mimeData()) {
+        const QList<QUrl> urls = cb->mimeData()->urls();
+        for (const QUrl &url : urls) {
+            if (!url.isLocalFile())
+                continue;
+            QImage loaded(url.toLocalFile());
+            if (!loaded.isNull()) {
+                image = loaded;
+                break;
+            }
+        }
+    }
+    if (image.isNull()) {
+        setError(tr("The clipboard does not contain an image. Copy a screenshot or an image file first."));
+        return {};
+    }
+
+    QString saveError;
+    const QString hostPath = storePastedImage(image, workspacePathFor(envName), &saveError);
+    if (hostPath.isEmpty()) {
+        setError(saveError);
+        return {};
+    }
+
+    QString containerRoot = containerWorkspacePathFor(envName);
+    while (containerRoot.endsWith(QLatin1Char('/')))
+        containerRoot.chop(1);
+    const QString containerPath = containerRoot + QStringLiteral("/.aibox-paste/")
+                                  + QFileInfo(hostPath).fileName();
+
+    cb->setText(containerPath);
+    m_statusMessage = tr("Saved clipboard image as '%1'. Path is on the clipboard; paste it in the terminal.")
+                          .arg(containerPath);
+    emit statusMessageChanged();
+    QTimer::singleShot(6000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+    return containerPath;
+}
+
 QString Backend::adminFixCommand(const QString &message) const {
     static const QRegularExpression fixRe(
         QStringLiteral("Fix \\(admin\\):\\s*(.+)$"),
@@ -6830,7 +6931,8 @@ QStringList Backend::defaultDiffExcludes() {
         QStringLiteral("target/"),
         QStringLiteral(".venv/"),
         QStringLiteral("__pycache__/"),
-        QStringLiteral("build/")
+        QStringLiteral("build/"),
+        QStringLiteral(".aibox-paste/")
     };
 }
 

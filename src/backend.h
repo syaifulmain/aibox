@@ -13,6 +13,8 @@
 #include <QVariantMap>
 #include <functional>
 
+class QImage;
+
 class Backend : public QObject {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
@@ -252,6 +254,7 @@ public:
     Q_INVOKABLE void acknowledgeOperationHistory();
     Q_INVOKABLE void runHeadlessCommand(const QString &name, const QString &command);
     Q_INVOKABLE void copyAiCommand(const QString &name);
+    Q_INVOKABLE QString pasteImageToWorkspace(const QString &name);
     Q_INVOKABLE bool copyText(const QString &text, const QString &label = QString());
     Q_INVOKABLE QString adminFixCommand(const QString &message) const;
     Q_INVOKABLE QString saveSecret(const QString &name, const QString &value);
@@ -337,6 +340,8 @@ public:
                                             bool includeWorkspace = false);
 
     // Workspace Btrfs snapshot helpers (S1)
+    static QString storePastedImage(const QImage &image, const QString &workspacePath,
+                                    QString *errorOut = nullptr);
     static QString workspaceSnapshotDir(const QString &workspacePath, const QString &envName);
     static bool isBtrfsFilesystem(const QString &path);
     static bool isBtrfsSubvolume(const QString &path);

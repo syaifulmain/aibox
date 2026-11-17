@@ -80,6 +80,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | `T` | Mark or unmark environment as template |
 | `K` | Kill or restore environment network |
 | `C` | Copy AI agent execution command |
+| `I` | Save clipboard image to workspace and copy its path |
 | `A` | Manage global secrets and per-environment secret bindings |
 | `H` | View operation history and full task logs |
 | `B` | Export and import environment backups |

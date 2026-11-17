@@ -1,6 +1,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTcpServer>
@@ -1507,6 +1508,32 @@ private slots:
         const QString capped = Backend::capDiffLines(bigLines.join('\n'), 2000, &truncated);
         QVERIFY(truncated);
         QCOMPARE(capped.split('\n').size(), 2000);
+    }
+
+    void pastedImagesAreStoredInsideWorkspaceAndExcludedFromDiff()
+    {
+        QTemporaryDir dir;
+        QImage image(8, 8, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+
+        QString error;
+        const QString hostPath = Backend::storePastedImage(image, dir.path(), &error);
+        QVERIFY2(!hostPath.isEmpty(), qPrintable(error));
+        QCOMPARE(QFileInfo(hostPath).absolutePath(),
+                 QDir(dir.path()).filePath(QStringLiteral(".aibox-paste")));
+        QVERIFY(QFileInfo::exists(hostPath));
+        QCOMPARE(QImage(hostPath).size(), image.size());
+
+        const QString secondPath = Backend::storePastedImage(image, dir.path());
+        QVERIFY(!secondPath.isEmpty());
+        QVERIFY(secondPath != hostPath);
+
+        QString nullError;
+        QVERIFY(Backend::storePastedImage(QImage(), dir.path(), &nullError).isEmpty());
+        QVERIFY(!nullError.isEmpty());
+
+        Backend backend(dir.path());
+        QVERIFY(backend.diffExcludes().contains(QStringLiteral(".aibox-paste/")));
     }
 
     void realRsyncDetectsAddedModifiedDeletedAndHonorsExcludes()
