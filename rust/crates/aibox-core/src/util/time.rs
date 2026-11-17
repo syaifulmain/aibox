@@ -24,6 +24,16 @@ pub fn now_utc_iso() -> String {
     format_utc_iso(Utc::now())
 }
 
+/// Returns the current local time formatted as `YYYYMMDD-HHMMSS`.
+pub fn now_compact_stamp() -> String {
+    Local::now().format("%Y%m%d-%H%M%S").to_string()
+}
+
+/// Returns the current Unix timestamp in seconds.
+pub fn now_epoch_secs() -> i64 {
+    Utc::now().timestamp()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

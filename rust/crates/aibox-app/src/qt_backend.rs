@@ -364,6 +364,15 @@ pub mod qobject {
         fn create_snapshot(self: Pin<&mut Backend>, name: &QString, snapshot_name: &QString);
 
         #[qinvokable]
+        #[cxx_name = "restoreSnapshot"]
+        fn restore_snapshot(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            snapshot_name: &QString,
+            mode: &QString,
+        );
+
+        #[qinvokable]
         #[cxx_name = "deleteSnapshot"]
         fn delete_snapshot(self: Pin<&mut Backend>, name: &QString, snapshot_name: &QString);
 
@@ -1284,6 +1293,20 @@ impl qobject::Backend {
         true
     }
 
+    pub(crate) fn workspace_path_for(&self, name: &str) -> String {
+        let pairs: Vec<(&str, &str)> = self
+            .engine
+            .environments
+            .iter()
+            .map(|e| (e.name.as_str(), e.workspace_path.as_str()))
+            .collect();
+        aibox_core::util::paths::workspace_path_for(
+            &self.engine.config.workspace_base,
+            &pairs,
+            name,
+        )
+    }
+
     pub(crate) fn run_shell_task(
         self: Pin<&mut Self>,
         stage: &str,
@@ -1661,25 +1684,6 @@ impl qobject::Backend {
     pub fn toggle_start_stop(self: Pin<&mut Self>, _name: &QString) {
         eprintln!("not yet ported: toggleStartStop");
     }
-    pub fn create_snapshot(self: Pin<&mut Self>, _name: &QString, _snapshot_name: &QString) {
-        eprintln!("not yet ported: createSnapshot");
-    }
-    pub fn delete_snapshot(self: Pin<&mut Self>, _name: &QString, _snapshot_name: &QString) {
-        eprintln!("not yet ported: deleteSnapshot");
-    }
-    pub fn set_environment_workspace_snapshot(
-        self: Pin<&mut Self>,
-        _name: &QString,
-        _enabled: bool,
-    ) {
-        eprintln!("not yet ported: setEnvironmentWorkspaceSnapshot");
-    }
-    pub fn convert_workspace_to_subvolume(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: convertWorkspaceToSubvolume");
-    }
-    pub fn delete_pre_subvol_backup(self: Pin<&mut Self>, _name: &QString) {
-        eprintln!("not yet ported: deletePreSubvolBackup");
-    }
     pub fn load_workspace_diff(self: Pin<&mut Self>, _name: &QString, _snapshot_name: &QString) {
         eprintln!("not yet ported: loadWorkspaceDiff");
     }
@@ -1701,14 +1705,8 @@ impl qobject::Backend {
         eprintln!("not yet ported: restoreSingleFile");
         QString::default()
     }
-    pub fn wipe_environment(self: Pin<&mut Self>, _name: &QString, _delete_workspace_files: bool) {
-        eprintln!("not yet ported: wipeEnvironment");
-    }
     pub fn set_environment_template(self: Pin<&mut Self>, _name: &QString, _is_template: bool) {
         eprintln!("not yet ported: setEnvironmentTemplate");
-    }
-    pub fn set_environment_auto_snapshot(self: Pin<&mut Self>, _name: &QString, _enabled: bool) {
-        eprintln!("not yet ported: setEnvironmentAutoSnapshot");
     }
     pub fn set_environment_auto_stop(self: Pin<&mut Self>, _name: &QString, _enabled: bool) {
         eprintln!("not yet ported: setEnvironmentAutoStop");
