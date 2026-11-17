@@ -1,5 +1,5 @@
 fn main() {
-    let bridges = ["src/meta.rs", "src/util.rs"];
+    let bridges = ["src/config.rs", "src/meta.rs", "src/util.rs"];
     cxx_build::bridges(bridges)
         .std("c++17")
         .compile("aibox-ffi");

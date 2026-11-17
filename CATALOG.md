@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P02a — Config Model, Defaults, and Path Resolution
+- **Rust core (`rust/crates/aibox-core/src/util/paths.rs`, `rust/crates/aibox-core/src/config/`)**: added path resolution (`default_system_path`, `default_location_file_path`, `configured_system_path`, `save_location_file`, `resolve_project_aibox_dir`, `default_workspace_path`, `default_os_storage_path`, `normalized_path`, `resolve_workspace_path`, `cache_base_path`, `workspace_path_for`, `atomic_write`), defaults (`default_os_entries`, `default_presets`, `default_disk_options`, `default_ram_options`, `default_cpu_options`, `default_diff_excludes`), and `Config` load/save/normalize with `extra` unknown-key preservation.
+- **FFI & C++ delegates (`rust/crates/aibox-ffi/src/config.rs`, `src/cpp/backend.cpp`)**: bridged path, default, and config operations via `cxx` and delegated the `Backend` implementations while keeping all signatures unchanged.
+- **Verification**: added 50 golden cases in `tests/golden/config.jsonl` and 3 unit tests in `aibox-core`; `cargo fmt`, `cargo clippy`, `cargo test` (15 unit + golden replay), `./bin/golden-capture --check`, `./bin/build`, and `./bin/test` (74 Qt tests) all pass.
+
 ### Rust Migration P01 — Shared Utility Helpers in `aibox-core::util`
 - **Rust core (`rust/crates/aibox-core/src/util/`)**: implemented `format` (`format_bytes`, `format_byte_rate`, `format_byte_total`), `size` (`parse_size_bytes`, `validated_size_options`, `validated_cpu_options`, `validated_cpu_options_json`), `shell` (`shell_quote`, `shell_array_words`), `csv` (`parse_csv`), `names` (`sanitize_name`), `bytes` (`truncate_log_tail`), `json` (Qt-compatible `Indented`/`Compact` writers), `paths` (`clean_path`, `home_dir`, `xdg_config_dir`, `expand_tilde`), and `time` (`Qt::ISODate` formatters), with 12 unit tests and 95 golden replay cases in `tests/golden/util.jsonl`.
 - **FFI & C++ delegates (`rust/crates/aibox-ffi/src/util.rs`, `src/cpp/backend_helpers.h`, `src/cpp/backend.cpp`, `src/cpp/backend_session.cpp`)**: bridged all `util` helpers via `cxx` and delegated the C++ implementations while keeping all signatures unchanged.

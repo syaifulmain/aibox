@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "backend_helpers.h"
+#include "aibox-ffi/src/config.rs.h"
 
 #include <QClipboard>
 #include <QDateTime>
@@ -147,158 +148,62 @@ Backend::~Backend() {
 }
 
 QString Backend::defaultSystemPath() {
-    return QDir::cleanPath(QDir::homePath() + QStringLiteral("/aibox"));
+    return aibox::ffi::fromRust(aibox::ffi::default_system_path());
 }
 
 QString Backend::defaultLocationFilePath() {
-    const QString envPath = qEnvironmentVariable("AIBOX_LOCATION_FILE").trimmed();
-    if (!envPath.isEmpty())
-        return QDir::cleanPath(envPath);
-    const QString cfg = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-    const QString base = cfg.trimmed().isEmpty() ? QDir::homePath() + QStringLiteral("/.config") : cfg.trimmed();
-    return QDir::cleanPath(base + QStringLiteral("/aibox/location.json"));
+    return aibox::ffi::fromRust(aibox::ffi::default_location_file_path());
 }
 
 QString Backend::configuredSystemPath() {
-    QFile file(defaultLocationFilePath());
-    if (file.open(QIODevice::ReadOnly)) {
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        if (doc.isObject()) {
-            QString raw = doc.object().value(QStringLiteral("systemPath")).toString().trimmed();
-            if (!raw.isEmpty()) {
-                if (raw == QLatin1String("~"))
-                    raw = QDir::homePath();
-                else if (raw.startsWith(QLatin1String("~/")))
-                    raw = QDir::homePath() + raw.mid(1);
-                if (!QDir::isAbsolutePath(raw))
-                    raw = QDir::homePath() + QLatin1Char('/') + raw;
-                return QDir::cleanPath(raw);
-            }
-        }
-    }
-    return defaultSystemPath();
+    return aibox::ffi::fromRust(aibox::ffi::configured_system_path());
 }
 
 bool Backend::saveLocationFile(const QString &systemPath) {
-    const QString locPath = defaultLocationFilePath();
-    const QString parentDir = QFileInfo(locPath).absolutePath();
-    if (!QDir().mkpath(parentDir))
-        return false;
-    QJsonObject obj;
-    obj[QStringLiteral("version")] = 1;
-    obj[QStringLiteral("systemPath")] = QDir::cleanPath(systemPath);
-    QSaveFile file(locPath);
-    if (!file.open(QIODevice::WriteOnly))
-        return false;
-    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-    return file.commit();
+    return aibox::ffi::save_location_file(aibox::ffi::toRust(systemPath));
 }
 
 QString Backend::resolveProjectAiboxDir(const QString &projectDir, const QString &baseCwd) {
-    QString dir = projectDir.trimmed();
-    if (dir.isEmpty()) {
-        if (baseCwd.trimmed().isEmpty())
-            return configuredSystemPath();
-        return QDir::cleanPath(QDir::cleanPath(baseCwd.trimmed()) + QStringLiteral("/aibox"));
-    }
-    const QString cwd = baseCwd.trimmed().isEmpty() ? QDir::currentPath() : QDir::cleanPath(baseCwd.trimmed());
-    if (dir == QLatin1String("~"))
-        dir = QDir::homePath();
-    else if (dir.startsWith(QLatin1String("~/")))
-        dir = QDir::homePath() + dir.mid(1);
-    if (!QDir::isAbsolutePath(dir))
-        dir = QDir(cwd).filePath(dir);
-    dir = QDir::cleanPath(dir);
-    const QString baseName = QFileInfo(dir).fileName();
-    if (baseName == QLatin1String("aibox") || baseName == QLatin1String(".aibox"))
-        return dir;
-    const QString legacyDotDir = QDir::cleanPath(dir + QStringLiteral("/.aibox"));
-    const QString stdDir = QDir::cleanPath(dir + QStringLiteral("/aibox"));
-    if (QDir(legacyDotDir).exists() && !QDir(stdDir).exists())
-        return legacyDotDir;
-    return stdDir;
+    return aibox::ffi::fromRust(aibox::ffi::resolve_project_aibox_dir(
+        aibox::ffi::toRust(projectDir), aibox::ffi::toRust(baseCwd)));
 }
 
 QString Backend::defaultWorkspacePath() {
-    return defaultSystemPath() + QStringLiteral("/workspaces");
+    return aibox::ffi::fromRust(aibox::ffi::default_workspace_path());
 }
 
 QString Backend::defaultOsStoragePathValue() {
-    return defaultSystemPath() + QStringLiteral("/os-images");
+    return aibox::ffi::fromRust(aibox::ffi::default_os_storage_path());
 }
 
 QVariantList Backend::defaultOsEntries() {
-    auto entry = [](const char *id, const char *alias, const char *name, const char *badge, const char *description) {
-        QVariantMap map;
-        map["id"] = QString::fromLatin1(id);
-        map["alias"] = QString::fromLatin1(alias);
-        map["name"] = QString::fromLatin1(name);
-        map["badge"] = QString::fromLatin1(badge);
-        map["description"] = QString::fromLatin1(description);
-        return map;
-    };
-
-    return {
-        entry("ubuntu-24.04", "ubuntu/24.04", "Ubuntu 24.04 LTS (Noble)", "Recommended",
-              "Best compatibility for AI tools, Desktop (Electron/Qt/Flutter), and Android SDK."),
-        entry("ubuntu-22.04", "ubuntu/22.04", "Ubuntu 22.04 LTS (Jammy)", "LTS",
-              "Proven long-term support release for legacy C++, Python, and mobile toolchains."),
-        entry("debian-12", "debian/12", "Debian 12 (Bookworm)", "Lightweight",
-              "Rock-solid stability with low RAM overhead (~60 MB idle). Ideal for backend & databases."),
-        entry("archlinux", "archlinux", "Arch Linux", "Rolling",
-              "Bleeding-edge packages matching Omarchy. Great for native C++, Rust, and Qt6 builds."),
-        entry("fedora-41", "fedora/41", "Fedora 41", "Modern",
-              "Up-to-date workstation & server stack with modern GCC, Podman/Docker, and Wayland."),
-        entry("alpine-3.21", "alpine/3.21", "Alpine Linux 3.21", "Ultra-Light",
-              "Featherweight (~5 MB) musl/BusyBox system. Boots in 0.5s for rapid CLI/microservice tests."),
-        entry("kali", "kali", "Kali Linux Rolling", "Security",
-              "Pre-configured distribution for security auditing and penetration testing projects."),
-        entry("rockylinux-9", "rockylinux/9", "Rocky Linux 9", "Enterprise",
-              "100% bug-for-bug RHEL 9 compatible environment for production server testing.")
-    };
+    return aibox::ffi::fromRustJson(aibox::ffi::default_os_entries_json()).toList();
 }
 
 QVariantList Backend::defaultPresets() {
-    auto preset = [](const char *id, const char *title, const char *sub, const char *flags, bool x11) {
-        QVariantMap map;
-        map["id"] = QString::fromLatin1(id);
-        map["title"] = QString::fromLatin1(title);
-        map["sub"] = QString::fromLatin1(sub);
-        map["flags"] = QString::fromLatin1(flags);
-        map["x11"] = x11;
-        return map;
-    };
-
-    return {
-        preset("full", "Desktop & Mobile", "GPU + KVM + GUI Bridge", "-p default -p ai-gui", true),
-        preset("standard", "Standard AI / Web", "Docker + Isolated OS", "-p default -c security.nesting=true", false),
-        preset("vm", "Virtual Machine", "Full KVM Kernel (--vm)", "--vm -p default", false)
-    };
+    return aibox::ffi::fromRustJson(aibox::ffi::default_presets_json()).toList();
 }
 
 QStringList Backend::defaultDiskOptions() {
-    return {QStringLiteral("20GiB"), QStringLiteral("35GiB"), QStringLiteral("60GiB"), QStringLiteral("100GiB")};
+    return aibox::ffi::fromRustVec(aibox::ffi::default_disk_options());
 }
 
 QStringList Backend::defaultRamOptions() {
-    return {QStringLiteral("4GiB"), QStringLiteral("6GiB"), QStringLiteral("8GiB"), QStringLiteral("12GiB")};
+    return aibox::ffi::fromRustVec(aibox::ffi::default_ram_options());
 }
 
 QVariantList Backend::defaultCpuOptions() {
-    return {2, 4, 6, 8};
+    const auto vec = aibox::ffi::default_cpu_options();
+    QVariantList out;
+    out.reserve(static_cast<qsizetype>(vec.size()));
+    for (std::int32_t v : vec)
+        out.append(static_cast<int>(v));
+    return out;
 }
 
 QString Backend::normalizedPath(const QString &raw, const QString &fallback) const {
-    QString path = raw.trimmed();
-    if (path.isEmpty())
-        path = fallback;
-    if (path == QLatin1String("~"))
-        path = QDir::homePath();
-    else if (path.startsWith(QLatin1String("~/")))
-        path = QDir::homePath() + path.mid(1);
-    if (!QDir::isAbsolutePath(path))
-        path = QDir::homePath() + "/" + path;
-    return QDir::cleanPath(path);
+    return aibox::ffi::fromRust(
+        aibox::ffi::normalized_path(aibox::ffi::toRust(raw), aibox::ffi::toRust(fallback)));
 }
 
 QString Backend::workspacePathFor(const QString &name) const {
@@ -314,9 +219,8 @@ QString Backend::workspacePathFor(const QString &name) const {
 }
 
 QString Backend::cacheBasePath(const QString &osId) const {
-    QString safe = osId;
-    safe.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
-    return m_osStoragePath + "/" + safe;
+    return aibox::ffi::fromRust(
+        aibox::ffi::cache_base_path(aibox::ffi::toRust(m_osStoragePath), aibox::ffi::toRust(osId)));
 }
 
 QVariantMap Backend::presetById(const QString &id) const {
@@ -338,200 +242,6 @@ QVariantMap Backend::osEntryById(const QString &id) const {
 }
 
 void Backend::normalizeDefaults() {
-    QStringList presetIds;
-    for (const auto &value : m_presets)
-        presetIds.append(value.toMap().value("id").toString());
-    if (!presetIds.contains(m_defaultPresetId))
-        m_defaultPresetId = presetIds.value(0, QStringLiteral("standard"));
-
-    if (!m_diskOptions.contains(m_defaultDisk))
-        m_defaultDisk = m_diskOptions.value(0, QStringLiteral("35GiB"));
-    if (!m_ramOptions.contains(m_defaultRam))
-        m_defaultRam = m_ramOptions.value(0, QStringLiteral("6GiB"));
-
-    bool cpuFound = false;
-    for (const auto &value : m_cpuOptions) {
-        if (value.toInt() == m_defaultCpu) {
-            cpuFound = true;
-            break;
-        }
-    }
-    if (!cpuFound)
-        m_defaultCpu = m_cpuOptions.value(0, 4).toInt();
-
-    QStringList osIds;
-    for (const auto &value : m_osEntries)
-        osIds.append(value.toMap().value("id").toString());
-    if (!osIds.contains(m_defaultOsId))
-        m_defaultOsId = osIds.value(0, QStringLiteral("ubuntu-24.04"));
-}
-
-void Backend::loadConfig() {
-    QFile file(m_configPath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        m_firstRun = true;
-        return;
-    }
-
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        m_firstRun = true;
-        return;
-    }
-
-    const QJsonObject obj = doc.object();
-    m_firstRun = !obj.value("firstRunCompleted").toBool(false);
-
-    const QString workspace = obj.value("workspaceBase").toString().trimmed();
-    if (!workspace.isEmpty())
-        m_workspaceBase = normalizedPath(workspace, m_defaultWorkspaceBase);
-
-    const QString osStorage = obj.value("osStoragePath").toString().trimmed();
-    if (!osStorage.isEmpty())
-        m_osStoragePath = normalizedPath(osStorage, m_defaultOsStoragePath);
-
-    QVariantList entries;
-    QSet<QString> seenIds;
-    for (const auto &value : obj.value("osCatalog").toArray()) {
-        const QVariantMap source = value.toObject().toVariantMap();
-        const QString id = source.value("id").toString().trimmed().toLower();
-        if (id.isEmpty() || seenIds.contains(id))
-            continue;
-        seenIds.insert(id);
-
-        QVariantMap entry;
-        entry["id"] = id;
-        const QString alias = source.value("alias").toString().trimmed();
-        entry["alias"] = alias.isEmpty() ? id : alias;
-        const QString name = source.value("name").toString().trimmed();
-        entry["name"] = name.isEmpty() ? id : name;
-        const QString badge = source.value("badge").toString().trimmed();
-        entry["badge"] = badge.isEmpty() ? QStringLiteral("Custom") : badge;
-        entry["description"] = source.value("description").toString().trimmed();
-        entries.append(entry);
-    }
-    if (!entries.isEmpty())
-        m_osEntries = entries;
-
-    const QVariantList defaults = defaultPresets();
-    QVariantList presets;
-    for (const auto &value : obj.value("presets").toArray()) {
-        const QVariantMap source = value.toObject().toVariantMap();
-        const QString id = source.value("id").toString().trimmed();
-        const QString title = source.value("title").toString().trimmed();
-        if (id.isEmpty() || title.isEmpty())
-            continue;
-
-        QVariantMap fallback;
-        for (const auto &candidate : defaults) {
-            if (candidate.toMap().value("id").toString() == id) {
-                fallback = candidate.toMap();
-                break;
-            }
-        }
-
-        QVariantMap preset;
-        preset["id"] = id;
-        preset["title"] = title;
-        preset["sub"] = source.value("sub").toString().trimmed();
-        preset["flags"] = source.value("flags").toString().trimmed().isEmpty()
-                              ? fallback.value("flags", QStringLiteral("-p default")).toString()
-                              : source.value("flags").toString().trimmed();
-        preset["x11"] = source.contains("x11") ? source.value("x11").toBool()
-                                               : fallback.value("x11", false).toBool();
-        presets.append(preset);
-    }
-    if (!presets.isEmpty())
-        m_presets = presets;
-
-    auto jsonStrings = [](const QJsonArray &array) {
-        QStringList values;
-        for (const auto &value : array) {
-            if (value.isString())
-                values.append(value.toString());
-            else if (value.isDouble())
-                values.append(QString::number(value.toInt()));
-        }
-        return values;
-    };
-
-    const QStringList disk = validatedSizeOptions(jsonStrings(obj.value("diskOptions").toArray()));
-    if (!disk.isEmpty())
-        m_diskOptions = disk;
-    const QStringList ram = validatedSizeOptions(jsonStrings(obj.value("ramOptions").toArray()));
-    if (!ram.isEmpty())
-        m_ramOptions = ram;
-
-    QVariantList cpuValues;
-    for (const auto &value : obj.value("cpuOptions").toArray()) {
-        if (value.isDouble())
-            cpuValues.append(value.toInt());
-        else if (value.isString())
-            cpuValues.append(value.toString().toInt());
-    }
-    const QVariantList cpus = validatedCpuOptions(cpuValues);
-    if (!cpus.isEmpty())
-        m_cpuOptions = cpus;
-
-    const QString defaultPreset = obj.value("defaultPresetId").toString().trimmed();
-    if (!defaultPreset.isEmpty())
-        m_defaultPresetId = defaultPreset;
-    const QString defaultOs = obj.value("defaultOsId").toString().trimmed();
-    if (!defaultOs.isEmpty())
-        m_defaultOsId = defaultOs;
-    const QString defaultDiskValue = obj.value("defaultDisk").toString().trimmed();
-    if (!defaultDiskValue.isEmpty())
-        m_defaultDisk = defaultDiskValue;
-    const QString defaultRamValue = obj.value("defaultRam").toString().trimmed();
-    if (!defaultRamValue.isEmpty())
-        m_defaultRam = defaultRamValue;
-
-    const QJsonValue defaultCpu = obj.value("defaultCpu");
-    if (defaultCpu.isDouble()) {
-        const int cores = defaultCpu.toInt();
-        if (cores > 0 && cores <= 1024)
-            m_defaultCpu = cores;
-    }
-
-    if (obj.contains("autoSnapshotEnabled"))
-        m_autoSnapshotEnabled = obj.value("autoSnapshotEnabled").toBool(true);
-    if (obj.contains("autoSnapshotKeep") && obj.value("autoSnapshotKeep").isDouble())
-        m_autoSnapshotKeep = qBound(1, obj.value("autoSnapshotKeep").toInt(5), 50);
-
-    if (obj.contains("watchdogEnabled"))
-        m_watchdogEnabled = obj.value("watchdogEnabled").toBool(true);
-    if (obj.contains("watchdogDiskWarn") && obj.value("watchdogDiskWarn").isDouble())
-        m_watchdogDiskWarn = qBound(50, obj.value("watchdogDiskWarn").toInt(90), 98);
-    if (obj.contains("watchdogDiskCritical") && obj.value("watchdogDiskCritical").isDouble())
-        m_watchdogDiskCritical = qBound(m_watchdogDiskWarn + 1, obj.value("watchdogDiskCritical").toInt(97), 99);
-    if (obj.contains("watchdogAutoStop"))
-        m_watchdogAutoStop = obj.value("watchdogAutoStop").toBool(false);
-    if (obj.contains("idleStopMinutes") && obj.value("idleStopMinutes").isDouble())
-        m_idleStopMinutes = qBound(0, obj.value("idleStopMinutes").toInt(0), 1440);
-    if (obj.contains("staleDays") && obj.value("staleDays").isDouble())
-        m_staleDays = qBound(1, obj.value("staleDays").toInt(30), 3650);
-    if (obj.contains("recordSessions"))
-        m_recordSessions = obj.value("recordSessions").toBool(false);
-
-    if (obj.contains("diffExcludes") && obj.value("diffExcludes").isArray()) {
-        QStringList loaded;
-        for (const auto &v : obj.value("diffExcludes").toArray()) {
-            const QString pattern = v.toString().trimmed();
-            if (!pattern.isEmpty() && !loaded.contains(pattern))
-                loaded.append(pattern);
-        }
-        m_diffExcludes = loaded;
-    }
-
-    normalizeDefaults();
-}
-
-bool Backend::saveConfig() const {
-    const QString directory = QFileInfo(m_configPath).absolutePath();
-    if (!QDir().mkpath(directory))
-        return false;
-
     QJsonObject obj;
     obj["version"] = 1;
     obj["firstRunCompleted"] = !m_firstRun;
@@ -558,11 +268,112 @@ bool Backend::saveConfig() const {
     obj["recordSessions"] = m_recordSessions;
     obj["diffExcludes"] = QJsonArray::fromStringList(m_diffExcludes);
 
-    QSaveFile file(m_configPath);
-    if (!file.open(QIODevice::WriteOnly))
-        return false;
-    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
-    return file.commit();
+    const QString compact = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    const QString normalized = aibox::ffi::fromRust(aibox::ffi::config_normalize_json(aibox::ffi::toRust(compact)));
+    const QJsonObject out = QJsonDocument::fromJson(normalized.toUtf8()).object();
+    if (!out.isEmpty()) {
+        m_defaultPresetId = out.value("defaultPresetId").toString();
+        m_defaultOsId = out.value("defaultOsId").toString();
+        m_defaultDisk = out.value("defaultDisk").toString();
+        m_defaultRam = out.value("defaultRam").toString();
+        m_defaultCpu = out.value("defaultCpu").toInt();
+    }
+}
+
+void Backend::loadConfig() {
+    const rust::String raw = aibox::ffi::config_load(
+        aibox::ffi::toRust(m_configPath),
+        aibox::ffi::toRust(m_defaultWorkspaceBase),
+        aibox::ffi::toRust(m_defaultOsStoragePath));
+    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(raw.data(), static_cast<qsizetype>(raw.size())));
+    const QJsonObject obj = doc.object();
+    if (obj.isEmpty()) {
+        m_firstRun = true;
+        return;
+    }
+
+    m_firstRun = !obj.value("firstRunCompleted").toBool(false);
+    m_workspaceBase = obj.value("workspaceBase").toString();
+    m_osStoragePath = obj.value("osStoragePath").toString();
+
+    QVariantList osEntries;
+    for (const auto &v : obj.value("osCatalog").toArray())
+        osEntries.append(v.toObject().toVariantMap());
+    m_osEntries = osEntries;
+
+    QVariantList presets;
+    for (const auto &v : obj.value("presets").toArray())
+        presets.append(v.toObject().toVariantMap());
+    m_presets = presets;
+
+    QStringList diskOptions;
+    for (const auto &v : obj.value("diskOptions").toArray())
+        diskOptions.append(v.toString());
+    m_diskOptions = diskOptions;
+
+    QStringList ramOptions;
+    for (const auto &v : obj.value("ramOptions").toArray())
+        ramOptions.append(v.toString());
+    m_ramOptions = ramOptions;
+
+    QVariantList cpuOptions;
+    for (const auto &v : obj.value("cpuOptions").toArray())
+        cpuOptions.append(v.toInt());
+    m_cpuOptions = cpuOptions;
+
+    m_defaultPresetId = obj.value("defaultPresetId").toString();
+    m_defaultOsId = obj.value("defaultOsId").toString();
+    m_defaultDisk = obj.value("defaultDisk").toString();
+    m_defaultRam = obj.value("defaultRam").toString();
+    m_defaultCpu = obj.value("defaultCpu").toInt();
+
+    m_autoSnapshotEnabled = obj.value("autoSnapshotEnabled").toBool(true);
+    m_autoSnapshotKeep = obj.value("autoSnapshotKeep").toInt(5);
+    m_watchdogEnabled = obj.value("watchdogEnabled").toBool(true);
+    m_watchdogDiskWarn = obj.value("watchdogDiskWarn").toInt(90);
+    m_watchdogDiskCritical = obj.value("watchdogDiskCritical").toInt(97);
+    m_watchdogAutoStop = obj.value("watchdogAutoStop").toBool(false);
+    m_idleStopMinutes = obj.value("idleStopMinutes").toInt(0);
+    m_staleDays = obj.value("staleDays").toInt(30);
+    m_recordSessions = obj.value("recordSessions").toBool(false);
+
+    QStringList diffExcludes;
+    for (const auto &v : obj.value("diffExcludes").toArray())
+        diffExcludes.append(v.toString());
+    m_diffExcludes = diffExcludes;
+}
+
+bool Backend::saveConfig() const {
+    QJsonObject obj;
+    obj["version"] = 1;
+    obj["firstRunCompleted"] = !m_firstRun;
+    obj["workspaceBase"] = m_workspaceBase;
+    obj["osStoragePath"] = m_osStoragePath;
+    obj["osCatalog"] = QJsonArray::fromVariantList(m_osEntries);
+    obj["presets"] = QJsonArray::fromVariantList(m_presets);
+    obj["diskOptions"] = QJsonArray::fromStringList(m_diskOptions);
+    obj["ramOptions"] = QJsonArray::fromStringList(m_ramOptions);
+    obj["cpuOptions"] = QJsonArray::fromVariantList(m_cpuOptions);
+    obj["defaultPresetId"] = m_defaultPresetId;
+    obj["defaultOsId"] = m_defaultOsId;
+    obj["defaultDisk"] = m_defaultDisk;
+    obj["defaultRam"] = m_defaultRam;
+    obj["defaultCpu"] = m_defaultCpu;
+    obj["autoSnapshotEnabled"] = m_autoSnapshotEnabled;
+    obj["autoSnapshotKeep"] = m_autoSnapshotKeep;
+    obj["watchdogEnabled"] = m_watchdogEnabled;
+    obj["watchdogDiskWarn"] = m_watchdogDiskWarn;
+    obj["watchdogDiskCritical"] = m_watchdogDiskCritical;
+    obj["watchdogAutoStop"] = m_watchdogAutoStop;
+    obj["idleStopMinutes"] = m_idleStopMinutes;
+    obj["staleDays"] = m_staleDays;
+    obj["recordSessions"] = m_recordSessions;
+    obj["diffExcludes"] = QJsonArray::fromStringList(m_diffExcludes);
+
+    const QString compact = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    const rust::String err = aibox::ffi::config_save(
+        aibox::ffi::toRust(m_configPath), aibox::ffi::toRust(compact));
+    return err.empty();
 }
 
 void Backend::rebuildOsCatalog() {
@@ -662,55 +473,11 @@ QString Backend::sanitizeName(const QString &rawName) {
 
 QString Backend::resolveWorkspacePath(const QString &rawParent, const QString &envName,
                                       const QString &defaultBase, QString *error) {
-    const auto fail = [error](const QString &message) {
-        if (error)
-            *error = message;
-        return QString();
-    };
-
-    QString parent = rawParent.trimmed();
-    if (parent.isEmpty()) {
-        parent = defaultBase.trimmed();
-        if (parent.isEmpty())
-            return fail(tr("The default shared location is not configured."));
-    } else {
-        if (parent == QLatin1String("~"))
-            parent = QDir::homePath();
-        else if (parent.startsWith(QLatin1String("~/")))
-            parent = QDir::homePath() + parent.mid(1);
-
-        if (!QDir::isAbsolutePath(parent))
-            return fail(tr("The custom shared location must be an absolute path."));
-
-        parent = QDir::cleanPath(parent);
-        const QString homeClean = QDir::cleanPath(QDir::homePath());
-        static const QSet<QString> blockedExact = {
-            QStringLiteral("/"), QStringLiteral("/bin"), QStringLiteral("/boot"),
-            QStringLiteral("/dev"), QStringLiteral("/etc"), QStringLiteral("/home"),
-            QStringLiteral("/lib"), QStringLiteral("/lib64"), QStringLiteral("/proc"),
-            QStringLiteral("/root"), QStringLiteral("/run"), QStringLiteral("/sbin"),
-            QStringLiteral("/sys"), QStringLiteral("/usr"), QStringLiteral("/var")
-        };
-        if (blockedExact.contains(parent) || parent == homeClean)
-            return fail(tr("Refusing to use system root or home directory '%1' as shared location. Pick a specific subfolder.").arg(parent));
-
-        static const QStringList blockedPrefixes = {
-            QStringLiteral("/bin/"), QStringLiteral("/boot/"), QStringLiteral("/dev/"),
-            QStringLiteral("/etc/"), QStringLiteral("/lib/"), QStringLiteral("/lib64/"),
-            QStringLiteral("/proc/"), QStringLiteral("/root/"), QStringLiteral("/run/"),
-            QStringLiteral("/sbin/"), QStringLiteral("/sys/"), QStringLiteral("/usr/")
-        };
-        for (const QString &prefix : blockedPrefixes) {
-            if (parent.startsWith(prefix))
-                return fail(tr("Refusing to use system path '%1' as shared location.").arg(parent));
-        }
-    }
-
-    const QString cleanName = envName.trimmed();
-    if (cleanName.isEmpty())
-        return fail(tr("Please enter a valid environment name (letters, numbers, hyphens)."));
-
-    return QDir::cleanPath(parent + QLatin1Char('/') + cleanName);
+    const auto res = aibox::ffi::resolve_workspace_path(
+        aibox::ffi::toRust(rawParent), aibox::ffi::toRust(envName), aibox::ffi::toRust(defaultBase));
+    if (error)
+        *error = aibox::ffi::fromRust(res.error);
+    return aibox::ffi::fromRust(res.path);
 }
 
 QVariantList Backend::catalogForEntries(const QVariantList &entries, const QByteArray &imagesJson,

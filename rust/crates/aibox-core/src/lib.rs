@@ -1,3 +1,4 @@
+pub mod config;
 pub mod util;
 
 pub fn core_version() -> &'static str {
