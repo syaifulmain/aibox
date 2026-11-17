@@ -2497,6 +2497,543 @@ static QByteArray captureBackup() {
     QDir(backupWork).removeRecursively();
     return out;
 }
+
+static QJsonObject healthResultToJson(const Backend::HealthCheckResult &r) {
+    return QJsonObject{
+        {QStringLiteral("id"), r.id},
+        {QStringLiteral("title"), r.title},
+        {QStringLiteral("ok"), r.ok},
+        {QStringLiteral("warning"), r.warning},
+        {QStringLiteral("repaired"), r.repaired},
+        {QStringLiteral("needsRoot"), r.needsRoot},
+        {QStringLiteral("detail"), r.detail},
+        {QStringLiteral("fixCommand"), r.fixCommand},
+    };
+}
+
+static QJsonObject poolInfoToJson(const Backend::StoragePoolInfo &p) {
+    return QJsonObject{
+        {QStringLiteral("valid"), p.valid},
+        {QStringLiteral("name"), p.name},
+        {QStringLiteral("driver"), p.driver},
+        {QStringLiteral("usedBytes"), static_cast<double>(p.usedBytes)},
+        {QStringLiteral("totalBytes"), static_cast<double>(p.totalBytes)},
+        {QStringLiteral("usedPercent"), p.usedPercent},
+        {QStringLiteral("sizeText"), p.sizeText},
+        {QStringLiteral("resizable"), p.resizable},
+    };
+}
+
+static QByteArray captureHealth() {
+    QByteArray out;
+    const qint64 GiB = 1024LL * 1024LL * 1024LL;
+
+    // 1. evaluateWatchdog
+    struct WatchdogCase {
+        const char *label;
+        int pct;
+        int prev;
+        int warn;
+        int crit;
+        bool autoStop;
+    };
+    const WatchdogCase wdCases[] = {
+        {"below_warn", 89, 0, 90, 97, true},
+        {"enter_warn", 91, 0, 90, 97, true},
+        {"hysteresis_warn_stay", 86, 1, 90, 97, true},
+        {"hysteresis_warn_clear", 84, 1, 90, 97, true},
+        {"enter_crit_no_autostop", 98, 1, 90, 97, false},
+        {"enter_crit_autostop", 98, 1, 90, 97, true},
+        {"hysteresis_crit_stay", 94, 2, 90, 97, true},
+        {"clamped_thresholds", 50, 0, 10, 10, true},
+    };
+    for (const auto &c : wdCases) {
+        const auto d = Backend::evaluateWatchdog(c.pct, c.prev, c.warn, c.crit, c.autoStop);
+        out += jsonLine(QStringLiteral("Backend::evaluateWatchdog"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("percent"), c.pct},
+                                    {QStringLiteral("previousLevel"), c.prev},
+                                    {QStringLiteral("warnThreshold"), c.warn},
+                                    {QStringLiteral("criticalThreshold"), c.crit},
+                                    {QStringLiteral("autoStopEnabled"), c.autoStop}},
+                        QJsonObject{{QStringLiteral("newLevel"), d.newLevel},
+                                    {QStringLiteral("shouldNotify"), d.shouldNotify},
+                                    {QStringLiteral("shouldAutoStop"), d.shouldAutoStop}});
+    }
+
+    // 2. isValidProcessLimit & isValidIoLimit
+    const QStringList procCases = {
+        QString(), QStringLiteral("Unlimited"), QStringLiteral("512"),
+        QStringLiteral("10"), QStringLiteral("1000000"), QStringLiteral("5"),
+        QStringLiteral("9"), QStringLiteral("1000001"), QStringLiteral("-1"),
+        QStringLiteral("abc"),
+    };
+    for (int i = 0; i < procCases.size(); ++i) {
+        const QString &v = procCases.at(i);
+        out += jsonLine(QStringLiteral("Backend::isValidProcessLimit"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("value"), v}},
+                        Backend::isValidProcessLimit(v));
+    }
+    const QStringList ioCases = {
+        QString(), QStringLiteral("Unlimited"), QStringLiteral("200MB"),
+        QStringLiteral("2500iops"), QStringLiteral("10GiB"), QStringLiteral("0MB"),
+        QStringLiteral("fast"),
+    };
+    for (int i = 0; i < ioCases.size(); ++i) {
+        const QString &v = ioCases.at(i);
+        out += jsonLine(QStringLiteral("Backend::isValidIoLimit"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("value"), v}},
+                        Backend::isValidIoLimit(v));
+    }
+
+    // 3. parseIdleStopOverride & effectiveIdleStopMinutes
+    const QStringList ovCases = {
+        QString(), QStringLiteral("inherit"), QStringLiteral("default"),
+        QStringLiteral("off"), QStringLiteral("0"), QStringLiteral("false"),
+        QStringLiteral("30"), QStringLiteral("1440"), QStringLiteral("1441"),
+        QStringLiteral("abc"),
+    };
+    for (int i = 0; i < ovCases.size(); ++i) {
+        const QString &raw = ovCases.at(i);
+        const auto ov = Backend::parseIdleStopOverride(raw);
+        const QString modeStr = (ov.mode == Backend::IdleStopOverride::Off)
+                                    ? QStringLiteral("off")
+                                    : (ov.mode == Backend::IdleStopOverride::Minutes
+                                           ? QStringLiteral("minutes")
+                                           : QStringLiteral("inherit"));
+        out += jsonLine(QStringLiteral("Backend::parseIdleStopOverride"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("raw"), raw}},
+                        QJsonObject{{QStringLiteral("mode"), modeStr},
+                                    {QStringLiteral("minutes"), ov.minutes}});
+    }
+    const QList<QPair<int, QString>> effCases = {
+        {0, QStringLiteral("inherit")},
+        {60, QStringLiteral("inherit")},
+        {60, QStringLiteral("off")},
+        {0, QStringLiteral("15")},
+        {60, QStringLiteral("15")},
+        {2000, QStringLiteral("inherit")},
+    };
+    for (int i = 0; i < effCases.size(); ++i) {
+        const int g = effCases.at(i).first;
+        const QString &raw = effCases.at(i).second;
+        const auto ov = Backend::parseIdleStopOverride(raw);
+        out += jsonLine(QStringLiteral("Backend::effectiveIdleStopMinutes"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("globalMinutes"), g},
+                                    {QStringLiteral("raw"), raw}},
+                        Backend::effectiveIdleStopMinutes(g, ov));
+    }
+
+    // 4. evaluateIdleDecision
+    auto idleInputToJson = [](const Backend::IdleDecisionInput &in) {
+        QJsonArray samplesArr;
+        for (const auto &s : in.samples) {
+            samplesArr.append(QJsonObject{
+                {QStringLiteral("timestampMs"), static_cast<double>(s.timestampMs)},
+                {QStringLiteral("cpuPercent"), s.cpuPercent},
+            });
+        }
+        return QJsonObject{
+            {QStringLiteral("running"), in.running},
+            {QStringLiteral("isTemplate"), in.isTemplate},
+            {QStringLiteral("busyOnThisEnv"), in.busyOnThisEnv},
+            {QStringLiteral("hasActiveExecSession"), in.hasActiveExecSession},
+            {QStringLiteral("portForwardCount"), in.portForwardCount},
+            {QStringLiteral("ignorePortForwards"), in.ignorePortForwards},
+            {QStringLiteral("thresholdMinutes"), in.thresholdMinutes},
+            {QStringLiteral("nowMs"), static_cast<double>(in.nowMs)},
+            {QStringLiteral("warningAlreadySent"), in.warningAlreadySent},
+            {QStringLiteral("samples"), samplesArr},
+        };
+    };
+    auto emitIdle = [&](const char *label, const Backend::IdleDecisionInput &in) {
+        const auto res = Backend::evaluateIdleDecision(in);
+        out += jsonLine(QStringLiteral("Backend::evaluateIdleDecision"),
+                        QString::fromLatin1(label),
+                        idleInputToJson(in),
+                        QJsonObject{
+                            {QStringLiteral("eligible"), res.eligible},
+                            {QStringLiteral("idleDurationMs"), static_cast<double>(res.idleDurationMs)},
+                            {QStringLiteral("averageCpuPercent"), res.averageCpuPercent},
+                            {QStringLiteral("shouldWarnOneMin"), res.shouldWarnOneMin},
+                            {QStringLiteral("shouldStopNow"), res.shouldStopNow},
+                            {QStringLiteral("blockedReason"), res.blockedReason},
+                        });
+    };
+
+    const qint64 minMs = 60LL * 1000LL;
+    Backend::IdleDecisionInput baseIdle;
+    baseIdle.running = true;
+    baseIdle.thresholdMinutes = 15;
+    baseIdle.samples = {{0 * minMs, 1}, {5 * minMs, 2}, {10 * minMs, 1}, {14 * minMs, 1}};
+    baseIdle.nowMs = 14 * minMs;
+    emitIdle("warn_one_min", baseIdle);
+
+    {
+        auto in = baseIdle;
+        in.warningAlreadySent = true;
+        emitIdle("warn_already_sent", in);
+    }
+    {
+        auto in = baseIdle;
+        in.samples.append({15 * minMs, 0});
+        in.nowMs = 15 * minMs;
+        emitIdle("stop_now", in);
+    }
+    {
+        auto in = baseIdle;
+        in.samples = {{0 * minMs, 1}, {5 * minMs, 1}, {10 * minMs, 8}, {11 * minMs, 1}, {15 * minMs, 1}};
+        in.nowMs = 15 * minMs;
+        emitIdle("cpu_spike_resets_timer", in);
+    }
+    {
+        auto in = baseIdle;
+        in.samples = {{0 * minMs, 1}, {5 * minMs, 5}};
+        in.nowMs = 5 * minMs;
+        emitIdle("cpu_spike_at_end", in);
+    }
+    {
+        auto in = baseIdle;
+        in.hasActiveExecSession = true;
+        emitIdle("blocked_exec", in);
+    }
+    {
+        auto in = baseIdle;
+        in.portForwardCount = 2;
+        emitIdle("blocked_ports", in);
+        in.ignorePortForwards = true;
+        in.samples.append({15 * minMs, 0});
+        in.nowMs = 15 * minMs;
+        emitIdle("ports_ignored_stop", in);
+    }
+    {
+        auto in = baseIdle;
+        in.isTemplate = true;
+        emitIdle("blocked_template", in);
+    }
+    {
+        auto in = baseIdle;
+        in.busyOnThisEnv = true;
+        emitIdle("blocked_busy", in);
+    }
+    {
+        auto in = baseIdle;
+        in.running = false;
+        emitIdle("blocked_stopped", in);
+    }
+    {
+        auto in = baseIdle;
+        in.thresholdMinutes = 0;
+        emitIdle("blocked_disabled", in);
+    }
+
+    // 5. parseIncusStorageInfo
+    const QList<QPair<QString, QString>> storageFixtures = {
+        {QStringLiteral("bytes_yaml"),
+         QStringLiteral("info:\n"
+                        "  description: Btrfs Storage Pool\n"
+                        "  driver: btrfs\n"
+                        "  name: default\n"
+                        "  space used: \"1329242112\"\n"
+                        "  total space: \"32212254720\"\n"
+                        "used by:\n"
+                        "  instances:\n"
+                        "    - mobile-porting\n")},
+        {QStringLiteral("human_yaml"),
+         QStringLiteral("info:\n"
+                        "  driver: btrfs\n"
+                        "  name: default\n"
+                        "  space used: 1.24GiB\n"
+                        "  total space: 30.00GiB\n")},
+        {QStringLiteral("json_info"),
+         QStringLiteral("{\"info\":{\"name\":\"default\",\"driver\":\"btrfs\",\"space used\":26843545600,\"total space\":32212254720}}")},
+        {QStringLiteral("json_flat"),
+         QStringLiteral("{\"name\":\"ssd\",\"driver\":\"dir\",\"used\":\"10GiB\",\"total\":\"100GiB\"}")},
+        {QStringLiteral("invalid"), QStringLiteral("invalid output")},
+        {QStringLiteral("empty"), QString()},
+    };
+    for (const auto &c : storageFixtures) {
+        const auto info = Backend::parseIncusStorageInfo(c.second);
+        out += jsonLine(QStringLiteral("Backend::parseIncusStorageInfo"),
+                        c.first,
+                        QJsonObject{{QStringLiteral("output"), c.second}},
+                        poolInfoToJson(info));
+    }
+
+    // 6. sumRootDiskQuotasBytes
+    const QString listJsonStr = QStringLiteral(
+        "["
+        "  {\"name\":\"env-a\",\"devices\":{},\"expanded_devices\":{\"root\":{\"path\":\"/\",\"pool\":\"default\",\"size\":\"20GiB\"}}},"
+        "  {\"name\":\"env-b\",\"devices\":{\"root\":{\"size\":\"15GiB\"}},\"expanded_devices\":{\"root\":{\"path\":\"/\",\"pool\":\"default\",\"size\":\"15GiB\"}}},"
+        "  {\"name\":\"env-noquota\",\"devices\":{},\"expanded_devices\":{\"root\":{\"path\":\"/\",\"pool\":\"default\"}}},"
+        "  {\"name\":\"env-otherpool\",\"devices\":{},\"expanded_devices\":{\"root\":{\"path\":\"/\",\"pool\":\"ssd2\",\"size\":\"100GiB\"}}}"
+        "]");
+    struct QuotaCase {
+        const char *label;
+        QString json;
+        QString exclude;
+        QString pool;
+    };
+    const QuotaCase quotaCases[] = {
+        {"all_default", listJsonStr, QString(), QStringLiteral("default")},
+        {"exclude_env_a", listJsonStr, QStringLiteral("env-a"), QStringLiteral("default")},
+        {"other_pool", listJsonStr, QString(), QStringLiteral("ssd2")},
+        {"invalid_json", QStringLiteral("not-json"), QString(), QStringLiteral("default")},
+    };
+    for (const auto &c : quotaCases) {
+        int unbounded = 0;
+        const qint64 sum = Backend::sumRootDiskQuotasBytes(c.json.toUtf8(), c.exclude, c.pool, &unbounded);
+        out += jsonLine(QStringLiteral("Backend::sumRootDiskQuotasBytes"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("incusListJson"), c.json},
+                                    {QStringLiteral("excludeEnvName"), c.exclude},
+                                    {QStringLiteral("poolName"), c.pool}},
+                        QJsonObject{{QStringLiteral("bytes"), static_cast<double>(sum)},
+                                    {QStringLiteral("unboundedCount"), unbounded}});
+    }
+
+    // 7. evaluatePoolOvercommitWarning & evaluatePoolCapacityHealth & poolInfoToVariantMap
+    Backend::StoragePoolInfo pool40;
+    pool40.valid = true;
+    pool40.name = QStringLiteral("default");
+    pool40.driver = QStringLiteral("btrfs");
+    pool40.usedBytes = 10LL * GiB;
+    pool40.totalBytes = 40LL * GiB;
+    pool40.usedPercent = 25;
+    pool40.sizeText = QStringLiteral("40GiB");
+    pool40.resizable = true;
+
+    Backend::StoragePoolInfo pool88 = pool40;
+    pool88.usedBytes = 35LL * GiB;
+    pool88.usedPercent = 88;
+
+    Backend::StoragePoolInfo poolInvalid;
+
+    struct OvercommitCase {
+        const char *label;
+        Backend::StoragePoolInfo pool;
+        qint64 existing;
+        qint64 requested;
+        int unbounded;
+    };
+    const OvercommitCase ocCases[] = {
+        {"ok", pool40, 35LL * GiB, 4LL * GiB, 1},
+        {"overcommit_unbounded", pool40, 35LL * GiB, 10LL * GiB, 1},
+        {"high_pool_usage", pool88, 0, 1LL * GiB, 0},
+        {"invalid_pool", poolInvalid, 0, 1LL * GiB, 0},
+    };
+    for (const auto &c : ocCases) {
+        out += jsonLine(QStringLiteral("Backend::evaluatePoolOvercommitWarning"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("pool"), poolInfoToJson(c.pool)},
+                                    {QStringLiteral("existingQuotasBytes"), static_cast<double>(c.existing)},
+                                    {QStringLiteral("requestedBytes"), static_cast<double>(c.requested)},
+                                    {QStringLiteral("unboundedCount"), c.unbounded}},
+                        Backend::evaluatePoolOvercommitWarning(c.pool, c.existing, c.requested, c.unbounded));
+    }
+
+    Backend::StoragePoolInfo pool100 = pool40;
+    pool100.totalBytes = 100LL * GiB;
+    pool100.usedBytes = 85LL * GiB;
+    pool100.usedPercent = 85;
+    Backend::StoragePoolInfo pool86 = pool100;
+    pool86.usedBytes = 86LL * GiB;
+    pool86.usedPercent = 86;
+    Backend::StoragePoolInfo pool96 = pool100;
+    pool96.usedBytes = 96LL * GiB;
+    pool96.usedPercent = 96;
+
+    struct CapCase {
+        const char *label;
+        Backend::StoragePoolInfo pool;
+        qint64 allocated;
+        int unbounded;
+    };
+    const CapCase capCases[] = {
+        {"invalid", poolInvalid, 0, 0},
+        {"healthy_85", pool100, 60LL * GiB, 0},
+        {"warning_86", pool86, 60LL * GiB, 1},
+        {"critical_96", pool96, 120LL * GiB, 0},
+    };
+    for (const auto &c : capCases) {
+        const auto h = Backend::evaluatePoolCapacityHealth(c.pool, c.allocated, c.unbounded);
+        out += jsonLine(QStringLiteral("Backend::evaluatePoolCapacityHealth"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("pool"), poolInfoToJson(c.pool)},
+                                    {QStringLiteral("allocatedQuotasBytes"), static_cast<double>(c.allocated)},
+                                    {QStringLiteral("unboundedCount"), c.unbounded}},
+                        healthResultToJson(h));
+
+        const QVariantMap vm = poolInfoToVariantMap(c.pool, c.allocated, c.unbounded);
+        out += jsonLine(QStringLiteral("poolInfoToVariantMap"),
+                        QString::fromLatin1(c.label),
+                        QJsonObject{{QStringLiteral("pool"), poolInfoToJson(c.pool)},
+                                    {QStringLiteral("allocatedBytes"), static_cast<double>(c.allocated)},
+                                    {QStringLiteral("unboundedCount"), c.unbounded}},
+                        QJsonObject::fromVariantMap(vm));
+    }
+
+    // 8. parsePoolSizeSpec & resizeStoragePoolScript
+    const QStringList sizeSpecs = {
+        QStringLiteral("60"), QStringLiteral(" 60GiB "), QStringLiteral("1.5TiB"),
+        QStringLiteral("512MiB"), QStringLiteral("2048MB"), QString(),
+        QStringLiteral("big"), QStringLiteral("-60GiB"), QStringLiteral("0"),
+    };
+    for (int i = 0; i < sizeSpecs.size(); ++i) {
+        qint64 bytes = 0;
+        const bool ok = Backend::parsePoolSizeSpec(sizeSpecs.at(i), &bytes);
+        out += jsonLine(QStringLiteral("Backend::parsePoolSizeSpec"),
+                        QStringLiteral("case_%1").arg(i),
+                        QJsonObject{{QStringLiteral("spec"), sizeSpecs.at(i)}},
+                        QJsonObject{{QStringLiteral("ok"), ok},
+                                    {QStringLiteral("bytes"), static_cast<double>(bytes)}});
+    }
+    out += jsonLine(QStringLiteral("Backend::resizeStoragePoolScript"),
+                    QStringLiteral("default_60GiB"),
+                    QJsonObject{{QStringLiteral("poolName"), QStringLiteral("default")},
+                                {QStringLiteral("sizeSpec"), QStringLiteral(" 60GiB ")}},
+                    Backend::resizeStoragePoolScript(QStringLiteral("default"), QStringLiteral(" 60GiB ")));
+
+    // 9. runHealthChecks (stub runners)
+    const QString fixedWsBase = QStringLiteral("/tmp/aibox-golden-home/aibox");
+    const QString healthyRules = QStringLiteral(
+        "-A ufw-user-input -i incusbr0 -j ACCEPT\n"
+        "-A ufw-user-forward -i incusbr0 -j ACCEPT\n"
+        "-A ufw-user-forward -o incusbr0 -j ACCEPT\n");
+    auto emitHealth = [&](const char *label, bool fix, const QString &ufwRules,
+                          const Backend::CommandRunner &runner) {
+        const auto checks = Backend::runHealthChecks(fix, runner, QStringLiteral("testuser"), ufwRules, fixedWsBase);
+        QJsonArray arr;
+        for (const auto &r : checks)
+            arr.append(healthResultToJson(r));
+        out += jsonLine(QStringLiteral("Backend::runHealthChecks"),
+                        QString::fromLatin1(label),
+                        QJsonObject{{QStringLiteral("fix"), fix},
+                                    {QStringLiteral("targetUser"), QStringLiteral("testuser")},
+                                    {QStringLiteral("ufwRulesContent"), ufwRules},
+                                    {QStringLiteral("workspaceBase"), fixedWsBase}},
+                        arr);
+    };
+
+    emitHealth("all_pass", false, healthyRules,
+               [](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
+                   if (prog == QLatin1String("id"))
+                       return {0, QStringLiteral("testuser wheel incus-admin kvm render video\n"), {}};
+                   if (prog == QLatin1String("__socket_rw__"))
+                       return {0, {}, {}};
+                   if (prog == QLatin1String("systemctl") && args.value(0) == QLatin1String("is-active"))
+                       return {0, QStringLiteral("active\n"), {}};
+                   if (prog == QLatin1String("incus")) {
+                       if (args.value(0) == QLatin1String("list"))
+                           return {0, QStringLiteral("[]"), {}};
+                       if (args.value(0) == QLatin1String("network") && args.value(1) == QLatin1String("show"))
+                           return {0, QStringLiteral("name: incusbr0\nmanaged: true\n"), {}};
+                       if (args.value(0) == QLatin1String("profile") && args.value(1) == QLatin1String("show"))
+                           return {0, QStringLiteral("config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n"), {}};
+                       if (args.value(0) == QLatin1String("storage") && args.value(1) == QLatin1String("info"))
+                           return {0, QStringLiteral("info:\n  driver: btrfs\n  name: default\n  space used: \"1329242112\"\n  total space: \"32212254720\"\n"), {}};
+                   }
+                   if (prog == QLatin1String("findmnt"))
+                       return {0, QStringLiteral("/home btrfs rw,relatime,user_subvol_rm_allowed\n"), {}};
+                   return {1, {}, QStringLiteral("unexpected command")};
+               });
+
+    {
+        bool bridgeExists = false;
+        bool hasNesting = false;
+        bool hasGpu = false;
+        bool hasKvm = false;
+        Backend::CommandRunner fixRunner = [&](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
+            if (prog == QLatin1String("id"))
+                return {0, QStringLiteral("testuser incus-admin kvm render video\n"), {}};
+            if (prog == QLatin1String("__socket_rw__"))
+                return {0, {}, {}};
+            if (prog == QLatin1String("systemctl"))
+                return {3, QStringLiteral("inactive\n"), {}};
+            if (prog == QLatin1String("incus")) {
+                if (args.value(0) == QLatin1String("list"))
+                    return {0, QStringLiteral("[]"), {}};
+                if (args.value(0) == QLatin1String("network") && args.value(1) == QLatin1String("show"))
+                    return bridgeExists ? Backend::CommandOutput{0, QStringLiteral("name: incusbr0\n"), {}}
+                                        : Backend::CommandOutput{1, {}, QStringLiteral("not found")};
+                if (args.value(0) == QLatin1String("network") && args.value(1) == QLatin1String("create") && args.value(2) == QLatin1String("incusbr0")) {
+                    bridgeExists = true;
+                    return {0, {}, {}};
+                }
+                if (args.value(0) == QLatin1String("profile") && args.value(1) == QLatin1String("show")) {
+                    QString pOut = QStringLiteral("config:\n");
+                    if (hasNesting)
+                        pOut += QStringLiteral("  security.nesting: \"true\"\n");
+                    pOut += QStringLiteral("devices:\n");
+                    if (hasGpu)
+                        pOut += QStringLiteral("  gpu:\n    type: gpu\n");
+                    if (hasKvm)
+                        pOut += QStringLiteral("  kvm:\n    path: /dev/kvm\n");
+                    return {0, pOut, {}};
+                }
+                if (args.value(0) == QLatin1String("profile") && args.value(1) == QLatin1String("set")) {
+                    hasNesting = true;
+                    return {0, {}, {}};
+                }
+                if (args.value(0) == QLatin1String("profile") && args.value(1) == QLatin1String("device") && args.value(2) == QLatin1String("add")) {
+                    if (args.value(4) == QLatin1String("gpu"))
+                        hasGpu = true;
+                    if (args.value(4) == QLatin1String("kvm"))
+                        hasKvm = true;
+                    return {0, {}, {}};
+                }
+            }
+            return {1, {}, QStringLiteral("unhandled")};
+        };
+        emitHealth("fix_dry_run", false, QString(), fixRunner);
+        emitHealth("fix_repaired", true, QString(), fixRunner);
+    }
+
+    emitHealth("root_failures", true, QStringLiteral("# empty rules"),
+               [](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
+                   if (prog == QLatin1String("id"))
+                       return {0, QStringLiteral("testuser wheel\n"), {}};
+                   if (prog == QLatin1String("__socket_rw__"))
+                       return {1, {}, QStringLiteral("permission denied")};
+                   if (prog == QLatin1String("systemctl") && args.value(0) == QLatin1String("is-active"))
+                       return {0, QStringLiteral("active\n"), {}};
+                   if (prog == QLatin1String("findmnt"))
+                       return {0, QStringLiteral("/home btrfs rw,relatime\n"), {}};
+                   return {1, {}, QStringLiteral("daemon down")};
+               });
+
+    auto makePoolPctRunner = [](const QString &usedPctStr) -> Backend::CommandRunner {
+        return [usedPctStr](const QString &prog, const QStringList &args) -> Backend::CommandOutput {
+            if (prog == QLatin1String("id"))
+                return {0, QStringLiteral("testuser incus-admin kvm render video\n"), {}};
+            if (prog == QLatin1String("__socket_rw__"))
+                return {0, {}, {}};
+            if (prog == QLatin1String("systemctl"))
+                return {3, QStringLiteral("inactive\n"), {}};
+            if (prog == QLatin1String("incus")) {
+                if (args.value(0) == QLatin1String("list"))
+                    return {0, QStringLiteral("[]"), {}};
+                if (args.value(0) == QLatin1String("network"))
+                    return {0, QStringLiteral("name: incusbr0\n"), {}};
+                if (args.value(0) == QLatin1String("profile"))
+                    return {0, QStringLiteral("config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n"), {}};
+                if (args.value(0) == QLatin1String("storage"))
+                    return {0, QStringLiteral("info:\n  driver: btrfs\n  name: default\n  space used: \"%1\"\n  total space: \"100\"\n").arg(usedPctStr), {}};
+            }
+            if (prog == QLatin1String("findmnt"))
+                return {0, QStringLiteral("/home btrfs rw,user_subvol_rm_allowed\n"), {}};
+            return {1, {}, {}};
+        };
+    };
+    emitHealth("pool_warn_90", false, QString(), makePoolPctRunner(QStringLiteral("90")));
+    emitHealth("pool_fail_97", false, QString(), makePoolPctRunner(QStringLiteral("97")));
+
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -2535,6 +3072,7 @@ int main(int argc, char *argv[]) {
         {"workspace", &GoldenCapture::captureWorkspace},
         {"network", &GoldenCapture::captureNetwork},
         {"backup", &GoldenCapture::captureBackup},
+        {"health", &GoldenCapture::captureHealth},
     };
 
     bool matched = onlyModule.isEmpty();

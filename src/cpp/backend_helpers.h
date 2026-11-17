@@ -2,6 +2,7 @@
 
 #include "backend.h"
 #include "rust_bridge.h"
+#include "aibox-ffi/src/health.rs.h"
 #include "aibox-ffi/src/network.rs.h"
 #include "aibox-ffi/src/util.rs.h"
 
@@ -57,25 +58,26 @@ inline QVariantList validatedCpuOptions(const QVariantList &values) {
 inline QVariantMap poolInfoToVariantMap(const Backend::StoragePoolInfo &pool,
                                  qint64 allocatedBytes,
                                  int unboundedCount) {
-    return QVariantMap{
-        {"valid", pool.valid},
-        {"name", pool.name},
-        {"driver", pool.driver},
-        {"usedBytes", pool.usedBytes},
-        {"totalBytes", pool.totalBytes},
-        {"usedText", pool.valid ? formatBytes(pool.usedBytes) : QString()},
-        {"totalText", pool.valid ? formatBytes(pool.totalBytes) : QString()},
-        {"usedPercent", pool.usedPercent},
-        {"allocatedBytes", allocatedBytes},
-        {"allocatedText", formatBytes(allocatedBytes)},
-        {"unboundedCount", unboundedCount},
-        {"sizeText", pool.sizeText},
-        {"resizable", pool.resizable},
-        {"overcommitted", pool.valid && (allocatedBytes > pool.totalBytes)},
-        {"alertLevel", !pool.valid ? 0
-                                   : (pool.usedPercent > 95 ? 2
-                                      : ((pool.usedPercent > 85 || allocatedBytes > pool.totalBytes) ? 1 : 0))}
+    const aibox::ffi::StoragePoolInfoFfi ffiPool{
+        pool.valid,
+        aibox::ffi::toRust(pool.name),
+        aibox::ffi::toRust(pool.driver),
+        pool.usedBytes,
+        pool.totalBytes,
+        pool.usedPercent,
+        aibox::ffi::toRust(pool.sizeText),
+        pool.resizable,
     };
+    QVariantMap map = aibox::ffi::fromRustJson(
+                          aibox::ffi::pool_info_to_json(ffiPool, allocatedBytes, unboundedCount))
+                          .toMap();
+    map[QStringLiteral("usedBytes")] = pool.usedBytes;
+    map[QStringLiteral("totalBytes")] = pool.totalBytes;
+    map[QStringLiteral("allocatedBytes")] = allocatedBytes;
+    map[QStringLiteral("usedPercent")] = map.value(QStringLiteral("usedPercent")).toInt();
+    map[QStringLiteral("unboundedCount")] = unboundedCount;
+    map[QStringLiteral("alertLevel")] = map.value(QStringLiteral("alertLevel")).toInt();
+    return map;
 }
 
 inline bool isGuiSession() {

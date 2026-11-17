@@ -2,6 +2,7 @@ fn main() {
     let bridges = [
         "src/backup.rs",
         "src/config.rs",
+        "src/health.rs",
         "src/history.rs",
         "src/i18n.rs",
         "src/meta.rs",
