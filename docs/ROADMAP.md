@@ -26,7 +26,7 @@ Implemented (do not re-plan):
 - Modular `aibox check [--fix] [--json]` host diagnostics and non-root auto-repair (Iteration 16).
 - Paired `/workspace` Btrfs subvolume snapshots (auto + manual), System/Workspace/Both restore with `pre-restore` safety snapshots, plain-folder conversion, and `workspace_subvol_rm` health check (Iteration 17: S0 + S1).
 - Workspace change review (`V`): async `rsync` diff summary vs any workspace snapshot with configurable exclude patterns, unified `diff -u` inspection, and single-file restore (Iteration 18: S2).
-- Headless CLI (`src/cli.{h,cpp}`): `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `list`, `check`, `help`, global `--project <dir>`, shared `Backend` script builders, `task.pid` lock checks, and exit codes `0..4` (Iteration 19: S4).
+- Headless CLI (`src/cpp/cli.{h,cpp}`): `enter`, `exec`, `start`, `stop`, `snapshot`, `snapshots`, `restore`, `diff`, `list`, `check`, `help`, global `--project <dir>`, shared `Backend` script builders, `task.pid` lock checks, and exit codes `0..4` (Iteration 19: S4).
 - Secrets injection (`A`): host-only `~/.config/aibox/secrets.json` (`0600`/`0700`), per-environment `user.aibox.secrets` key names, runtime `/dev/shm` `tmpfs` injection for GUI Enter, headless tasks, and CLI `enter`/`exec`, and longest-first `[REDACTED]` task/history scrubbing (Iteration 20: S3).
 - Storage pool overcommit guard: live `incus storage info default` capacity + `expanded_devices.root` quota sum in sidebar/Disk card, non-blocking Create & Edit Quotas (`E`) overcommit warnings, and `pool_capacity` in `aibox check` (`>85%` warn, `>95%` fail) (Iteration 21: H2).
 - Idle auto-stop (opt-in): global `idleStopMinutes` (`0` default) & per-env `user.aibox.idlestop` / `idlestop_ports`, CPU `<3%` + active `incus exec` + port-forward blockers, 1-minute `notify-send` warning, normal auto-snapshot stop with `idle` history reason (GUI-only, no daemon) (Iteration 22: H1).
@@ -71,13 +71,13 @@ All planned Phase 1–6 roadmap features are now shipped and documented in [CATA
 
 Read this section before touching code. It applies to every Phase 5 and 6 item.
 
-1. **Read first:** [GEMINI.md](../GEMINI.md) / [AGENTS.md](../AGENTS.md) (mandatory workflow), `src/backend.h`, and the relevant parts of `src/backend.cpp` and `src/Main.qml`. Follow the existing patterns:
+1. **Read first:** [GEMINI.md](../GEMINI.md) / [AGENTS.md](../AGENTS.md) (mandatory workflow), `src/cpp/backend.h`, and the relevant parts of `src/cpp/backend.cpp` and `src/qml/Main.qml`. Follow the existing patterns:
    - Long operations run as detached background tasks with a generated bash script, `@@STAGE:<pct>:<text>` progress lines, and cancel support (see `createSnapshot`, `restoreSnapshot`, `exportEnvironment`).
    - Per-environment flags live in Incus config keys `user.aibox.*` (see `user.aibox.autosnap`, `user.aibox.autostop`) and are parsed in `parseIncusListJson`.
    - Global settings live in `config.json` and are loaded/saved next to `watchdogAutoStop`. New keys need safe defaults so old configs load unchanged.
    - All shell arguments go through `shellQuote`. Never interpolate unquoted user input into scripts.
    - Pure logic (parsers, script builders, validators) is written as `static` functions so `tests/aibox_tests.cpp` can test them without Incus. Stub `incus`/`btrfs` with fake scripts on `PATH`, as the existing export/import tests do.
-2. **UI rules:** monochrome icons only (no emoji), `theme.accent`, `theme.radius`, 34px controls, 10px gaps. Register every new shortcut in the `?` overlay and the README table. Before assigning a key, check that it is not already handled in `src/Main.qml`. The keys suggested below (`A`, `V`, `U`) were free when this was written.
+2. **UI rules:** monochrome icons only (no emoji), `theme.accent`, `theme.radius`, 34px controls, 10px gaps. Register every new shortcut in the `?` overlay and the README table. Before assigning a key, check that it is not already handled in `src/qml/Main.qml`. The keys suggested below (`A`, `V`, `U`) were free when this was written.
 3. **i18n:** every new UI string goes into both `src/i18n/en.json` and `src/i18n/da.json`.
 4. **Definition of done (per feature):** unit tests added → `./bin/install` (run once) → `./bin/test` passes → verified on the real host → move the feature from this file to the CATALOG changelog → update README features and shortcuts.
 5. **Do not** add daemons, systemd units, or root-only steps to the normal flow. If something needs root, `aibox check` prints the exact command instead of running it.

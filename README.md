@@ -92,6 +92,35 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | `?` | Toggle keyboard shortcuts overlay |
 | `Q` | Quit AIBox |
 
+## Development
+
+```bash
+./bin/build     # compile into build/aibox (fast loop)
+./bin/test      # build and run the offscreen Qt Test suite
+./bin/install   # package and install the Arch Linux build
+```
+
+Source layout:
+
+- `src/cpp/` holds the C++ sources. The `Backend` class is declared once in
+  `backend.h` and implemented across feature modules named `backend_*.cpp`
+  (environments, network, snapshots, secrets, sessions, backups, workspace,
+  health, provisioning).
+- `src/qml/` holds the interface: `Main.qml` is the window shell, with reusable
+  controls in `components/`, modal overlays in `dialogs/`, and layout sections
+  in `panels/`.
+- `src/i18n/` holds the translation catalogs and `src/resources.qrc` bundles
+  them with the QML files.
+- `tests/aibox_tests.cpp` holds the test suite.
+
+Read [AGENTS.md](AGENTS.md) before changing the code. For a quick visual smoke
+test without a display:
+
+```bash
+QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox.png ./build/aibox
+QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox-create.png AIBOX_PREVIEW_CREATE=1 ./build/aibox
+```
+
 ## Uninstall
 
 Remove the application while keeping Incus and environments:

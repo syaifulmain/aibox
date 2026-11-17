@@ -1,6 +1,29 @@
 <RCC>
     <qresource prefix="/">
-        <file alias="Main.qml">Main.qml</file>
+        <file alias="Main.qml">qml/Main.qml</file>
+        <file alias="components/FlatInput.qml">qml/components/FlatInput.qml</file>
+        <file alias="components/ChipInput.qml">qml/components/ChipInput.qml</file>
+        <file alias="components/SlidersIcon.qml">qml/components/SlidersIcon.qml</file>
+        <file alias="components/ActionButton.qml">qml/components/ActionButton.qml</file>
+        <file alias="components/ModalHeader.qml">qml/components/ModalHeader.qml</file>
+        <file alias="dialogs/BackupsDialog.qml">qml/dialogs/BackupsDialog.qml</file>
+        <file alias="dialogs/ChangeReviewDialog.qml">qml/dialogs/ChangeReviewDialog.qml</file>
+        <file alias="dialogs/CloneDialog.qml">qml/dialogs/CloneDialog.qml</file>
+        <file alias="dialogs/CreateDialog.qml">qml/dialogs/CreateDialog.qml</file>
+        <file alias="dialogs/EditQuotasDialog.qml">qml/dialogs/EditQuotasDialog.qml</file>
+        <file alias="dialogs/EgressDialog.qml">qml/dialogs/EgressDialog.qml</file>
+        <file alias="dialogs/HelpOverlay.qml">qml/dialogs/HelpOverlay.qml</file>
+        <file alias="dialogs/HistoryDialog.qml">qml/dialogs/HistoryDialog.qml</file>
+        <file alias="dialogs/MountsDialog.qml">qml/dialogs/MountsDialog.qml</file>
+        <file alias="dialogs/PortsDialog.qml">qml/dialogs/PortsDialog.qml</file>
+        <file alias="dialogs/RestoreDialog.qml">qml/dialogs/RestoreDialog.qml</file>
+        <file alias="dialogs/SecretsDialog.qml">qml/dialogs/SecretsDialog.qml</file>
+        <file alias="dialogs/StaleReportDialog.qml">qml/dialogs/StaleReportDialog.qml</file>
+        <file alias="dialogs/WipeDialog.qml">qml/dialogs/WipeDialog.qml</file>
+        <file alias="panels/AppHeader.qml">qml/panels/AppHeader.qml</file>
+        <file alias="panels/MainContent.qml">qml/panels/MainContent.qml</file>
+        <file alias="panels/SettingsPanel.qml">qml/panels/SettingsPanel.qml</file>
+        <file alias="panels/StatusBanner.qml">qml/panels/StatusBanner.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/da.json">i18n/da.json</file>
     </qresource>

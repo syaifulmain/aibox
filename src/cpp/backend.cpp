@@ -1,0 +1,1314 @@
+#include "backend.h"
+#include "backend_helpers.h"
+
+#include <QClipboard>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QGuiApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
+#include <QSaveFile>
+#include <QSet>
+#include <QStandardPaths>
+#include <QUrl>
+
+#include <csignal>
+#include <unistd.h>
+
+Backend::Backend(const QString &workspaceDir, QObject *parent)
+    : Backend(workspaceDir, PathMode::WorkspaceDir, parent) {}
+
+Backend::Backend(const QString &path, PathMode mode, QObject *parent)
+    : QObject(parent),
+      m_pathMode(mode),
+      m_rememberSystemLocation(path.trimmed().isEmpty()),
+      m_demoMode(qEnvironmentVariableIntValue("AIBOX_DEMO_MODE") == 1) {
+    if (mode == PathMode::ProjectDir) {
+        const QString aiboxDir = resolveProjectAiboxDir(path);
+        m_systemPath = aiboxDir;
+        m_workspaceBase = aiboxDir + QStringLiteral("/workspaces");
+        m_osStoragePath = aiboxDir + QStringLiteral("/os-images");
+        m_stateDir = aiboxDir + QStringLiteral("/state");
+        m_configPath = aiboxDir + QStringLiteral("/config.json");
+    } else if (path.trimmed().isEmpty()) {
+        const QString aiboxDir = configuredSystemPath();
+        m_systemPath = aiboxDir;
+        m_workspaceBase = aiboxDir + QStringLiteral("/workspaces");
+        m_osStoragePath = aiboxDir + QStringLiteral("/os-images");
+        m_stateDir = aiboxDir + QStringLiteral("/state");
+        m_configPath = aiboxDir + QStringLiteral("/config.json");
+    } else {
+        const QString cleanPath = QDir::cleanPath(path);
+        m_systemPath = cleanPath;
+        m_workspaceBase = cleanPath;
+        m_osStoragePath = cleanPath + QStringLiteral("/os-images");
+        m_stateDir = cleanPath + QStringLiteral("/.state");
+        m_configPath = cleanPath + QStringLiteral("/.state/config.json");
+    }
+    m_defaultWorkspaceBase = m_workspaceBase;
+    m_defaultOsStoragePath = m_osStoragePath;
+
+    m_osEntries = defaultOsEntries();
+    m_presets = defaultPresets();
+    m_diskOptions = defaultDiskOptions();
+    m_ramOptions = defaultRamOptions();
+    m_cpuOptions = defaultCpuOptions();
+    m_defaultPresetId = QStringLiteral("full");
+    m_defaultOsId = QStringLiteral("ubuntu-24.04");
+    m_defaultDisk = QStringLiteral("35GiB");
+    m_defaultRam = QStringLiteral("6GiB");
+    m_defaultCpu = 4;
+    m_processLimitOptions = QStringList{QStringLiteral("2048"), QStringLiteral("4096"),
+                                        QStringLiteral("8192"), QStringLiteral("Unlimited")};
+    m_ioLimitOptions = QStringList{QStringLiteral("Unlimited"), QStringLiteral("50MB"),
+                                   QStringLiteral("100MB"), QStringLiteral("250MB")};
+    m_defaultProcessLimit = QStringLiteral("4096");
+    m_defaultIoLimit = QStringLiteral("Unlimited");
+    m_diffExcludes = defaultDiffExcludes();
+    const QString envSecretsPath = qEnvironmentVariable("AIBOX_SECRETS_PATH").trimmed();
+    m_secretsPath = envSecretsPath.isEmpty() ? defaultSecretsStorePath() : QDir::cleanPath(envSecretsPath);
+
+    m_diffTimeoutTimer.setSingleShot(true);
+    m_diffTimeoutTimer.setInterval(30000);
+    connect(&m_diffTimeoutTimer, &QTimer::timeout, this, [this] {
+        if (m_diffProcess && m_diffProcess->state() != QProcess::NotRunning) {
+            m_diffProcess->setProperty("timedOut", true);
+            m_diffProcess->kill();
+        }
+    });
+
+    m_netProbeTimer.setInterval(10000);
+    connect(&m_netProbeTimer, &QTimer::timeout, this, &Backend::refreshNetworkStats);
+
+    loadConfig();
+    reloadSecrets();
+    rebuildOsCatalog();
+    loadHistorySeenMarker();
+    loadOperationHistory();
+
+    if (m_demoMode) {
+        m_firstRun = false;
+        loadDemoData();
+        return;
+    }
+
+    if (!m_firstRun) {
+        QDir().mkpath(m_workspaceBase);
+        QDir().mkpath(m_osStoragePath);
+        QDir().mkpath(m_stateDir);
+        seedProvisionScripts();
+        refreshBackups();
+        if (isGuiSession())
+            refreshRecordedSessions();
+    }
+
+    m_taskWatchTimer.setInterval(250);
+    connect(&m_taskWatchTimer, &QTimer::timeout, this, &Backend::checkBackgroundTask);
+
+    m_pollTimer.setInterval(4000);
+    connect(&m_pollTimer, &QTimer::timeout, this, [this] {
+        if (!m_busy)
+            refresh();
+    });
+
+    if (!QStandardPaths::findExecutable("incus").isEmpty() && isGuiSession()) {
+        attachExistingTask();
+        QTimer::singleShot(100, this, &Backend::refresh);
+        m_pollTimer.start();
+    }
+}
+
+Backend::~Backend() {
+    // Note: We intentionally do NOT kill detached background tasks when the GUI window closes,
+    // so environment creation or OS downloads continue safely in the background and re-attach
+    // when the user reopens AIBox.
+    if (m_refreshProcess && m_refreshProcess->state() != QProcess::NotRunning) {
+        m_refreshProcess->kill();
+        m_refreshProcess->waitForFinished(500);
+    }
+    if (m_netProbeProcess && m_netProbeProcess->state() != QProcess::NotRunning) {
+        m_netProbeProcess->kill();
+        m_netProbeProcess->waitForFinished(500);
+    }
+    if (m_enterPrepareProcess && m_enterPrepareProcess->state() != QProcess::NotRunning) {
+        m_enterPrepareProcess->kill();
+        m_enterPrepareProcess->waitForFinished(500);
+    }
+    if (m_enterSecretProcess && m_enterSecretProcess->state() != QProcess::NotRunning) {
+        m_enterSecretProcess->kill();
+        m_enterSecretProcess->waitForFinished(500);
+    }
+    if (!m_enterHostSecretFile.isEmpty())
+        QFile::remove(m_enterHostSecretFile);
+}
+
+QString Backend::defaultSystemPath() {
+    return QDir::cleanPath(QDir::homePath() + QStringLiteral("/aibox"));
+}
+
+QString Backend::defaultLocationFilePath() {
+    const QString envPath = qEnvironmentVariable("AIBOX_LOCATION_FILE").trimmed();
+    if (!envPath.isEmpty())
+        return QDir::cleanPath(envPath);
+    const QString cfg = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+    const QString base = cfg.trimmed().isEmpty() ? QDir::homePath() + QStringLiteral("/.config") : cfg.trimmed();
+    return QDir::cleanPath(base + QStringLiteral("/aibox/location.json"));
+}
+
+QString Backend::configuredSystemPath() {
+    QFile file(defaultLocationFilePath());
+    if (file.open(QIODevice::ReadOnly)) {
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        if (doc.isObject()) {
+            QString raw = doc.object().value(QStringLiteral("systemPath")).toString().trimmed();
+            if (!raw.isEmpty()) {
+                if (raw == QLatin1String("~"))
+                    raw = QDir::homePath();
+                else if (raw.startsWith(QLatin1String("~/")))
+                    raw = QDir::homePath() + raw.mid(1);
+                if (!QDir::isAbsolutePath(raw))
+                    raw = QDir::homePath() + QLatin1Char('/') + raw;
+                return QDir::cleanPath(raw);
+            }
+        }
+    }
+    return defaultSystemPath();
+}
+
+bool Backend::saveLocationFile(const QString &systemPath) {
+    const QString locPath = defaultLocationFilePath();
+    const QString parentDir = QFileInfo(locPath).absolutePath();
+    if (!QDir().mkpath(parentDir))
+        return false;
+    QJsonObject obj;
+    obj[QStringLiteral("version")] = 1;
+    obj[QStringLiteral("systemPath")] = QDir::cleanPath(systemPath);
+    QSaveFile file(locPath);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    return file.commit();
+}
+
+QString Backend::resolveProjectAiboxDir(const QString &projectDir, const QString &baseCwd) {
+    QString dir = projectDir.trimmed();
+    if (dir.isEmpty()) {
+        if (baseCwd.trimmed().isEmpty())
+            return configuredSystemPath();
+        return QDir::cleanPath(QDir::cleanPath(baseCwd.trimmed()) + QStringLiteral("/aibox"));
+    }
+    const QString cwd = baseCwd.trimmed().isEmpty() ? QDir::currentPath() : QDir::cleanPath(baseCwd.trimmed());
+    if (dir == QLatin1String("~"))
+        dir = QDir::homePath();
+    else if (dir.startsWith(QLatin1String("~/")))
+        dir = QDir::homePath() + dir.mid(1);
+    if (!QDir::isAbsolutePath(dir))
+        dir = QDir(cwd).filePath(dir);
+    dir = QDir::cleanPath(dir);
+    const QString baseName = QFileInfo(dir).fileName();
+    if (baseName == QLatin1String("aibox") || baseName == QLatin1String(".aibox"))
+        return dir;
+    const QString legacyDotDir = QDir::cleanPath(dir + QStringLiteral("/.aibox"));
+    const QString stdDir = QDir::cleanPath(dir + QStringLiteral("/aibox"));
+    if (QDir(legacyDotDir).exists() && !QDir(stdDir).exists())
+        return legacyDotDir;
+    return stdDir;
+}
+
+QString Backend::defaultWorkspacePath() {
+    return defaultSystemPath() + QStringLiteral("/workspaces");
+}
+
+QString Backend::defaultOsStoragePathValue() {
+    return defaultSystemPath() + QStringLiteral("/os-images");
+}
+
+QVariantList Backend::defaultOsEntries() {
+    auto entry = [](const char *id, const char *alias, const char *name, const char *badge, const char *description) {
+        QVariantMap map;
+        map["id"] = QString::fromLatin1(id);
+        map["alias"] = QString::fromLatin1(alias);
+        map["name"] = QString::fromLatin1(name);
+        map["badge"] = QString::fromLatin1(badge);
+        map["description"] = QString::fromLatin1(description);
+        return map;
+    };
+
+    return {
+        entry("ubuntu-24.04", "ubuntu/24.04", "Ubuntu 24.04 LTS (Noble)", "Recommended",
+              "Best compatibility for AI tools, Desktop (Electron/Qt/Flutter), and Android SDK."),
+        entry("ubuntu-22.04", "ubuntu/22.04", "Ubuntu 22.04 LTS (Jammy)", "LTS",
+              "Proven long-term support release for legacy C++, Python, and mobile toolchains."),
+        entry("debian-12", "debian/12", "Debian 12 (Bookworm)", "Lightweight",
+              "Rock-solid stability with low RAM overhead (~60 MB idle). Ideal for backend & databases."),
+        entry("archlinux", "archlinux", "Arch Linux", "Rolling",
+              "Bleeding-edge packages matching Omarchy. Great for native C++, Rust, and Qt6 builds."),
+        entry("fedora-41", "fedora/41", "Fedora 41", "Modern",
+              "Up-to-date workstation & server stack with modern GCC, Podman/Docker, and Wayland."),
+        entry("alpine-3.21", "alpine/3.21", "Alpine Linux 3.21", "Ultra-Light",
+              "Featherweight (~5 MB) musl/BusyBox system. Boots in 0.5s for rapid CLI/microservice tests."),
+        entry("kali", "kali", "Kali Linux Rolling", "Security",
+              "Pre-configured distribution for security auditing and penetration testing projects."),
+        entry("rockylinux-9", "rockylinux/9", "Rocky Linux 9", "Enterprise",
+              "100% bug-for-bug RHEL 9 compatible environment for production server testing.")
+    };
+}
+
+QVariantList Backend::defaultPresets() {
+    auto preset = [](const char *id, const char *title, const char *sub, const char *flags, bool x11) {
+        QVariantMap map;
+        map["id"] = QString::fromLatin1(id);
+        map["title"] = QString::fromLatin1(title);
+        map["sub"] = QString::fromLatin1(sub);
+        map["flags"] = QString::fromLatin1(flags);
+        map["x11"] = x11;
+        return map;
+    };
+
+    return {
+        preset("full", "Desktop & Mobile", "GPU + KVM + GUI Bridge", "-p default -p ai-gui", true),
+        preset("standard", "Standard AI / Web", "Docker + Isolated OS", "-p default -c security.nesting=true", false),
+        preset("vm", "Virtual Machine", "Full KVM Kernel (--vm)", "--vm -p default", false)
+    };
+}
+
+QStringList Backend::defaultDiskOptions() {
+    return {QStringLiteral("20GiB"), QStringLiteral("35GiB"), QStringLiteral("60GiB"), QStringLiteral("100GiB")};
+}
+
+QStringList Backend::defaultRamOptions() {
+    return {QStringLiteral("4GiB"), QStringLiteral("6GiB"), QStringLiteral("8GiB"), QStringLiteral("12GiB")};
+}
+
+QVariantList Backend::defaultCpuOptions() {
+    return {2, 4, 6, 8};
+}
+
+QString Backend::normalizedPath(const QString &raw, const QString &fallback) const {
+    QString path = raw.trimmed();
+    if (path.isEmpty())
+        path = fallback;
+    if (path == QLatin1String("~"))
+        path = QDir::homePath();
+    else if (path.startsWith(QLatin1String("~/")))
+        path = QDir::homePath() + path.mid(1);
+    if (!QDir::isAbsolutePath(path))
+        path = QDir::homePath() + "/" + path;
+    return QDir::cleanPath(path);
+}
+
+QString Backend::workspacePathFor(const QString &name) const {
+    for (const auto &value : m_environments) {
+        const QVariantMap env = value.toMap();
+        if (env.value("name").toString() == name) {
+            const QString path = env.value("workspacePath").toString();
+            if (!path.isEmpty())
+                return path;
+        }
+    }
+    return m_workspaceBase + "/" + name;
+}
+
+QString Backend::cacheBasePath(const QString &osId) const {
+    QString safe = osId;
+    safe.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]")), QStringLiteral("_"));
+    return m_osStoragePath + "/" + safe;
+}
+
+QVariantMap Backend::presetById(const QString &id) const {
+    for (const auto &value : m_presets) {
+        const QVariantMap preset = value.toMap();
+        if (preset.value("id").toString() == id)
+            return preset;
+    }
+    return {};
+}
+
+QVariantMap Backend::osEntryById(const QString &id) const {
+    for (const auto &value : m_osEntries) {
+        const QVariantMap entry = value.toMap();
+        if (entry.value("id").toString() == id)
+            return entry;
+    }
+    return {};
+}
+
+void Backend::normalizeDefaults() {
+    QStringList presetIds;
+    for (const auto &value : m_presets)
+        presetIds.append(value.toMap().value("id").toString());
+    if (!presetIds.contains(m_defaultPresetId))
+        m_defaultPresetId = presetIds.value(0, QStringLiteral("standard"));
+
+    if (!m_diskOptions.contains(m_defaultDisk))
+        m_defaultDisk = m_diskOptions.value(0, QStringLiteral("35GiB"));
+    if (!m_ramOptions.contains(m_defaultRam))
+        m_defaultRam = m_ramOptions.value(0, QStringLiteral("6GiB"));
+
+    bool cpuFound = false;
+    for (const auto &value : m_cpuOptions) {
+        if (value.toInt() == m_defaultCpu) {
+            cpuFound = true;
+            break;
+        }
+    }
+    if (!cpuFound)
+        m_defaultCpu = m_cpuOptions.value(0, 4).toInt();
+
+    QStringList osIds;
+    for (const auto &value : m_osEntries)
+        osIds.append(value.toMap().value("id").toString());
+    if (!osIds.contains(m_defaultOsId))
+        m_defaultOsId = osIds.value(0, QStringLiteral("ubuntu-24.04"));
+}
+
+void Backend::loadConfig() {
+    QFile file(m_configPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        m_firstRun = true;
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        m_firstRun = true;
+        return;
+    }
+
+    const QJsonObject obj = doc.object();
+    m_firstRun = !obj.value("firstRunCompleted").toBool(false);
+
+    const QString workspace = obj.value("workspaceBase").toString().trimmed();
+    if (!workspace.isEmpty())
+        m_workspaceBase = normalizedPath(workspace, m_defaultWorkspaceBase);
+
+    const QString osStorage = obj.value("osStoragePath").toString().trimmed();
+    if (!osStorage.isEmpty())
+        m_osStoragePath = normalizedPath(osStorage, m_defaultOsStoragePath);
+
+    QVariantList entries;
+    QSet<QString> seenIds;
+    for (const auto &value : obj.value("osCatalog").toArray()) {
+        const QVariantMap source = value.toObject().toVariantMap();
+        const QString id = source.value("id").toString().trimmed().toLower();
+        if (id.isEmpty() || seenIds.contains(id))
+            continue;
+        seenIds.insert(id);
+
+        QVariantMap entry;
+        entry["id"] = id;
+        const QString alias = source.value("alias").toString().trimmed();
+        entry["alias"] = alias.isEmpty() ? id : alias;
+        const QString name = source.value("name").toString().trimmed();
+        entry["name"] = name.isEmpty() ? id : name;
+        const QString badge = source.value("badge").toString().trimmed();
+        entry["badge"] = badge.isEmpty() ? QStringLiteral("Custom") : badge;
+        entry["description"] = source.value("description").toString().trimmed();
+        entries.append(entry);
+    }
+    if (!entries.isEmpty())
+        m_osEntries = entries;
+
+    const QVariantList defaults = defaultPresets();
+    QVariantList presets;
+    for (const auto &value : obj.value("presets").toArray()) {
+        const QVariantMap source = value.toObject().toVariantMap();
+        const QString id = source.value("id").toString().trimmed();
+        const QString title = source.value("title").toString().trimmed();
+        if (id.isEmpty() || title.isEmpty())
+            continue;
+
+        QVariantMap fallback;
+        for (const auto &candidate : defaults) {
+            if (candidate.toMap().value("id").toString() == id) {
+                fallback = candidate.toMap();
+                break;
+            }
+        }
+
+        QVariantMap preset;
+        preset["id"] = id;
+        preset["title"] = title;
+        preset["sub"] = source.value("sub").toString().trimmed();
+        preset["flags"] = source.value("flags").toString().trimmed().isEmpty()
+                              ? fallback.value("flags", QStringLiteral("-p default")).toString()
+                              : source.value("flags").toString().trimmed();
+        preset["x11"] = source.contains("x11") ? source.value("x11").toBool()
+                                               : fallback.value("x11", false).toBool();
+        presets.append(preset);
+    }
+    if (!presets.isEmpty())
+        m_presets = presets;
+
+    auto jsonStrings = [](const QJsonArray &array) {
+        QStringList values;
+        for (const auto &value : array) {
+            if (value.isString())
+                values.append(value.toString());
+            else if (value.isDouble())
+                values.append(QString::number(value.toInt()));
+        }
+        return values;
+    };
+
+    const QStringList disk = validatedSizeOptions(jsonStrings(obj.value("diskOptions").toArray()));
+    if (!disk.isEmpty())
+        m_diskOptions = disk;
+    const QStringList ram = validatedSizeOptions(jsonStrings(obj.value("ramOptions").toArray()));
+    if (!ram.isEmpty())
+        m_ramOptions = ram;
+
+    QVariantList cpuValues;
+    for (const auto &value : obj.value("cpuOptions").toArray()) {
+        if (value.isDouble())
+            cpuValues.append(value.toInt());
+        else if (value.isString())
+            cpuValues.append(value.toString().toInt());
+    }
+    const QVariantList cpus = validatedCpuOptions(cpuValues);
+    if (!cpus.isEmpty())
+        m_cpuOptions = cpus;
+
+    const QString defaultPreset = obj.value("defaultPresetId").toString().trimmed();
+    if (!defaultPreset.isEmpty())
+        m_defaultPresetId = defaultPreset;
+    const QString defaultOs = obj.value("defaultOsId").toString().trimmed();
+    if (!defaultOs.isEmpty())
+        m_defaultOsId = defaultOs;
+    const QString defaultDiskValue = obj.value("defaultDisk").toString().trimmed();
+    if (!defaultDiskValue.isEmpty())
+        m_defaultDisk = defaultDiskValue;
+    const QString defaultRamValue = obj.value("defaultRam").toString().trimmed();
+    if (!defaultRamValue.isEmpty())
+        m_defaultRam = defaultRamValue;
+
+    const QJsonValue defaultCpu = obj.value("defaultCpu");
+    if (defaultCpu.isDouble()) {
+        const int cores = defaultCpu.toInt();
+        if (cores > 0 && cores <= 1024)
+            m_defaultCpu = cores;
+    }
+
+    if (obj.contains("autoSnapshotEnabled"))
+        m_autoSnapshotEnabled = obj.value("autoSnapshotEnabled").toBool(true);
+    if (obj.contains("autoSnapshotKeep") && obj.value("autoSnapshotKeep").isDouble())
+        m_autoSnapshotKeep = qBound(1, obj.value("autoSnapshotKeep").toInt(5), 50);
+
+    if (obj.contains("watchdogEnabled"))
+        m_watchdogEnabled = obj.value("watchdogEnabled").toBool(true);
+    if (obj.contains("watchdogDiskWarn") && obj.value("watchdogDiskWarn").isDouble())
+        m_watchdogDiskWarn = qBound(50, obj.value("watchdogDiskWarn").toInt(90), 98);
+    if (obj.contains("watchdogDiskCritical") && obj.value("watchdogDiskCritical").isDouble())
+        m_watchdogDiskCritical = qBound(m_watchdogDiskWarn + 1, obj.value("watchdogDiskCritical").toInt(97), 99);
+    if (obj.contains("watchdogAutoStop"))
+        m_watchdogAutoStop = obj.value("watchdogAutoStop").toBool(false);
+    if (obj.contains("idleStopMinutes") && obj.value("idleStopMinutes").isDouble())
+        m_idleStopMinutes = qBound(0, obj.value("idleStopMinutes").toInt(0), 1440);
+    if (obj.contains("staleDays") && obj.value("staleDays").isDouble())
+        m_staleDays = qBound(1, obj.value("staleDays").toInt(30), 3650);
+    if (obj.contains("recordSessions"))
+        m_recordSessions = obj.value("recordSessions").toBool(false);
+
+    if (obj.contains("diffExcludes") && obj.value("diffExcludes").isArray()) {
+        QStringList loaded;
+        for (const auto &v : obj.value("diffExcludes").toArray()) {
+            const QString pattern = v.toString().trimmed();
+            if (!pattern.isEmpty() && !loaded.contains(pattern))
+                loaded.append(pattern);
+        }
+        m_diffExcludes = loaded;
+    }
+
+    normalizeDefaults();
+}
+
+bool Backend::saveConfig() const {
+    const QString directory = QFileInfo(m_configPath).absolutePath();
+    if (!QDir().mkpath(directory))
+        return false;
+
+    QJsonObject obj;
+    obj["version"] = 1;
+    obj["firstRunCompleted"] = !m_firstRun;
+    obj["workspaceBase"] = m_workspaceBase;
+    obj["osStoragePath"] = m_osStoragePath;
+    obj["osCatalog"] = QJsonArray::fromVariantList(m_osEntries);
+    obj["presets"] = QJsonArray::fromVariantList(m_presets);
+    obj["diskOptions"] = QJsonArray::fromStringList(m_diskOptions);
+    obj["ramOptions"] = QJsonArray::fromStringList(m_ramOptions);
+    obj["cpuOptions"] = QJsonArray::fromVariantList(m_cpuOptions);
+    obj["defaultPresetId"] = m_defaultPresetId;
+    obj["defaultOsId"] = m_defaultOsId;
+    obj["defaultDisk"] = m_defaultDisk;
+    obj["defaultRam"] = m_defaultRam;
+    obj["defaultCpu"] = m_defaultCpu;
+    obj["autoSnapshotEnabled"] = m_autoSnapshotEnabled;
+    obj["autoSnapshotKeep"] = m_autoSnapshotKeep;
+    obj["watchdogEnabled"] = m_watchdogEnabled;
+    obj["watchdogDiskWarn"] = m_watchdogDiskWarn;
+    obj["watchdogDiskCritical"] = m_watchdogDiskCritical;
+    obj["watchdogAutoStop"] = m_watchdogAutoStop;
+    obj["idleStopMinutes"] = m_idleStopMinutes;
+    obj["staleDays"] = m_staleDays;
+    obj["recordSessions"] = m_recordSessions;
+    obj["diffExcludes"] = QJsonArray::fromStringList(m_diffExcludes);
+
+    QSaveFile file(m_configPath);
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    file.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    return file.commit();
+}
+
+void Backend::rebuildOsCatalog() {
+    const QVariantList catalog = catalogForEntries(m_osEntries, m_lastImagesJson, m_downloadingOsId, m_osStoragePath);
+    normalizeDefaults();
+    if (catalog != m_osCatalog) {
+        m_osCatalog = catalog;
+        emit osCatalogChanged();
+    }
+}
+
+QUrl Backend::pathToUrl(const QString &path) const {
+    QString p = normalizedPath(path, QDir::homePath());
+    while (!p.isEmpty() && !QFileInfo::exists(p)) {
+        const QString parent = QFileInfo(p).dir().path();
+        if (parent == p)
+            break;
+        p = parent;
+    }
+    if (p.isEmpty() || !QFileInfo::exists(p))
+        p = QDir::homePath();
+    return QUrl::fromLocalFile(p);
+}
+
+QString Backend::localPath(const QUrl &url) const {
+    return url.toLocalFile();
+}
+
+QStringList Backend::parseCsv(const QString &text) {
+    static const QRegularExpression separator(QStringLiteral("[,;\\n]"));
+    QStringList values;
+    for (const QString &part : text.split(separator, Qt::SkipEmptyParts)) {
+        const QString value = part.trimmed();
+        if (!value.isEmpty())
+            values.append(value);
+    }
+    values.removeDuplicates();
+    return values;
+}
+
+QString Backend::shellQuote(const QString &value) {
+    QString escaped = value;
+    escaped.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
+QString Backend::shellArrayWords(const QString &words) {
+    const QStringList tokens = words.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    QStringList quoted;
+    quoted.reserve(tokens.size());
+    for (const QString &token : tokens)
+        quoted.append(shellQuote(token));
+    return quoted.join(QLatin1Char(' '));
+}
+
+void Backend::primaryAction() {
+    ++m_count;
+    emit countChanged();
+    if (!m_environments.isEmpty() && m_selectedIndex >= 0 && m_selectedIndex < m_environments.size()) {
+        const auto env = m_environments.at(m_selectedIndex).toMap();
+        enterEnvironment(env.value("name").toString());
+    }
+}
+
+void Backend::setSelectedIndex(int index) {
+    if (index == m_selectedIndex)
+        return;
+    m_selectedIndex = index;
+    emit selectedIndexChanged();
+    updateNetworkStats(true);
+    if (!m_demoMode)
+        refreshSelectedSnapshotSizes();
+}
+
+QVariantMap Backend::selectedEnvironment() const {
+    if (m_selectedIndex >= 0 && m_selectedIndex < m_environments.size())
+        return m_environments.at(m_selectedIndex).toMap();
+    return {};
+}
+
+void Backend::clearError() {
+    if (!m_errorMessage.isEmpty()) {
+        m_errorMessage.clear();
+        emit errorMessageChanged();
+    }
+}
+
+void Backend::setBusy(bool busy, const QString &status) {
+    if (m_busy != busy) {
+        m_busy = busy;
+        emit busyChanged();
+    }
+    if (m_statusMessage != status) {
+        m_statusMessage = status;
+        emit statusMessageChanged();
+    }
+    if (!busy) {
+        m_taskProgress = 0;
+        m_taskStage.clear();
+        m_taskLog.clear();
+        emit taskProgressChanged();
+    }
+}
+
+void Backend::setError(const QString &error) {
+    m_errorMessage = error.trimmed();
+    emit errorMessageChanged();
+}
+
+QString Backend::sanitizeName(const QString &rawName) {
+    QString s = rawName.trimmed().toLower();
+    s.replace(QRegularExpression(QStringLiteral("[^a-z0-9-]+")), QStringLiteral("-"));
+    s.replace(QRegularExpression(QStringLiteral("-+")), QStringLiteral("-"));
+    s.remove(QRegularExpression(QStringLiteral("^-+|-+$")));
+    return s;
+}
+
+QString Backend::resolveWorkspacePath(const QString &rawParent, const QString &envName,
+                                      const QString &defaultBase, QString *error) {
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return QString();
+    };
+
+    QString parent = rawParent.trimmed();
+    if (parent.isEmpty()) {
+        parent = defaultBase.trimmed();
+        if (parent.isEmpty())
+            return fail(tr("The default shared location is not configured."));
+    } else {
+        if (parent == QLatin1String("~"))
+            parent = QDir::homePath();
+        else if (parent.startsWith(QLatin1String("~/")))
+            parent = QDir::homePath() + parent.mid(1);
+
+        if (!QDir::isAbsolutePath(parent))
+            return fail(tr("The custom shared location must be an absolute path."));
+
+        parent = QDir::cleanPath(parent);
+        const QString homeClean = QDir::cleanPath(QDir::homePath());
+        static const QSet<QString> blockedExact = {
+            QStringLiteral("/"), QStringLiteral("/bin"), QStringLiteral("/boot"),
+            QStringLiteral("/dev"), QStringLiteral("/etc"), QStringLiteral("/home"),
+            QStringLiteral("/lib"), QStringLiteral("/lib64"), QStringLiteral("/proc"),
+            QStringLiteral("/root"), QStringLiteral("/run"), QStringLiteral("/sbin"),
+            QStringLiteral("/sys"), QStringLiteral("/usr"), QStringLiteral("/var")
+        };
+        if (blockedExact.contains(parent) || parent == homeClean)
+            return fail(tr("Refusing to use system root or home directory '%1' as shared location. Pick a specific subfolder.").arg(parent));
+
+        static const QStringList blockedPrefixes = {
+            QStringLiteral("/bin/"), QStringLiteral("/boot/"), QStringLiteral("/dev/"),
+            QStringLiteral("/etc/"), QStringLiteral("/lib/"), QStringLiteral("/lib64/"),
+            QStringLiteral("/proc/"), QStringLiteral("/root/"), QStringLiteral("/run/"),
+            QStringLiteral("/sbin/"), QStringLiteral("/sys/"), QStringLiteral("/usr/")
+        };
+        for (const QString &prefix : blockedPrefixes) {
+            if (parent.startsWith(prefix))
+                return fail(tr("Refusing to use system path '%1' as shared location.").arg(parent));
+        }
+    }
+
+    const QString cleanName = envName.trimmed();
+    if (cleanName.isEmpty())
+        return fail(tr("Please enter a valid environment name (letters, numbers, hyphens)."));
+
+    return QDir::cleanPath(parent + QLatin1Char('/') + cleanName);
+}
+
+QVariantList Backend::catalogForEntries(const QVariantList &entries, const QByteArray &imagesJson,
+                                        const QString &downloadingId, const QString &storagePath) {
+    QHash<QString, qint64> cachedAliases;
+    const auto doc = QJsonDocument::fromJson(imagesJson);
+    if (doc.isArray()) {
+        for (const auto &val : doc.array()) {
+            const QJsonObject img = val.toObject();
+            const qint64 size = img.value("size").toVariant().toLongLong();
+            for (const auto &aliasVal : img.value("aliases").toArray()) {
+                const QString aliasName = aliasVal.toObject().value("name").toString();
+                if (!aliasName.isEmpty())
+                    cachedAliases.insert(aliasName, size);
+            }
+            const QJsonObject props = img.value("properties").toObject();
+            const QString os = props.value("os").toString().toLower();
+            const QString rel = props.value("release").toString().toLower();
+            if (!os.isEmpty())
+                cachedAliases.insert(os + "/" + rel, size);
+        }
+    }
+
+    QVariantList list;
+    for (const auto &value : entries) {
+        const QVariantMap entry = value.toMap();
+        const QString id = entry.value("id").toString();
+        if (id.isEmpty())
+            continue;
+
+        const QString localAlias = QStringLiteral("aibox-") + id;
+        const bool inIncus = cachedAliases.contains(localAlias);
+        qint64 sizeBytes = cachedAliases.value(localAlias, 0);
+
+        bool savedOnDisk = false;
+        if (!storagePath.isEmpty()) {
+            const QFileInfo metadata(storagePath + "/" + id);
+            const QFileInfo rootfs(storagePath + "/" + id + ".root");
+            savedOnDisk = metadata.isFile() && metadata.size() > 0 && rootfs.isFile() && rootfs.size() > 0;
+            if (!inIncus && savedOnDisk)
+                sizeBytes = metadata.size() + rootfs.size();
+        }
+
+        const bool downloaded = inIncus || savedOnDisk;
+        QString cacheText = QStringLiteral("Not Cached");
+        if (inIncus)
+            cacheText = QStringLiteral("Cached · %1").arg(formatBytes(sizeBytes));
+        else if (savedOnDisk)
+            cacheText = QStringLiteral("Saved · %1").arg(formatBytes(sizeBytes));
+
+        QVariantMap item;
+        item["id"] = id;
+        item["alias"] = entry.value("alias").toString();
+        item["name"] = entry.value("name").toString();
+        item["badge"] = entry.value("badge").toString();
+        item["description"] = entry.value("description").toString();
+        item["downloaded"] = downloaded;
+        item["downloading"] = (id == downloadingId);
+        item["sizeText"] = cacheText;
+        list.append(item);
+    }
+    return list;
+}
+
+QVariantList Backend::buildOsCatalog(const QByteArray &imagesJson, const QString &downloadingId) {
+    return catalogForEntries(defaultOsEntries(), imagesJson, downloadingId, {});
+}
+
+void Backend::refresh() {
+    if (m_demoMode)
+        return;
+    if (m_refreshProcess && m_refreshProcess->state() != QProcess::NotRunning)
+        return;
+
+    if (!m_refreshProcess) {
+        m_refreshProcess = new QProcess(this);
+        connect(m_refreshProcess, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
+            if (code != 0)
+                return;
+            const QByteArray out = m_refreshProcess->readAllStandardOutput();
+            const QList<QByteArray> parts = out.split('\0');
+            const QByteArray listJson = parts.value(0);
+            const QByteArray imgJson = parts.value(1);
+            const QString storageInfoText = QString::fromUtf8(parts.value(2));
+            const QString poolSizeText = QString::fromUtf8(parts.value(3)).trimmed();
+            m_lastImagesJson = imgJson;
+            StoragePoolInfo poolInfo = parseIncusStorageInfo(storageInfoText);
+            if (poolInfo.valid) {
+                poolInfo.sizeText = poolSizeText;
+                poolInfo.resizable = !poolSizeText.isEmpty();
+            }
+            setPoolStateForTest(poolInfo, listJson);
+
+            const qint64 elapsedWallNs = m_cpuSampleTimer.isValid() ? m_cpuSampleTimer.nsecsElapsed() : 0;
+            m_cpuSampleTimer.start();
+
+            QVariantList newEnvs = parseIncusListJson(listJson, m_workspaceBase, &m_lastCpuUsageNs, elapsedWallNs,
+                                                      m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions,
+                                                      &m_lastNetCounters);
+            applyCachedSnapshotSizes(newEnvs);
+            applyFileAccessState(newEnvs);
+            for (int i = 0; i < newEnvs.size(); ++i) {
+                QVariantMap env = newEnvs.at(i).toMap();
+                const int pct = env.value("diskPercent").toInt();
+                env["diskAlertLevel"] = (pct >= m_watchdogDiskCritical) ? 2 : ((pct >= m_watchdogDiskWarn) ? 1 : 0);
+                newEnvs[i] = env;
+            }
+            if (newEnvs != m_environments) {
+                m_environments = newEnvs;
+                m_count = m_environments.size();
+                if (m_selectedIndex >= m_environments.size())
+                    m_selectedIndex = qMax(0, static_cast<int>(m_environments.size()) - 1);
+                emit environmentsChanged();
+                emit countChanged();
+                emit selectedIndexChanged();
+                if (!m_staleReport.isEmpty())
+                    refreshStaleReport();
+            }
+            evaluateAllWatchdogs();
+            evaluateIdleAutoStops();
+            refreshSelectedSnapshotSizes();
+            updateNetworkStats();
+
+            const QVariantList newCatalog = catalogForEntries(m_osEntries, imgJson, m_downloadingOsId, m_osStoragePath);
+            if (newCatalog != m_osCatalog) {
+                m_osCatalog = newCatalog;
+                emit osCatalogChanged();
+            }
+            normalizeDefaults();
+        });
+    }
+
+    m_refreshProcess->start(QStringLiteral("/bin/sh"),
+                            {QStringLiteral("-c"),
+                             QStringLiteral("incus list --format=json 2>/dev/null; printf '\\0'; incus image list --format=json 2>/dev/null; printf '\\0'; (incus storage info default --bytes 2>/dev/null || incus storage info default 2>/dev/null); printf '\\0'; (incus storage get default size 2>/dev/null || true)")});
+}
+
+qint64 Backend::readTaskPid() const {
+    QFile pidFile(m_stateDir + "/task.pid");
+    if (!pidFile.open(QIODevice::ReadOnly))
+        return 0;
+    return pidFile.readAll().trimmed().toLongLong();
+}
+
+bool Backend::isTaskLockActive(qint64 *outPid) const {
+    if (m_busy) {
+        if (outPid)
+            *outPid = readTaskPid();
+        return true;
+    }
+    const qint64 pid = readTaskPid();
+    if (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0) {
+        if (outPid)
+            *outPid = pid;
+        return true;
+    }
+    if (outPid)
+        *outPid = 0;
+    return false;
+}
+
+bool Backend::acquireCliTaskLock(const QString &description, const QString &envName) {
+    if (isTaskLockActive())
+        return false;
+    QDir().mkpath(m_stateDir);
+
+    QJsonObject meta;
+    meta["description"] = description;
+    meta["envName"] = envName;
+    meta["targetEnvName"] = envName;
+    meta["startedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    QFile metaFile(m_stateDir + QStringLiteral("/task.meta"));
+    if (metaFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        metaFile.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+        metaFile.close();
+    }
+
+    QFile pidFile(m_stateDir + QStringLiteral("/task.pid"));
+    if (!pidFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    pidFile.write(QByteArray::number(static_cast<qint64>(::getpid())) + '\n');
+    pidFile.close();
+    return true;
+}
+
+void Backend::releaseCliTaskLock() {
+    clearTaskFiles();
+}
+
+bool Backend::refreshSync(QString *errorOut) {
+    QProcess proc;
+    proc.start(QStringLiteral("incus"), {QStringLiteral("list"), QStringLiteral("--format=json")});
+    if (!proc.waitForFinished(10000) || proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        if (errorOut) {
+            const QString err = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+            *errorOut = err.isEmpty() ? QStringLiteral("Incus daemon is not reachable.") : err;
+        }
+        return false;
+    }
+    const QByteArray rawJson = proc.readAllStandardOutput();
+    m_environments = parseIncusListJson(rawJson, m_workspaceBase, nullptr, 0,
+                                          m_autoSnapshotEnabled, m_watchdogAutoStop, m_recordSessions);
+    applyFileAccessState(m_environments);
+    m_count = m_environments.size();
+    return true;
+}
+
+void Backend::clearTaskFiles() {
+    QFile::remove(m_stateDir + "/task.pid");
+    QFile::remove(m_stateDir + "/task.meta");
+    QFile::remove(m_stateDir + "/task.sh");
+}
+
+void Backend::handleProcessOutput(const QByteArray &chunk) {
+    QString text = redactSecrets(QString::fromUtf8(chunk), allSecretValues());
+    static const QRegularExpression ansiRe(QStringLiteral(R"(\x1B\[[0-9;?]*[a-zA-Z])"));
+    text.remove(ansiRe);
+
+    const QStringList lines = text.split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
+    static const QRegularExpression stageRe(QStringLiteral(R"(^@@STAGE:(\d+):(.*)$)"));
+    static const QRegularExpression exitRe(QStringLiteral(R"(^@@EXIT:(\d+)$)"));
+    static const QRegularExpression pctRe(QStringLiteral(R"((\d{1,3})%)"));
+
+    for (const QString &rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty())
+            continue;
+
+        const auto exitMatch = exitRe.match(line);
+        if (exitMatch.hasMatch()) {
+            m_hasExitCode = true;
+            m_lastExitCode = exitMatch.captured(1).toInt();
+            continue;
+        }
+
+        const auto stageMatch = stageRe.match(line);
+        if (stageMatch.hasMatch()) {
+            m_taskProgress = qBound(0, stageMatch.captured(1).toInt(), 100);
+            m_taskStage = stageMatch.captured(2).trimmed();
+            emit taskProgressChanged();
+            continue;
+        }
+
+        const auto pctMatch = pctRe.match(line);
+        if (pctMatch.hasMatch()) {
+            const int subPct = qBound(0, pctMatch.captured(1).toInt(), 100);
+            if (line.contains(QLatin1String("Retrieving image"), Qt::CaseInsensitive) ||
+                line.contains(QLatin1String("Copying"), Qt::CaseInsensitive)) {
+                if (!m_pendingEnvName.isEmpty())
+                    m_taskProgress = 10 + (subPct * 55) / 100;
+                else
+                    m_taskProgress = subPct;
+            } else if (line.contains(QLatin1String("Unpacking"), Qt::CaseInsensitive)) {
+                if (!m_pendingEnvName.isEmpty())
+                    m_taskProgress = 65 + (subPct * 15) / 100;
+                else
+                    m_taskProgress = qMax(m_taskProgress, subPct);
+            }
+        }
+
+        m_taskLog = line;
+        emit taskProgressChanged();
+    }
+}
+
+void Backend::attachExistingTask() {
+    QFile metaFile(m_stateDir + "/task.meta");
+    if (!metaFile.open(QIODevice::ReadOnly))
+        return;
+
+    const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
+    const QString desc = meta.value("description").toString();
+    const QString envName = meta.value("envName").toString();
+    const QString targetEnv = meta.value("targetEnvName").toString();
+    const QString startedAt = meta.value("startedAt").toString();
+    const QString dlOsId = meta.value("downloadingOsId").toString();
+    const QString taskReason = meta.value("reason").toString();
+
+    m_pendingEnvName = envName;
+    m_downloadingOsId = dlOsId;
+    m_logOffset = 0;
+    m_hasExitCode = false;
+    m_lastExitCode = -1;
+    m_taskProgress = 5;
+    m_taskStage = desc;
+    m_taskLog = tr("Resuming background task monitor...");
+
+    const qint64 pid = readTaskPid();
+    const bool stillRunning = (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0);
+
+    // Read any log output written so far
+    QByteArray rawLog;
+    QFile logFile(m_stateDir + "/task.log");
+    if (logFile.open(QIODevice::ReadOnly)) {
+        rawLog = logFile.readAll();
+        m_logOffset = rawLog.size();
+        handleProcessOutput(rawLog);
+    }
+
+    if (stillRunning && !m_hasExitCode) {
+        setBusy(true, desc);
+        emit taskProgressChanged();
+        m_taskWatchTimer.start();
+    } else {
+        // Task already finished while the GUI was closed!
+        const int exitCode = m_hasExitCode ? m_lastExitCode : 1;
+        const QStringList secretVals = allSecretValues();
+        if (!secretVals.isEmpty() && !rawLog.isEmpty()) {
+            const QByteArray scrubbed = redactSecretsBytes(rawLog, secretVals);
+            if (scrubbed != rawLog) {
+                QFile out(m_stateDir + "/task.log");
+                if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                    out.write(scrubbed);
+            }
+        }
+        recordOperationHistory(desc, !targetEnv.isEmpty() ? targetEnv : envName,
+                               exitCode == 0 ? QStringLiteral("success") : QStringLiteral("failed"),
+                               exitCode, startedAt, rawLog, taskReason);
+        clearTaskFiles();
+        m_downloadingOsId.clear();
+        m_pendingEnvName.clear();
+        setBusy(false, {});
+        if (m_hasExitCode && m_lastExitCode == 0) {
+            m_statusMessage = !envName.isEmpty()
+                                  ? tr("Environment '%1' finished creating in the background.").arg(envName)
+                                  : tr("Background operation completed successfully.");
+            emit statusMessageChanged();
+        } else if (m_hasExitCode && m_lastExitCode != 0) {
+            setError(tr("Previous background operation failed: %1").arg(m_taskLog));
+        }
+    }
+}
+
+void Backend::checkBackgroundTask() {
+    QFile logFile(m_stateDir + "/task.log");
+    if (logFile.open(QIODevice::ReadOnly)) {
+        if (logFile.size() > m_logOffset) {
+            logFile.seek(m_logOffset);
+            const QByteArray newBytes = logFile.readAll();
+            m_logOffset = logFile.pos();
+            handleProcessOutput(newBytes);
+        }
+    }
+
+    const qint64 pid = readTaskPid();
+    const bool alive = (pid > 0 && ::kill(static_cast<pid_t>(pid), 0) == 0);
+
+    if (!alive || m_hasExitCode) {
+        m_taskWatchTimer.stop();
+        const QString finishedEnv = m_pendingEnvName;
+        const QString lastLog = m_taskLog;
+        const int exitCode = m_hasExitCode ? m_lastExitCode : 1;
+
+        QString desc = m_taskStage;
+        QString targetEnv = finishedEnv;
+        QString startedAt;
+        QString taskReason;
+        QFile metaFile(m_stateDir + "/task.meta");
+        if (metaFile.open(QIODevice::ReadOnly)) {
+            const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
+            if (!meta.value("description").toString().isEmpty())
+                desc = meta.value("description").toString();
+            if (!meta.value("targetEnvName").toString().isEmpty())
+                targetEnv = meta.value("targetEnvName").toString();
+            startedAt = meta.value("startedAt").toString();
+            taskReason = meta.value("reason").toString();
+        }
+        QByteArray fullLog;
+        if (logFile.isOpen()) {
+            logFile.seek(0);
+            fullLog = logFile.readAll();
+            logFile.close();
+            const QStringList secretVals = allSecretValues();
+            if (!secretVals.isEmpty() && !fullLog.isEmpty()) {
+                const QByteArray scrubbed = redactSecretsBytes(fullLog, secretVals);
+                if (scrubbed != fullLog) {
+                    QFile out(m_stateDir + "/task.log");
+                    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                        out.write(scrubbed);
+                }
+            }
+        }
+        recordOperationHistory(desc, targetEnv,
+                               exitCode == 0 ? QStringLiteral("success") : QStringLiteral("failed"),
+                               exitCode, startedAt, fullLog, taskReason);
+
+        clearTaskFiles();
+        m_downloadingOsId.clear();
+        m_pendingEnvName.clear();
+        setBusy(false, {});
+        refresh();
+        refreshBackups();
+        if (!m_staleReport.isEmpty())
+            refreshStaleReport();
+
+        if (exitCode == 0) {
+            if (!finishedEnv.isEmpty()) {
+                m_statusMessage = tr("Environment '%1' is ready.").arg(finishedEnv);
+                emit statusMessageChanged();
+                emit environmentCreated(finishedEnv);
+            }
+        } else {
+            setError(lastLog.isEmpty() ? tr("Operation failed (exit code %1).").arg(exitCode) : lastLog);
+        }
+    }
+}
+
+void Backend::cancelTask() {
+    if (!m_busy)
+        return;
+
+    m_taskWatchTimer.stop();
+    const qint64 pid = readTaskPid();
+    if (pid > 0) {
+        ::kill(-static_cast<pid_t>(pid), SIGTERM);
+        ::kill(-static_cast<pid_t>(pid), SIGKILL);
+    }
+
+    QString desc = m_taskStage;
+    QString targetEnv = m_pendingEnvName;
+    QString startedAt;
+    QString taskReason;
+    QFile metaFile(m_stateDir + "/task.meta");
+    if (metaFile.open(QIODevice::ReadOnly)) {
+        const QJsonObject meta = QJsonDocument::fromJson(metaFile.readAll()).object();
+        if (!meta.value("description").toString().isEmpty())
+            desc = meta.value("description").toString();
+        if (!meta.value("targetEnvName").toString().isEmpty())
+            targetEnv = meta.value("targetEnvName").toString();
+        startedAt = meta.value("startedAt").toString();
+        taskReason = meta.value("reason").toString();
+    }
+    QByteArray fullLog;
+    QFile logFile(m_stateDir + "/task.log");
+    if (logFile.open(QIODevice::ReadOnly)) {
+        fullLog = logFile.readAll();
+        logFile.close();
+        const QStringList secretVals = allSecretValues();
+        if (!secretVals.isEmpty() && !fullLog.isEmpty()) {
+            const QByteArray scrubbed = redactSecretsBytes(fullLog, secretVals);
+            if (scrubbed != fullLog) {
+                QFile out(m_stateDir + "/task.log");
+                if (out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                    out.write(scrubbed);
+            }
+        }
+    }
+    recordOperationHistory(desc, targetEnv, QStringLiteral("cancelled"), 130, startedAt, fullLog, taskReason);
+
+    const QString cleanupName = m_pendingEnvName;
+    clearTaskFiles();
+    m_downloadingOsId.clear();
+    m_pendingEnvName.clear();
+    setBusy(false, tr("Operation cancelled."));
+
+    if (!cleanupName.isEmpty()) {
+        const QString wsPath = workspacePathFor(cleanupName);
+        QProcess::startDetached(QStringLiteral("/bin/bash"),
+                                {QStringLiteral("-c"),
+                                 QStringLiteral("incus delete '%1' --force >/dev/null 2>&1 || true; rmdir '%2' 2>/dev/null || true")
+                                     .arg(cleanupName, wsPath)});
+    }
+
+    QTimer::singleShot(800, this, &Backend::refresh);
+    QTimer::singleShot(3000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+}
+
+void Backend::runShellTask(const QString &description, const QString &script, const QString &createdEnvName,
+                           const QString &targetEnvName, const QString &reason) {
+    if (m_busy)
+        return;
+    if (isTaskLockActive()) {
+        setError(tr("Another AIBox task is currently running."));
+        return;
+    }
+
+    clearError();
+    m_pendingEnvName = createdEnvName;
+    m_logOffset = 0;
+    m_hasExitCode = false;
+    m_lastExitCode = -1;
+    m_taskProgress = 5;
+    m_taskStage = description;
+    m_taskLog = tr("Initializing...");
+    setBusy(true, description);
+    emit taskProgressChanged();
+
+    // Persist task metadata so reopening AIBox re-attaches seamlessly
+    QJsonObject meta;
+    meta["description"] = description;
+    meta["envName"] = createdEnvName;
+    meta["targetEnvName"] = !targetEnvName.isEmpty() ? targetEnvName : createdEnvName;
+    meta["downloadingOsId"] = m_downloadingOsId;
+    meta["startedAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    if (!reason.isEmpty())
+        meta["reason"] = reason;
+
+    QFile metaFile(m_stateDir + "/task.meta");
+    if (metaFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        metaFile.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+        metaFile.close();
+    }
+
+    QFile logFile(m_stateDir + "/task.log");
+    if (logFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        logFile.close();
+
+    const QString scriptPath = m_stateDir + "/task.sh";
+    QFile scriptFile(scriptPath);
+    if (scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        const QString wrapped = QStringLiteral(R"sh(#!/usr/bin/env bash
+(
+%1
+)
+CODE=$?
+echo "@@EXIT:$CODE"
+if command -v notify-send >/dev/null 2>&1; then
+    if [ "$CODE" -eq 0 ]; then
+        notify-send -a "AIBox" "AIBox" "%2 — Completed" 2>/dev/null || true
+    else
+        notify-send -u critical -a "AIBox" "AIBox" "%2 — Failed" 2>/dev/null || true
+    fi
+fi
+exit $CODE
+)sh").arg(script, description);
+        scriptFile.write(wrapped.toUtf8());
+        scriptFile.close();
+        scriptFile.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    }
+
+    const QString launchCmd = QStringLiteral(
+        "setsid '%1' > '%2/task.log' 2>&1 < /dev/null & echo $! > '%2/task.pid'")
+                                  .arg(scriptPath, m_stateDir);
+    QProcess::execute(QStringLiteral("/bin/sh"), {QStringLiteral("-c"), launchCmd});
+
+    m_taskWatchTimer.start();
+}
+
+QString Backend::adminFixCommand(const QString &message) const {
+    static const QRegularExpression fixRe(
+        QStringLiteral("Fix \\(admin\\):\\s*(.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression runRe(
+        QStringLiteral("\\brun:\\s*(sudo\\s+.+)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QStringList lines = message.split(QLatin1Char('\n'));
+    for (const QString &line : lines) {
+        const QRegularExpressionMatch fix = fixRe.match(line);
+        if (fix.hasMatch())
+            return fix.captured(1).trimmed();
+        const QRegularExpressionMatch run = runRe.match(line);
+        if (run.hasMatch())
+            return run.captured(1).trimmed();
+    }
+    return {};
+}
+
+bool Backend::copyText(const QString &text, const QString &label) {
+    if (text.isEmpty() || text == QStringLiteral("—"))
+        return false;
+    auto *cb = QGuiApplication::clipboard();
+    if (!cb)
+        return false;
+    cb->setText(text);
+    m_statusMessage = label.isEmpty()
+                          ? tr("Copied '%1' to clipboard.").arg(text)
+                          : tr("Copied %1 '%2' to clipboard.").arg(label, text);
+    emit statusMessageChanged();
+    QTimer::singleShot(3000, this, [this] {
+        if (!m_busy) {
+            m_statusMessage.clear();
+            emit statusMessageChanged();
+        }
+    });
+    return true;
+}
