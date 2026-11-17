@@ -8030,6 +8030,13 @@ ApplicationWindow {
                                         onClicked: backend.openForwardedPort(modelData.hostPort)
                                     }
                                     ActionButton {
+                                        minWidth: 78
+                                        label: qsTr("Copy")
+                                        onClicked: backend.copyText(
+                                            "http://127.0.0.1:" + modelData.hostPort,
+                                            qsTr("Port URL"))
+                                    }
+                                    ActionButton {
                                         minWidth: 84
                                         label: qsTr("Remove")
                                         danger: true

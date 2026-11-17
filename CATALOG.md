@@ -57,6 +57,10 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Iteration 46 — Copy Port URL from Port Forwarding
+- **Copy Action (`src/Main.qml`)**: each port row in the **Port Forwarding** modal now has a **Copy** button next to **Open** and **Remove**. It puts `http://127.0.0.1:<hostPort>` on the host clipboard and shows a status message, so the forwarded address can be pasted into a browser, chat, or config file.
+- **Localization (`src/i18n/da.json`)**: added the Danish `Port URL` label.
+
 ### Iteration 45 — Clipboard Image Paste Bridge
 - **Paste Image (`src/backend.{h,cpp}`, `src/Main.qml`)**: new **Paste Image** action (`I`) reads an image from the host clipboard, writes it as PNG to `<workspace>/.aibox-paste/paste-<timestamp>.png`, and puts the container path (for example `/home/workspace/.aibox-paste/paste-20261117-105500.png`) on the clipboard. The shared workspace mount delivers the file to the environment, so an agent inside a headless container can read the image after a normal terminal paste.
 - **Cleanup & Diff Noise**: pasted images older than seven days are pruned automatically, and `.aibox-paste/` is added to the default diff excludes so change review stays clean.

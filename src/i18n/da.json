@@ -255,6 +255,7 @@
   "+ Add Forward": "+ Tilføj videresendelse",
   "No forwarded ports configured for this environment.": "Ingen videresendte porte konfigureret til dette miljø.",
   "Open": "Åbn",
+  "Port URL": "Port-URL",
   "Extra Host Mounts · %1": "Ekstra værtsmounts · %1",
   "Mounts additional folders under /home/workspace/<name> (Read-Only by default; system/sensitive paths blocked)": "Monterer ekstra mapper under /home/workspace/<navn> (skrivebeskyttet som standard; system/følsomme stier blokeret)",
   "Host folder (e.g. ~/datasets or ~/repos/ref)": "Værtsmappe (f.eks. ~/datasets eller ~/repos/ref)",
