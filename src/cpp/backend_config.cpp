@@ -1,46 +1,42 @@
 #include "backend.h"
 #include "backend_helpers.h"
+#include "rust_bridge.h"
 
-#include <QDir>
+#include "aibox-ffi/src/settings.rs.h"
+
 #include <QFileInfo>
-#include <QRegularExpression>
 #include <QStandardPaths>
 
+namespace {
+
+rust::Str toRustBytes(const QByteArray &bytes) {
+    return rust::Str(bytes.constData(), static_cast<std::size_t>(bytes.size()));
+}
+
+QByteArray fromRustBytes(const rust::String &s) {
+    return QByteArray(s.data(), static_cast<qsizetype>(s.size()));
+}
+
+}  // namespace
+
 QString Backend::completeFirstRun(const QString &systemPath) {
-    const QString fallback = m_systemPath.isEmpty() ? defaultSystemPath() : m_systemPath;
-    const QString targetRoot = normalizedPath(systemPath, fallback);
-    if (!QDir().mkpath(targetRoot))
-        return tr("Could not create the system directory: %1").arg(targetRoot);
-    const QFileInfo rootInfo(targetRoot);
-    if (!rootInfo.isDir() || !rootInfo.isWritable())
-        return tr("The system directory is not writable: %1").arg(targetRoot);
+    const auto res = aibox::ffi::settings_complete_first_run(
+        aibox::ffi::toRust(systemPath),
+        aibox::ffi::toRust(m_systemPath),
+        aibox::ffi::toRust(m_workspaceBase),
+        aibox::ffi::toRust(m_osStoragePath),
+        aibox::ffi::toRust(m_stateDir),
+        aibox::ffi::toRust(m_configPath),
+        m_pathMode == PathMode::ProjectDir,
+        m_rememberSystemLocation);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    const bool useStructuredLayout = (m_pathMode == PathMode::ProjectDir || m_rememberSystemLocation || !systemPath.trimmed().isEmpty());
-    const QString nextWorkspace = useStructuredLayout
-                                      ? (targetRoot + QStringLiteral("/workspaces"))
-                                      : m_workspaceBase;
-    const QString nextOsStorage = useStructuredLayout
-                                      ? (targetRoot + QStringLiteral("/os-images"))
-                                      : m_osStoragePath;
-    const QString nextStateDir = useStructuredLayout
-                                     ? (targetRoot + QStringLiteral("/state"))
-                                     : m_stateDir;
-    const QString nextConfigPath = useStructuredLayout
-                                       ? (targetRoot + QStringLiteral("/config.json"))
-                                       : m_configPath;
-
-    if (!QDir().mkpath(nextWorkspace))
-        return tr("Could not create the workspace directory: %1").arg(nextWorkspace);
-    if (!QFileInfo(nextWorkspace).isWritable())
-        return tr("The workspace directory is not writable: %1").arg(nextWorkspace);
-    if (!QDir().mkpath(nextOsStorage))
-        return tr("Could not create the OS storage directory: %1").arg(nextOsStorage);
-    if (!QFileInfo(nextOsStorage).isWritable())
-        return tr("The OS storage directory is not writable: %1").arg(nextOsStorage);
-    if (!QDir().mkpath(nextStateDir))
-        return tr("Could not create the state directory: %1").arg(nextStateDir);
-    if (!QFileInfo(nextStateDir).isWritable())
-        return tr("The state directory is not writable: %1").arg(nextStateDir);
+    const QString targetRoot = aibox::ffi::fromRust(res.system_path);
+    const QString nextWorkspace = aibox::ffi::fromRust(res.workspace_base);
+    const QString nextOsStorage = aibox::ffi::fromRust(res.os_storage_path);
+    const QString nextStateDir = aibox::ffi::fromRust(res.state_dir);
+    const QString nextConfigPath = aibox::ffi::fromRust(res.config_path);
 
     const bool sysChanged = targetRoot != m_systemPath;
     const bool workspaceChanged = nextWorkspace != m_workspaceBase;
@@ -90,28 +86,26 @@ QString Backend::completeFirstRun(const QString &systemPath) {
 QString Backend::saveSettings(const QString &workspacePath, const QString &osStoragePath) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    const QString workspace = normalizedPath(workspacePath, m_defaultWorkspaceBase.isEmpty() ? defaultWorkspacePath() : m_defaultWorkspaceBase);
-    const QString osStorage = normalizedPath(osStoragePath, m_defaultOsStoragePath.isEmpty() ? defaultOsStoragePathValue() : m_defaultOsStoragePath);
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_settings(
+        toRustBytes(cfgBytes),
+        aibox::ffi::toRust(workspacePath),
+        aibox::ffi::toRust(osStoragePath),
+        aibox::ffi::toRust(m_defaultWorkspaceBase),
+        aibox::ffi::toRust(m_defaultOsStoragePath));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    if (!QDir().mkpath(workspace))
-        return tr("Could not create the workspace directory: %1").arg(workspace);
-    if (!QFileInfo(workspace).isWritable())
-        return tr("The workspace directory is not writable: %1").arg(workspace);
-    if (!QDir().mkpath(osStorage))
-        return tr("Could not create the OS storage directory: %1").arg(osStorage);
-    if (!QFileInfo(osStorage).isWritable())
-        return tr("The OS storage directory is not writable: %1").arg(osStorage);
-
-    const bool workspaceChanged = workspace != m_workspaceBase;
-    const bool storageChanged = osStorage != m_osStoragePath;
+    const QString prevWorkspace = m_workspaceBase;
+    const QString prevStorage = m_osStoragePath;
     const bool wasFirstRun = m_firstRun;
-    m_workspaceBase = workspace;
-    m_osStoragePath = osStorage;
-    m_firstRun = false;
+    applyConfigJson(fromRustBytes(res.config_json));
 
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
+    const bool workspaceChanged = m_workspaceBase != prevWorkspace;
+    const bool storageChanged = m_osStoragePath != prevStorage;
     if (workspaceChanged)
         emit workspaceBaseChanged();
     if (storageChanged)
@@ -130,54 +124,25 @@ QString Backend::saveOsEntry(const QString &originalId, const QString &id, const
                              const QString &name, const QString &badge, const QString &description) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    static const QRegularExpression idRe(QStringLiteral("^[a-z0-9][a-z0-9._-]{0,63}$"));
-    static const QRegularExpression aliasRe(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$"));
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_os_entry(
+        toRustBytes(cfgBytes),
+        aibox::ffi::toRust(originalId),
+        aibox::ffi::toRust(id),
+        aibox::ffi::toRust(alias),
+        aibox::ffi::toRust(name),
+        aibox::ffi::toRust(badge),
+        aibox::ffi::toRust(description));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    const QString newId = id.trimmed().toLower();
-    if (!idRe.match(newId).hasMatch())
-        return tr("OS ID must use lowercase letters, numbers, dots, dashes, or underscores.");
-
-    QString newAlias = alias.trimmed();
-    if (newAlias.isEmpty())
-        newAlias = newId;
-    if (!aliasRe.match(newAlias).hasMatch())
-        return tr("Image alias must use letters, numbers, dots, slashes, dashes, or underscores.");
-
-    const QString newName = name.trimmed().isEmpty() ? newAlias : name.trimmed();
-    const QString newBadge = badge.trimmed().isEmpty() ? tr("Custom") : badge.trimmed();
-    const QString newDescription = description.trimmed();
-
-    int foundIndex = -1;
-    for (int i = 0; i < m_osEntries.size(); ++i) {
-        const QString entryId = m_osEntries.at(i).toMap().value("id").toString();
-        if (!originalId.isEmpty() && entryId == originalId)
-            foundIndex = i;
-        if (entryId == newId && entryId != originalId)
-            return tr("An OS entry with the ID '%1' already exists.").arg(newId);
-    }
-    if (!originalId.isEmpty() && foundIndex < 0)
-        return tr("The OS entry '%1' no longer exists.").arg(originalId);
-
-    QVariantMap entry;
-    entry["id"] = newId;
-    entry["alias"] = newAlias;
-    entry["name"] = newName;
-    entry["badge"] = newBadge;
-    entry["description"] = newDescription;
-
-    if (foundIndex >= 0)
-        m_osEntries[foundIndex] = entry;
-    else
-        m_osEntries.append(entry);
-
-    if (m_defaultOsId == originalId)
-        m_defaultOsId = newId;
-
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
     rebuildOsCatalog();
-    m_statusMessage = tr("OS entry '%1' saved.").arg(newName);
+    const QString savedName = osEntryById(id.trimmed().toLower()).value(QStringLiteral("name")).toString();
+    m_statusMessage = tr("OS entry '%1' saved.").arg(savedName);
     emit statusMessageChanged();
     return {};
 }
@@ -185,22 +150,13 @@ QString Backend::saveOsEntry(const QString &originalId, const QString &id, const
 QString Backend::removeOsEntry(const QString &id) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    if (m_osEntries.size() <= 1)
-        return tr("Keep at least one OS entry in the catalog.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_remove_os_entry(
+        toRustBytes(cfgBytes), aibox::ffi::toRust(id));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    const QString target = id.trimmed();
-    int foundIndex = -1;
-    for (int i = 0; i < m_osEntries.size(); ++i) {
-        if (m_osEntries.at(i).toMap().value("id").toString() == target) {
-            foundIndex = i;
-            break;
-        }
-    }
-    if (foundIndex < 0)
-        return tr("The OS entry '%1' was not found.").arg(target);
-
-    m_osEntries.removeAt(foundIndex);
-    normalizeDefaults();
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -213,9 +169,12 @@ QString Backend::removeOsEntry(const QString &id) {
 QString Backend::resetOsCatalog() {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    m_osEntries = defaultOsEntries();
-    m_defaultOsId = QStringLiteral("ubuntu-24.04");
-    normalizeDefaults();
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_reset_os_catalog(toRustBytes(cfgBytes));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
+
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
     rebuildOsCatalog();
@@ -225,37 +184,16 @@ QString Backend::resetOsCatalog() {
 QString Backend::saveCreateOptions(const QString &diskCsv, const QString &ramCsv, const QString &cpuCsv) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    const QStringList rawDisk = parseCsv(diskCsv);
-    const QStringList disk = validatedSizeOptions(rawDisk);
-    if (disk.isEmpty())
-        return tr("Add at least one disk quota value, for example 35GiB.");
-    if (disk.size() != rawDisk.size())
-        return tr("Disk quota values must look like 35GiB, 60GiB, or 512MiB.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_create_options(
+        toRustBytes(cfgBytes),
+        aibox::ffi::toRust(diskCsv),
+        aibox::ffi::toRust(ramCsv),
+        aibox::ffi::toRust(cpuCsv));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    const QStringList rawRam = parseCsv(ramCsv);
-    const QStringList ram = validatedSizeOptions(rawRam);
-    if (ram.isEmpty())
-        return tr("Add at least one RAM limit value, for example 6GiB.");
-    if (ram.size() != rawRam.size())
-        return tr("RAM limit values must look like 4GiB, 6GiB, or 512MiB.");
-
-    QVariantList cpuValues;
-    for (const auto &raw : parseCsv(cpuCsv)) {
-        bool ok = false;
-        const int cores = raw.toInt(&ok);
-        if (!ok || cores < 1 || cores > 1024)
-            return tr("CPU core values must be whole numbers between 1 and 1024.");
-        cpuValues.append(cores);
-    }
-    const QVariantList cpus = validatedCpuOptions(cpuValues);
-    if (cpus.isEmpty())
-        return tr("Add at least one CPU core value, for example 4.");
-
-    m_diskOptions = disk;
-    m_ramOptions = ram;
-    m_cpuOptions = cpus;
-    normalizeDefaults();
-
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -266,38 +204,32 @@ QString Backend::saveCreateOptions(const QString &diskCsv, const QString &ramCsv
 QString Backend::savePreset(const QString &id, const QString &title, const QString &subtitle) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    const QString newTitle = title.trimmed();
-    if (newTitle.isEmpty())
-        return tr("The preset title cannot be empty.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_preset(
+        toRustBytes(cfgBytes),
+        aibox::ffi::toRust(id),
+        aibox::ffi::toRust(title),
+        aibox::ffi::toRust(subtitle));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    for (int i = 0; i < m_presets.size(); ++i) {
-        QVariantMap preset = m_presets.at(i).toMap();
-        if (preset.value("id").toString() != id)
-            continue;
-        preset["title"] = newTitle;
-        preset["sub"] = subtitle.trimmed();
-        m_presets[i] = preset;
-        if (!saveConfig())
-            return tr("Could not save the configuration file: %1").arg(m_configPath);
-        emit createOptionsChanged();
-        return {};
-    }
-    return tr("The preset '%1' no longer exists.").arg(id);
+    applyConfigJson(fromRustBytes(res.config_json));
+    if (!saveConfig())
+        return tr("Could not save the configuration file: %1").arg(m_configPath);
+
+    emit createOptionsChanged();
+    return {};
 }
 
 QString Backend::resetCreateOptions() {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    m_presets = defaultPresets();
-    m_diskOptions = defaultDiskOptions();
-    m_ramOptions = defaultRamOptions();
-    m_cpuOptions = defaultCpuOptions();
-    m_defaultPresetId = QStringLiteral("full");
-    m_defaultDisk = QStringLiteral("35GiB");
-    m_defaultRam = QStringLiteral("6GiB");
-    m_defaultCpu = 4;
-    normalizeDefaults();
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_reset_create_options(toRustBytes(cfgBytes));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
     emit createOptionsChanged();
@@ -307,11 +239,12 @@ QString Backend::resetCreateOptions() {
 QString Backend::saveAutoSnapshotSettings(bool enabled, int keepCount) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    if (keepCount < 1 || keepCount > 50)
-        return tr("Auto-snapshot retention must be between 1 and 50.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_auto_snapshot(toRustBytes(cfgBytes), enabled, keepCount);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    m_autoSnapshotEnabled = enabled;
-    m_autoSnapshotKeep = keepCount;
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -336,15 +269,13 @@ QString Backend::saveAutoSnapshotSettings(bool enabled, int keepCount) {
 QString Backend::saveWatchdogSettings(bool enabled, int diskWarn, int diskCritical, bool autoStop) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    if (diskWarn < 50 || diskWarn > 98)
-        return tr("Disk warning threshold must be between 50% and 98%.");
-    if (diskCritical <= diskWarn || diskCritical > 99)
-        return tr("Disk critical threshold must be higher than the warning threshold (up to 99%).");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_watchdog(
+        toRustBytes(cfgBytes), enabled, diskWarn, diskCritical, autoStop);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    m_watchdogEnabled = enabled;
-    m_watchdogDiskWarn = diskWarn;
-    m_watchdogDiskCritical = diskCritical;
-    m_watchdogAutoStop = autoStop;
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -367,16 +298,21 @@ QString Backend::saveWatchdogSettings(bool enabled, int diskWarn, int diskCritic
 }
 
 QVariantList Backend::staleDayOptions() const {
-    return {7, 14, 30, 60, 90, 180};
+    QVariantList out;
+    for (int day : aibox::ffi::settings_stale_day_options())
+        out.append(day);
+    return out;
 }
 
 QString Backend::saveIdleStopSettings(int minutes) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    if (minutes < 0 || minutes > 1440)
-        return tr("Idle auto-stop timeout must be between 0 (off) and 1440 minutes.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_idle_stop(toRustBytes(cfgBytes), minutes);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    m_idleStopMinutes = minutes;
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -387,10 +323,12 @@ QString Backend::saveIdleStopSettings(int minutes) {
 QString Backend::saveStaleSettings(int days) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    if (days < 1 || days > 3650)
-        return tr("Stale threshold must be between 1 and 3650 days.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_stale(toRustBytes(cfgBytes), days);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    m_staleDays = days;
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -403,8 +341,12 @@ QString Backend::saveStaleSettings(int days) {
 QString Backend::saveSessionRecordingSettings(bool enabled) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_session_recording(toRustBytes(cfgBytes), enabled);
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
 
-    m_recordSessions = enabled;
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
 
@@ -430,7 +372,13 @@ QString Backend::saveSessionRecordingSettings(bool enabled) {
 QString Backend::saveDiffExcludes(const QString &rawExcludes) {
     if (m_busy)
         return tr("Wait for the current operation to finish before changing the configuration.");
-    m_diffExcludes = parseDiffExcludes(rawExcludes);
+    const QByteArray cfgBytes = configToJson();
+    const auto res = aibox::ffi::settings_save_diff_excludes(
+        toRustBytes(cfgBytes), aibox::ffi::toRust(rawExcludes));
+    if (!res.error.empty())
+        return aibox::ffi::fromRust(res.error);
+
+    applyConfigJson(fromRustBytes(res.config_json));
     if (!saveConfig())
         return tr("Could not save the configuration file: %1").arg(m_configPath);
     emit diffExcludesChanged();

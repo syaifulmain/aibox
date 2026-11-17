@@ -285,7 +285,11 @@ void Backend::loadConfig() {
         aibox::ffi::toRust(m_configPath),
         aibox::ffi::toRust(m_defaultWorkspaceBase),
         aibox::ffi::toRust(m_defaultOsStoragePath));
-    const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(raw.data(), static_cast<qsizetype>(raw.size())));
+    applyConfigJson(QByteArray(raw.data(), static_cast<qsizetype>(raw.size())));
+}
+
+void Backend::applyConfigJson(const QByteArray &raw) {
+    const QJsonDocument doc = QJsonDocument::fromJson(raw);
     const QJsonObject obj = doc.object();
     if (obj.isEmpty()) {
         m_firstRun = true;
@@ -343,7 +347,7 @@ void Backend::loadConfig() {
     m_diffExcludes = diffExcludes;
 }
 
-bool Backend::saveConfig() const {
+QByteArray Backend::configToJson() const {
     QJsonObject obj;
     obj["version"] = 1;
     obj["firstRunCompleted"] = !m_firstRun;
@@ -370,9 +374,14 @@ bool Backend::saveConfig() const {
     obj["recordSessions"] = m_recordSessions;
     obj["diffExcludes"] = QJsonArray::fromStringList(m_diffExcludes);
 
-    const QString compact = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    return QJsonDocument(obj).toJson(QJsonDocument::Compact);
+}
+
+bool Backend::saveConfig() const {
+    const QByteArray compact = configToJson();
     const rust::String err = aibox::ffi::config_save(
-        aibox::ffi::toRust(m_configPath), aibox::ffi::toRust(compact));
+        aibox::ffi::toRust(m_configPath),
+        rust::Str(compact.constData(), static_cast<std::size_t>(compact.size())));
     return err.empty();
 }
 

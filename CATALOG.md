@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P02b — Settings Mutators and Validation
+- **Rust core (`rust/crates/aibox-core/src/config/settings.rs`)**: ported all 15 settings mutators and validators (`complete_first_run`, `save_settings`, `save_os_entry`, `remove_os_entry`, `reset_os_catalog`, `save_create_options`, `save_preset`, `reset_create_options`, `save_auto_snapshot_settings`, `save_watchdog_settings`, `stale_day_options`, `save_idle_stop_settings`, `save_stale_settings`, `save_session_recording_settings`, `parse_diff_excludes`, `save_diff_excludes`) with unit tests covering all Qt settings test assertions.
+- **FFI bridge & C++ facade (`rust/crates/aibox-ffi/src/settings.rs`, `src/cpp/backend_config.cpp`, `src/cpp/backend.{h,cpp}`)**: bridged settings mutators via `cxx` and delegated all `backend_config.cpp` methods to Rust while keeping signal emission and `Backend` signatures unchanged.
+- **Golden fixtures (`tests/golden/settings.jsonl`, `tests/golden_capture/main.cpp`, `rust/crates/aibox-core/tests/golden.rs`)**: captured 44 settings golden cases from C++ and enabled `"settings"` in `golden.rs`.
+
 ### Rust Migration P02a — Config Model, Defaults, and Path Resolution
 - **Rust core (`rust/crates/aibox-core/src/util/paths.rs`, `rust/crates/aibox-core/src/config/`)**: added path resolution (`default_system_path`, `default_location_file_path`, `configured_system_path`, `save_location_file`, `resolve_project_aibox_dir`, `default_workspace_path`, `default_os_storage_path`, `normalized_path`, `resolve_workspace_path`, `cache_base_path`, `workspace_path_for`, `atomic_write`), defaults (`default_os_entries`, `default_presets`, `default_disk_options`, `default_ram_options`, `default_cpu_options`, `default_diff_excludes`), and `Config` load/save/normalize with `extra` unknown-key preservation.
 - **FFI & C++ delegates (`rust/crates/aibox-ffi/src/config.rs`, `src/cpp/backend.cpp`)**: bridged path, default, and config operations via `cxx` and delegated the `Backend` implementations while keeping all signatures unchanged.

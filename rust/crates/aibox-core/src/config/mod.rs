@@ -1,5 +1,6 @@
 pub mod defaults;
 pub mod model;
+pub mod settings;
 
 pub use defaults::{
     default_cpu_options, default_diff_excludes, default_disk_options, default_os_entries,

@@ -505,6 +505,281 @@ static QByteArray captureConfig() {
     restoreEnvs();
     return out;
 }
+
+static QByteArray captureSettings() {
+    QByteArray out;
+    const QByteArray oldLocEnv = qgetenv("AIBOX_LOCATION_FILE");
+    const QByteArray oldXdgEnv = qgetenv("XDG_CONFIG_HOME");
+    auto restoreEnvs = [&]() {
+        if (oldLocEnv.isEmpty()) qunsetenv("AIBOX_LOCATION_FILE");
+        else qputenv("AIBOX_LOCATION_FILE", oldLocEnv);
+        if (oldXdgEnv.isEmpty()) qunsetenv("XDG_CONFIG_HOME");
+        else qputenv("XDG_CONFIG_HOME", oldXdgEnv);
+    };
+    qunsetenv("AIBOX_LOCATION_FILE");
+    qunsetenv("XDG_CONFIG_HOME");
+
+    const QString workDir = QStringLiteral("/tmp/aibox-golden-settings-work");
+    QDir(workDir).removeRecursively();
+    QDir().mkpath(workDir);
+
+    auto readFileStr = [](const QString &path) -> QString {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly))
+            return {};
+        return QString::fromUtf8(f.readAll());
+    };
+
+    // 1. staleDayOptions
+    {
+        const QString dir = workDir + QStringLiteral("/stale-opts");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+        QJsonArray arr;
+        for (const auto &v : b.staleDayOptions())
+            arr.append(v.toInt());
+        out += jsonLine(QStringLiteral("Backend::staleDayOptions"), QStringLiteral("default"),
+                        QJsonObject(), arr);
+    }
+
+    // 2. completeFirstRun: empty path keeps workspace, custom path uses structured layout, file path errors
+    {
+        const QString dir = workDir + QStringLiteral("/firstrun-empty");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::WorkspaceDir);
+        const QString err = b.completeFirstRun(QString());
+        QJsonObject res;
+        res.insert(QStringLiteral("error"), err);
+        res.insert(QStringLiteral("firstRun"), b.m_firstRun);
+        res.insert(QStringLiteral("systemPath"), b.m_systemPath);
+        res.insert(QStringLiteral("workspaceBase"), b.m_workspaceBase);
+        res.insert(QStringLiteral("osStoragePath"), b.m_osStoragePath);
+        out += jsonLine(QStringLiteral("Backend::completeFirstRun"), QStringLiteral("empty_default_mode"),
+                        QJsonObject{{QStringLiteral("systemPath"), QString()}}, res);
+    }
+    {
+        const QString dir = workDir + QStringLiteral("/firstrun-custom");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+        const QString target = workDir + QStringLiteral("/firstrun-custom-target");
+        const QString err = b.completeFirstRun(target);
+        QJsonObject res;
+        res.insert(QStringLiteral("error"), err);
+        res.insert(QStringLiteral("firstRun"), b.m_firstRun);
+        res.insert(QStringLiteral("systemPath"), b.m_systemPath);
+        res.insert(QStringLiteral("workspaceBase"), b.m_workspaceBase);
+        res.insert(QStringLiteral("osStoragePath"), b.m_osStoragePath);
+        res.insert(QStringLiteral("configJson"), readFileStr(target + QStringLiteral("/config.json")));
+        out += jsonLine(QStringLiteral("Backend::completeFirstRun"), QStringLiteral("structured_custom"),
+                        QJsonObject{{QStringLiteral("systemPath"), target}}, res);
+    }
+    {
+        const QString dir = workDir + QStringLiteral("/firstrun-err");
+        QDir().mkpath(dir);
+        const QString blockingFile = workDir + QStringLiteral("/blocking-file");
+        QFile bf(blockingFile);
+        if (bf.open(QIODevice::WriteOnly)) {
+            bf.write("x");
+            bf.close();
+        }
+        Backend b(dir, Backend::PathMode::ProjectDir);
+        const QString err = b.completeFirstRun(blockingFile);
+        out += jsonLine(QStringLiteral("Backend::completeFirstRun"), QStringLiteral("not_a_dir"),
+                        QJsonObject{{QStringLiteral("systemPath"), blockingFile}},
+                        QJsonObject{{QStringLiteral("error"), err}});
+    }
+
+    // 3. saveSettings
+    {
+        const QString dir = workDir + QStringLiteral("/save-settings");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+        const QString ws = workDir + QStringLiteral("/save-settings/ws-new");
+        const QString os = workDir + QStringLiteral("/save-settings/os-new");
+        const QString err = b.saveSettings(ws, os);
+        out += jsonLine(QStringLiteral("Backend::saveSettings"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("workspace"), ws}, {QStringLiteral("osStorage"), os}},
+                        QJsonObject{{QStringLiteral("error"), err},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        const QString blockingFile = workDir + QStringLiteral("/blocking-file");
+        const QString errWs = b.saveSettings(blockingFile, os);
+        out += jsonLine(QStringLiteral("Backend::saveSettings"), QStringLiteral("bad_workspace"),
+                        QJsonObject{{QStringLiteral("workspace"), blockingFile}, {QStringLiteral("osStorage"), os}},
+                        QJsonObject{{QStringLiteral("error"), errWs}});
+
+        const QString errOs = b.saveSettings(ws, blockingFile);
+        out += jsonLine(QStringLiteral("Backend::saveSettings"), QStringLiteral("bad_os_storage"),
+                        QJsonObject{{QStringLiteral("workspace"), ws}, {QStringLiteral("osStorage"), blockingFile}},
+                        QJsonObject{{QStringLiteral("error"), errOs}});
+    }
+
+    // 4. saveOsEntry, removeOsEntry, resetOsCatalog
+    {
+        const QString dir = workDir + QStringLiteral("/os-catalog");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+
+        auto callSaveOs = [&](const QString &label, const QString &origId, const QString &id,
+                              const QString &alias, const QString &name, const QString &badge,
+                              const QString &desc) {
+            const QString err = b.saveOsEntry(origId, id, alias, name, badge, desc);
+            out += jsonLine(QStringLiteral("Backend::saveOsEntry"), label,
+                            QJsonObject{{QStringLiteral("originalId"), origId},
+                                        {QStringLiteral("id"), id},
+                                        {QStringLiteral("alias"), alias},
+                                        {QStringLiteral("name"), name},
+                                        {QStringLiteral("badge"), badge},
+                                        {QStringLiteral("description"), desc}},
+                            QJsonObject{{QStringLiteral("error"), err},
+                                        {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+        };
+
+        callSaveOs(QStringLiteral("invalid_id"), QString(), QStringLiteral("Bad ID!"), QString(), QString(), QString(), QString());
+        callSaveOs(QStringLiteral("invalid_alias"), QString(), QStringLiteral("my-os"), QStringLiteral("bad alias!"), QString(), QString(), QString());
+        callSaveOs(QStringLiteral("duplicate_id"), QString(), QStringLiteral("ubuntu-24.04"), QString(), QString(), QString(), QString());
+        callSaveOs(QStringLiteral("missing_original"), QStringLiteral("no-such"), QStringLiteral("my-os"), QString(), QString(), QString(), QString());
+        callSaveOs(QStringLiteral("add_defaults"), QString(), QStringLiteral("  Debian-12  "), QString(), QString(), QString(), QStringLiteral("  Stable  "));
+        callSaveOs(QStringLiteral("edit_existing"), QStringLiteral("debian-12"), QStringLiteral("debian-12-lts"),
+                   QStringLiteral("debian/12"), QStringLiteral("Debian 12 LTS"), QStringLiteral("LTS"), QStringLiteral("Updated"));
+
+        const QString errMissing = b.removeOsEntry(QStringLiteral("no-such"));
+        out += jsonLine(QStringLiteral("Backend::removeOsEntry"), QStringLiteral("missing"),
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("no-such")}},
+                        QJsonObject{{QStringLiteral("error"), errMissing}});
+
+        const QString errRemove = b.removeOsEntry(QStringLiteral("debian-12-lts"));
+        out += jsonLine(QStringLiteral("Backend::removeOsEntry"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("debian-12-lts")}},
+                        QJsonObject{{QStringLiteral("error"), errRemove},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        // Remove until 1 left
+        while (b.m_osEntries.size() > 1)
+            b.removeOsEntry(b.m_osEntries.first().toMap().value(QStringLiteral("id")).toString());
+        const QString lastId = b.m_osEntries.first().toMap().value(QStringLiteral("id")).toString();
+        const QString errLast = b.removeOsEntry(lastId);
+        out += jsonLine(QStringLiteral("Backend::removeOsEntry"), QStringLiteral("last_entry"),
+                        QJsonObject{{QStringLiteral("id"), lastId}},
+                        QJsonObject{{QStringLiteral("error"), errLast}});
+
+        const QString errReset = b.resetOsCatalog();
+        out += jsonLine(QStringLiteral("Backend::resetOsCatalog"), QStringLiteral("ok"),
+                        QJsonObject(),
+                        QJsonObject{{QStringLiteral("error"), errReset},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+    }
+
+    // 5. saveCreateOptions, savePreset, resetCreateOptions
+    {
+        const QString dir = workDir + QStringLiteral("/create-opts");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+
+        auto callCreateOpts = [&](const QString &label, const QString &disk, const QString &ram, const QString &cpu) {
+            const QString err = b.saveCreateOptions(disk, ram, cpu);
+            out += jsonLine(QStringLiteral("Backend::saveCreateOptions"), label,
+                            QJsonObject{{QStringLiteral("disk"), disk}, {QStringLiteral("ram"), ram}, {QStringLiteral("cpu"), cpu}},
+                            QJsonObject{{QStringLiteral("error"), err},
+                                        {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+        };
+
+        callCreateOpts(QStringLiteral("empty_disk"), QString(), QStringLiteral("4GiB"), QStringLiteral("2"));
+        callCreateOpts(QStringLiteral("bad_disk"), QStringLiteral("35GiB, nope"), QStringLiteral("4GiB"), QStringLiteral("2"));
+        callCreateOpts(QStringLiteral("empty_ram"), QStringLiteral("35GiB"), QString(), QStringLiteral("2"));
+        callCreateOpts(QStringLiteral("bad_ram"), QStringLiteral("35GiB"), QStringLiteral("4GiB, nope"), QStringLiteral("2"));
+        callCreateOpts(QStringLiteral("bad_cpu_range"), QStringLiteral("35GiB"), QStringLiteral("4GiB"), QStringLiteral("0"));
+        callCreateOpts(QStringLiteral("bad_cpu_high"), QStringLiteral("35GiB"), QStringLiteral("4GiB"), QStringLiteral("1025"));
+        callCreateOpts(QStringLiteral("empty_cpu"), QStringLiteral("35GiB"), QStringLiteral("4GiB"), QString());
+        callCreateOpts(QStringLiteral("ok"), QStringLiteral("20GiB, 40GiB"), QStringLiteral("4GiB, 8GiB"), QStringLiteral("2, 4, 8"));
+
+        out += jsonLine(QStringLiteral("Backend::savePreset"), QStringLiteral("empty_title"),
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("full")}, {QStringLiteral("title"), QStringLiteral("  ")}, {QStringLiteral("sub"), QStringLiteral("s")}},
+                        QJsonObject{{QStringLiteral("error"), b.savePreset(QStringLiteral("full"), QStringLiteral("  "), QStringLiteral("s"))}});
+        out += jsonLine(QStringLiteral("Backend::savePreset"), QStringLiteral("missing"),
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("nope")}, {QStringLiteral("title"), QStringLiteral("T")}, {QStringLiteral("sub"), QStringLiteral("s")}},
+                        QJsonObject{{QStringLiteral("error"), b.savePreset(QStringLiteral("nope"), QStringLiteral("T"), QStringLiteral("s"))}});
+        const QString errPreset = b.savePreset(QStringLiteral("full"), QStringLiteral("  Full Dev  "), QStringLiteral("  Custom  "));
+        out += jsonLine(QStringLiteral("Backend::savePreset"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("id"), QStringLiteral("full")}, {QStringLiteral("title"), QStringLiteral("  Full Dev  ")}, {QStringLiteral("sub"), QStringLiteral("  Custom  ")}},
+                        QJsonObject{{QStringLiteral("error"), errPreset},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        const QString errReset = b.resetCreateOptions();
+        out += jsonLine(QStringLiteral("Backend::resetCreateOptions"), QStringLiteral("ok"),
+                        QJsonObject(),
+                        QJsonObject{{QStringLiteral("error"), errReset},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+    }
+
+    // 6. Auto-snapshot, watchdog, idle-stop, stale, session recording, diff excludes
+    {
+        const QString dir = workDir + QStringLiteral("/misc-settings");
+        QDir().mkpath(dir);
+        Backend b(dir, Backend::PathMode::ProjectDir);
+
+        out += jsonLine(QStringLiteral("Backend::saveAutoSnapshotSettings"), QStringLiteral("low"),
+                        QJsonObject{{QStringLiteral("enabled"), true}, {QStringLiteral("keep"), 0}},
+                        QJsonObject{{QStringLiteral("error"), b.saveAutoSnapshotSettings(true, 0)}});
+        out += jsonLine(QStringLiteral("Backend::saveAutoSnapshotSettings"), QStringLiteral("high"),
+                        QJsonObject{{QStringLiteral("enabled"), true}, {QStringLiteral("keep"), 51}},
+                        QJsonObject{{QStringLiteral("error"), b.saveAutoSnapshotSettings(true, 51)}});
+        out += jsonLine(QStringLiteral("Backend::saveAutoSnapshotSettings"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("enabled"), false}, {QStringLiteral("keep"), 12}},
+                        QJsonObject{{QStringLiteral("error"), b.saveAutoSnapshotSettings(false, 12)},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        out += jsonLine(QStringLiteral("Backend::saveWatchdogSettings"), QStringLiteral("warn_low"),
+                        QJsonObject{{QStringLiteral("enabled"), true}, {QStringLiteral("warn"), 49}, {QStringLiteral("crit"), 95}, {QStringLiteral("autoStop"), false}},
+                        QJsonObject{{QStringLiteral("error"), b.saveWatchdogSettings(true, 49, 95, false)}});
+        out += jsonLine(QStringLiteral("Backend::saveWatchdogSettings"), QStringLiteral("crit_le_warn"),
+                        QJsonObject{{QStringLiteral("enabled"), true}, {QStringLiteral("warn"), 80}, {QStringLiteral("crit"), 80}, {QStringLiteral("autoStop"), false}},
+                        QJsonObject{{QStringLiteral("error"), b.saveWatchdogSettings(true, 80, 80, false)}});
+        out += jsonLine(QStringLiteral("Backend::saveWatchdogSettings"), QStringLiteral("crit_high"),
+                        QJsonObject{{QStringLiteral("enabled"), true}, {QStringLiteral("warn"), 80}, {QStringLiteral("crit"), 100}, {QStringLiteral("autoStop"), false}},
+                        QJsonObject{{QStringLiteral("error"), b.saveWatchdogSettings(true, 80, 100, false)}});
+        out += jsonLine(QStringLiteral("Backend::saveWatchdogSettings"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("enabled"), false}, {QStringLiteral("warn"), 75}, {QStringLiteral("crit"), 95}, {QStringLiteral("autoStop"), true}},
+                        QJsonObject{{QStringLiteral("error"), b.saveWatchdogSettings(false, 75, 95, true)},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        out += jsonLine(QStringLiteral("Backend::saveIdleStopSettings"), QStringLiteral("low"),
+                        QJsonObject{{QStringLiteral("minutes"), -1}},
+                        QJsonObject{{QStringLiteral("error"), b.saveIdleStopSettings(-1)}});
+        out += jsonLine(QStringLiteral("Backend::saveIdleStopSettings"), QStringLiteral("high"),
+                        QJsonObject{{QStringLiteral("minutes"), 1441}},
+                        QJsonObject{{QStringLiteral("error"), b.saveIdleStopSettings(1441)}});
+        out += jsonLine(QStringLiteral("Backend::saveIdleStopSettings"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("minutes"), 45}},
+                        QJsonObject{{QStringLiteral("error"), b.saveIdleStopSettings(45)},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        out += jsonLine(QStringLiteral("Backend::saveStaleSettings"), QStringLiteral("low"),
+                        QJsonObject{{QStringLiteral("days"), 0}},
+                        QJsonObject{{QStringLiteral("error"), b.saveStaleSettings(0)}});
+        out += jsonLine(QStringLiteral("Backend::saveStaleSettings"), QStringLiteral("high"),
+                        QJsonObject{{QStringLiteral("days"), 3651}},
+                        QJsonObject{{QStringLiteral("error"), b.saveStaleSettings(3651)}});
+        out += jsonLine(QStringLiteral("Backend::saveStaleSettings"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("days"), 60}},
+                        QJsonObject{{QStringLiteral("error"), b.saveStaleSettings(60)},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        out += jsonLine(QStringLiteral("Backend::saveSessionRecordingSettings"), QStringLiteral("ok_true"),
+                        QJsonObject{{QStringLiteral("enabled"), true}},
+                        QJsonObject{{QStringLiteral("error"), b.saveSessionRecordingSettings(true)},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+
+        out += jsonLine(QStringLiteral("Backend::saveDiffExcludes"), QStringLiteral("ok"),
+                        QJsonObject{{QStringLiteral("raw"), QStringLiteral("*.log, .git;\nnode_modules\n*.log")}},
+                        QJsonObject{{QStringLiteral("error"), b.saveDiffExcludes(QStringLiteral("*.log, .git;\nnode_modules\n*.log"))},
+                                    {QStringLiteral("configJson"), readFileStr(b.m_configPath)}});
+    }
+
+    QDir(workDir).removeRecursively();
+    restoreEnvs();
+    return out;
+}
 };
 
 int main(int argc, char *argv[]) {
@@ -533,6 +808,7 @@ int main(int argc, char *argv[]) {
     const ModuleEntry modules[] = {
         {"util", &GoldenCapture::captureUtil},
         {"config", &GoldenCapture::captureConfig},
+        {"settings", &GoldenCapture::captureSettings},
     };
 
     bool matched = onlyModule.isEmpty();

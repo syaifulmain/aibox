@@ -665,6 +665,8 @@ private:
 
     void loadConfig();
     bool saveConfig() const;
+    QByteArray configToJson() const;
+    void applyConfigJson(const QByteArray &raw);
     void rebuildOsCatalog();
     void normalizeDefaults();
     QString normalizedPath(const QString &raw, const QString &fallback) const;
