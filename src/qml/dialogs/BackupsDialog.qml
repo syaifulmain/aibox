@@ -66,9 +66,12 @@ ModalDialog {
 
                 ColumnLayout {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: Style.space2
 
                     Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: (backend.selectedEnvironment && backend.selectedEnvironment.name)
                               ? qsTr("Export '%1'").arg(backend.selectedEnvironment.name)
                               : qsTr("No environment selected to export")
@@ -76,16 +79,27 @@ ModalDialog {
                         font.family: Style.fontSans
                         font.pixelSize: Style.font13
                         font.weight: Font.Medium
+                        elide: Text.ElideMiddle
                     }
 
                     Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: qsTr("Est. size: %1  •  Free: %2")
                               .arg(exportCard.spaceInfo.estimatedDisplay || "—")
                               .arg(exportCard.spaceInfo.availableDisplay || "—")
                         color: exportCard.spaceInfo.ok ? theme.muted : theme.red
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
+                        elide: Text.ElideRight
                     }
+                }
+
+                // Spacer keeps the action buttons on the right edge. A nested
+                // layout alone does not stretch the row.
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Style.space1
                 }
 
                 ActionButton {
