@@ -76,6 +76,11 @@ Built following the **Omarchy** native desktop application architecture (C++17 +
 
 ## 3. Changelog
 
+### Rust Migration P17b — `Backend` QObject Invokables & Clipboard Shim (Branch `rust-qobject`)
+* **Module Invokables (`rust/crates/aibox-app/src/qt_backend_{config,secrets,snapshot,workspace,network,backup,health,provision,sessions}.rs`)**: Ported all 92 non-runner `Q_INVOKABLE` methods on `Backend` to `aibox-core` delegates (including `copyText`, `restoreSnapshot`, `addExtraMount`, `setNetworkMode`, `importEnvironment`, `deleteBackup`, `exportAndWipeEnvironment`, `setEnvironmentIdleStop`, `createEnvironment`, and 2-arg/9-arg `cloneEnvironment` overloads), leaving only `runShellTask`/`cancelTask`/`enterEnvironment` and timers/notifications for P17c.
+* **Clipboard & Process Helpers (`src/cpp/shim/clipboard_shim.{h,cpp}`, `qt_backend.rs`)**: Added `aibox_clipboard_set_text` and `aibox_clipboard_image_png` for clipboard text and `pasteImageToWorkspace`, plus `spawn_detached` (`setsid` via `libc`) and `launch_command_in_terminal`.
+* **Verification**: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `./bin/build`, `./bin/test` (109 Rust + 1 golden + 74/74 Qt), and offscreen demo QML grab (`/tmp/p17b-demo.png`) all pass with zero QML warnings.
+
 ### Rust Migration P17a — `Backend` QObject State, Properties, and Async Refresh (Branch `rust-qobject`)
 * **Variant Converter (`rust/crates/aibox-app/src/variant.rs`)**: Added `serde_json::Value` to `QVariant` / `QList<QVariant>` / `QMap<QString, QVariant>` / `QStringList` converters preserving `i32` and `i64` integers directly without Stage 1 JSON round-tripping.
 * **Rust `Backend` QObject (`rust/crates/aibox-app/src/qt_backend.rs`, `build.rs`, `main.rs`, `src/cpp/main.cpp`)**: Implemented the `#[cxx_qt::bridge]` `Backend` QObject wrapping `aibox_core::engine::Engine` and GUI-only state, exposing all 68 `Q_PROPERTY` declarations and 31 signals, `configure` (`ProjectDir`/`WorkspaceDir` + `AIBOX_SELECT_INDEX` + `AIBOX_DEMO_MODE`), `setSelectedIndex`, non-blocking worker-thread `refresh` + 4s polling / 250ms task-watch loop via `CxxQtThread`, and P17b/P17c invokable stubs. Removed `backend*.cpp` from `aibox-app/build.rs` while keeping the C++ facade in `tests/aibox_tests.pro` until P18.
