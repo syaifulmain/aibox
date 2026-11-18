@@ -63,6 +63,9 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Adaptive Theme M3 — `Style.qml` Token Aliases (`src/qml/components/Style.qml`)
+* **Semantic Token Aliasing (`src/qml/components/Style.qml`)**: Replaced all 20 hardcoded hex color literals (`surfaceCard`, `surfaceInput`, `surfaceSelected`, `surfaceSidebar`, `surfaceTrack`, `borderSubtle`, `scrim`, `scrimStrong`, `dangerSurface*`, `dangerTint*`, `successSurface*`, `successBorder`, `warning`, `warningSurface*`) with live bindings to the corresponding `theme.*` semantic properties (`theme.surface*`, `theme.borderSubtle`, `theme.scrim*`, `theme.dangerSurface`, `theme.successSurface`, `theme.successBorder`, `theme.warning`, `theme.warningSurface`) so existing `Style.*` call sites adapt immediately to light and dark Omarchy themes ahead of the M4–M6 direct-token migration.
+
 ### Adaptive Theme M2 — Qt Theme Bridge & Material Controls (`aibox-app`, `Main.qml`)
 * **Semantic `Theme` QObject Properties (`rust/crates/aibox-app/src/qt_theme.rs`)**: Exposed `isDark`, `mode`, and all contrast-guarded semantic `Palette` tokens (`surface*`, `border*`, `text*`, `accent*`/`onAccent`, `danger*`/`onDanger`, `success*`/`onSuccess`, `warning*`/`onWarning`, `info*`/`onInfo`, `scrim`, `scrimStrong`, `selection`, `selectionText`) on `Theme` with `NOTIFY = changed`, while keeping legacy raw color properties marked deprecated through M6.
 * **Single-Signal Reload & `theme.name` Watch (`qt_theme.rs`)**: Updated `Theme::reload()` to derive both `ThemeColors` and `Palette`, compare for changes, and emit a single `changed` signal per theme switch. Added `theme.name` and `colors.toml` to `rearm_theme_watches`.

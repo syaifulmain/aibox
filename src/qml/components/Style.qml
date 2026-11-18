@@ -76,36 +76,36 @@ QtObject {
     readonly property int hairline: 1
 
     // ------------------------------------------------------------------
-    // Surfaces and borders
+    // Surfaces and borders (aliased to `theme` until M4–M6 migration)
     // ------------------------------------------------------------------
-    readonly property color surfaceCard: "#12131c"
-    readonly property color surfaceInput: "#0b0c12"
-    readonly property color surfaceSelected: "#192136"
-    readonly property color surfaceSidebar: "#0f1018"
-    readonly property color surfaceTrack: "#1a1d29"
-    readonly property color borderSubtle: "#232738"
+    readonly property color surfaceCard: theme.surfaceCard
+    readonly property color surfaceInput: theme.surfaceInput
+    readonly property color surfaceSelected: theme.surfaceSelected
+    readonly property color surfaceSidebar: theme.surfaceSidebar
+    readonly property color surfaceTrack: theme.surfaceTrack
+    readonly property color borderSubtle: theme.borderSubtle
 
     // Backdrop behind every modal dialog
-    readonly property color scrim: "#c406070a"
-    readonly property color scrimStrong: "#e006070a"
+    readonly property color scrim: theme.scrim
+    readonly property color scrimStrong: theme.scrimStrong
 
     // ------------------------------------------------------------------
-    // Feedback surfaces
+    // Feedback surfaces (aliased to `theme` until M4–M6 migration)
     // ------------------------------------------------------------------
-    readonly property color dangerSurface: "#261319"
-    readonly property color dangerSurfaceAlt: "#291418"
-    readonly property color dangerSurfaceDeep: "#241217"
-    readonly property color dangerTint: "#2c1419"
-    readonly property color dangerTintMuted: "#26181c"
+    readonly property color dangerSurface: theme.dangerSurface
+    readonly property color dangerSurfaceAlt: theme.dangerSurface
+    readonly property color dangerSurfaceDeep: theme.dangerSurface
+    readonly property color dangerTint: theme.dangerSurface
+    readonly property color dangerTintMuted: theme.dangerSurface
 
-    readonly property color successSurface: "#162920"
-    readonly property color successSurfaceTint: "#132019"
-    readonly property color successBorder: "#284d3a"
+    readonly property color successSurface: theme.successSurface
+    readonly property color successSurfaceTint: theme.successSurface
+    readonly property color successBorder: theme.successBorder
 
-    readonly property color warning: "#e5a93c"
-    readonly property color warningSurface: "#262013"
-    readonly property color warningSurfaceDeep: "#1a1409"
-    readonly property color warningSurfaceAlt: "#262014"
+    readonly property color warning: theme.warning
+    readonly property color warningSurface: theme.warningSurface
+    readonly property color warningSurfaceDeep: theme.warningSurface
+    readonly property color warningSurfaceAlt: theme.warningSurface
 
     // ------------------------------------------------------------------
     // Interaction feedback
