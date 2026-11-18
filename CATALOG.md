@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Adaptive Theme M4 — Reusable Components (`src/qml/components/`, `src/qml/dev/ComponentGallery.qml`)
+* **Semantic Token Migration (`src/qml/components/*.qml`)**: Migrated all 15 reusable components (`ActionButton`, `TagBadge`, `ResourceMeterCard`, `ChipInput`, `FlatInput`, `SelectChip`, `SelectCard`, `SegmentedTabs`, `MenuRow`, `CheckRow`, `ModalDialog`, `ModalHeader`, `MeterBar`, `BrandMark`, `SlidersIcon`) off legacy `Style.*` color aliases, raw `theme.{foreground,muted,red,green,yellow,accentForeground,lighterBackground}`, and `Qt.rgba` tinting onto contrast-guarded semantic `theme.*` tokens (`surface*`, `border*`, `text*`, `accent*`, `danger*`, `success*`, `warning*`, `selection*`, `scrim`).
+* **Consistent Interaction States**: Replaced hover opacity dimming (`Style.opacityHover`) with `surfaceRaised` / `borderStrong` hover transitions, added keyboard focus borders (`borderFocus`) on `ActionButton`, `FlatInput`, and `ChipInput`, and preserved `Style.opacityDisabled` + `textDisabled` for disabled controls.
+* **Component Gallery (`src/qml/dev/ComponentGallery.qml`)**: Added a dev-only gallery loaded via `AIBOX_GALLERY=1` (`rust/crates/aibox-app/cpp/main.cpp`, `src/resources.qrc`) showcasing every reusable component across tones and states.
+
 ### Adaptive Theme M3 — `Style.qml` Token Aliases (`src/qml/components/Style.qml`)
 * **Semantic Token Aliasing (`src/qml/components/Style.qml`)**: Replaced all 20 hardcoded hex color literals (`surfaceCard`, `surfaceInput`, `surfaceSelected`, `surfaceSidebar`, `surfaceTrack`, `borderSubtle`, `scrim`, `scrimStrong`, `dangerSurface*`, `dangerTint*`, `successSurface*`, `successBorder`, `warning`, `warningSurface*`) with live bindings to the corresponding `theme.*` semantic properties (`theme.surface*`, `theme.borderSubtle`, `theme.scrim*`, `theme.dangerSurface`, `theme.successSurface`, `theme.successBorder`, `theme.warning`, `theme.warningSurface`) so existing `Style.*` call sites adapt immediately to light and dark Omarchy themes ahead of the M4–M6 direct-token migration.
 

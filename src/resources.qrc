@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">qml/Main.qml</file>
+        <file alias="dev/ComponentGallery.qml">qml/dev/ComponentGallery.qml</file>
         <file alias="components/qmldir">qml/components/qmldir</file>
         <file alias="components/Style.qml">qml/components/Style.qml</file>
         <file alias="components/FlatInput.qml">qml/components/FlatInput.qml</file>

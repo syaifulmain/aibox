@@ -10,16 +10,16 @@ Rectangle {
     property bool titleMono: false
     property bool subtitleMono: false
     property bool mediumWhenSelected: false
-    property color selectedTitleColor: theme.foreground
-    property color titleColor: theme.muted
+    property color selectedTitleColor: theme.accentText
+    property color titleColor: theme.textMuted
     property int cardHeight: 50
     signal clicked()
 
     height: cardHeight
     radius: Math.min(Style.radius4, theme.radius)
-    color: selected ? Style.surfaceSelected : Style.surfaceInput
+    color: selected ? theme.surfaceSelected : (cardMouse.containsMouse ? theme.surfaceRaised : theme.surfaceInput)
     border.width: Style.hairline
-    border.color: selected ? theme.accent : Style.borderSubtle
+    border.color: selected ? theme.accentBorder : (cardMouse.containsMouse ? theme.borderStrong : theme.borderSubtle)
 
     ColumnLayout {
         anchors.fill: parent
@@ -37,14 +37,14 @@ Rectangle {
                 width: 6
                 height: 6
                 radius: 3
-                color: root.selected ? theme.accent : theme.muted
+                color: root.selected ? theme.accent : theme.textMuted
             }
 
             Text {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: root.title
-                color: root.selected ? root.selectedTitleColor : root.titleColor
+                color: root.selected ? root.selectedTitleColor : (cardMouse.containsMouse ? theme.textPrimary : root.titleColor)
                 font.family: root.titleMono ? Style.fontMono : Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: root.selected && root.mediumWhenSelected ? Font.Medium : Font.Normal
@@ -55,14 +55,16 @@ Rectangle {
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: root.subtitle
-            color: theme.muted
+            color: theme.textMuted
             font.family: root.subtitleMono ? Style.fontMono : Style.fontSans
             font.pixelSize: Style.font10
         }
     }
 
     MouseArea {
+        id: cardMouse
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
     }

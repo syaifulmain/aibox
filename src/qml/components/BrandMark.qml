@@ -11,9 +11,9 @@ Rectangle {
     width: markSize
     height: markSize
     radius: Math.min(markRadius, theme.radius)
-    color: root.quiet ? Style.surfaceInput : Style.surfaceSelected
+    color: root.quiet ? theme.surfaceInput : theme.surfaceSelected
     border.width: Style.hairline
-    border.color: root.quiet ? Style.borderSubtle : theme.accent
+    border.color: root.quiet ? theme.borderSubtle : theme.accentBorder
 
     Text {
         anchors.centerIn: parent

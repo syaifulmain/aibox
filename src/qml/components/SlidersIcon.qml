@@ -3,7 +3,7 @@ import QtQuick
 // Monochrome sliders glyph used by the configuration button.
 Item {
     id: slidersIcon
-    property color color: theme.foreground
+    property color color: theme.textPrimary
     implicitWidth: 14
     implicitHeight: 14
 

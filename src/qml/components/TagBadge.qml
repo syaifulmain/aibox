@@ -19,22 +19,22 @@ Rectangle {
     property int badgeRadius: Style.radius2
     signal clicked()
 
-    property color fillColor: root.tone === "accent" ? Style.surfaceSelected
-                             : root.tone === "quiet" || root.tone === "accentQuiet" ? Style.surfaceInput
-                             : root.tone === "success" ? Style.successSurface
-                             : root.tone === "warning" ? Style.warningSurfaceAlt
-                             : root.tone === "danger" ? Style.dangerTint
-                             : Style.surfaceCard
-    property color borderColor: root.tone === "accent" ? theme.accent
-                              : root.tone === "success" ? Style.successBorder
-                              : root.tone === "warning" ? Style.warning
-                              : root.tone === "danger" ? theme.red
-                              : Style.borderSubtle
-    property color textColor: root.tone === "accent" || root.tone === "accentQuiet" ? theme.accent
-                            : root.tone === "success" ? theme.green
-                            : root.tone === "warning" ? Style.warning
-                            : root.tone === "danger" ? theme.red
-                            : theme.muted
+    property color fillColor: root.tone === "accent" ? theme.surfaceSelected
+                             : root.tone === "quiet" || root.tone === "accentQuiet" ? theme.surfaceInput
+                             : root.tone === "success" ? theme.successSurface
+                             : root.tone === "warning" ? theme.warningSurface
+                             : root.tone === "danger" ? theme.dangerSurface
+                             : theme.surfaceInput
+    property color borderColor: root.tone === "accent" ? theme.accentBorder
+                              : root.tone === "success" ? theme.successBorder
+                              : root.tone === "warning" ? theme.warningBorder
+                              : root.tone === "danger" ? theme.dangerBorder
+                              : theme.borderSubtle
+    property color textColor: root.tone === "accent" || root.tone === "accentQuiet" ? theme.accentText
+                            : root.tone === "success" ? theme.successText
+                            : root.tone === "warning" ? theme.warningText
+                            : root.tone === "danger" ? theme.dangerText
+                            : theme.textMuted
 
     height: badgeHeight
     width: dotVisible ? dotRow.implicitWidth + horizontalPadding

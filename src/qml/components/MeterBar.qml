@@ -5,7 +5,7 @@ Rectangle {
     id: root
     property real value: 0 // percent, 0..100
     property color fillColor: theme.accent
-    property color trackColor: Style.surfaceCard
+    property color trackColor: theme.surfaceTrack
     property int minFillWidth: 0
     property bool showAtZero: false
     property int animationMs: 180

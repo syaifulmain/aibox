@@ -13,9 +13,9 @@ Rectangle {
     implicitHeight: Style.controlHeight
     Layout.preferredHeight: implicitHeight
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceInput
+    color: theme.surfaceInput
     border.width: Style.hairline
-    border.color: textInput.activeFocus ? theme.accent : Style.borderSubtle
+    border.color: textInput.activeFocus ? theme.borderFocus : theme.borderSubtle
 
     Text {
         anchors.left: parent.left
@@ -25,7 +25,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         visible: textInput.text.length === 0
         text: root.placeholder
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font12
         elide: Text.ElideRight
@@ -37,9 +37,9 @@ Rectangle {
         anchors.leftMargin: Style.space12
         anchors.rightMargin: Style.space12
         verticalAlignment: TextInput.AlignVCenter
-        color: theme.foreground
-        selectionColor: theme.accent
-        selectedTextColor: theme.accentForeground
+        color: theme.textPrimary
+        selectionColor: theme.selection
+        selectedTextColor: theme.selectionText
         selectByMouse: true
         clip: true
         readOnly: root.readOnly

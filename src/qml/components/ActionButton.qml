@@ -23,17 +23,13 @@ Rectangle {
                                  : "default"
     readonly property bool isPrimary: tone === "primary"
     readonly property bool isDefault: tone === "default"
-    readonly property color toneColor: btn.isDefault ? theme.foreground
-                                    : btn.isPrimary ? theme.accent
-                                    : btn.tone === "danger" ? theme.red
-                                    : btn.tone === "success" ? theme.green
-                                    : theme.accent
-    readonly property color contentColor: btn.isPrimary ? theme.accentForeground : btn.toneColor
-
-    // Tinted hover surface used by every non-primary, non-default tone.
-    function tint(color, alpha) {
-        return Qt.rgba(color.r, color.g, color.b, alpha)
-    }
+    readonly property bool isHovered: btnMouse.containsMouse && !btn.disabled
+    readonly property color contentColor: btn.disabled ? theme.textDisabled
+                                      : btn.isPrimary ? theme.textOnAccent
+                                      : btn.isDefault ? theme.textPrimary
+                                      : btn.tone === "danger" ? theme.dangerText
+                                      : btn.tone === "success" ? theme.successText
+                                      : theme.accentText
 
     implicitHeight: Style.controlHeight
     implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + Style.space24)
@@ -41,16 +37,21 @@ Rectangle {
     Layout.preferredHeight: implicitHeight
     Layout.preferredWidth: implicitWidth
     radius: Math.min(Style.radius4, theme.radius)
-    opacity: btn.disabled ? Style.opacityDisabled : (btnMouse.containsMouse ? Style.opacityHover : 1.0)
+    opacity: btn.disabled ? Style.opacityDisabled : 1.0
 
     color: btn.isPrimary ? theme.accent
-         : btn.isDefault ? (btnMouse.containsMouse ? theme.lighterBackground : Style.surfaceCard)
-         : btn.tint(btn.toneColor, btnMouse.containsMouse ? 0.22 : 0.12)
+         : btn.isDefault ? (btn.isHovered ? theme.surfaceRaised : theme.surfaceCard)
+         : btn.tone === "danger" ? theme.dangerSurface
+         : btn.tone === "success" ? theme.successSurface
+         : (btn.isHovered ? theme.surfaceSelected : theme.accentSurface)
 
-    border.width: btn.isPrimary ? 0 : Style.hairline
-    border.color: btn.isPrimary ? "transparent"
-                : btn.isDefault ? (btnMouse.containsMouse ? theme.muted : Style.borderSubtle)
-                : btn.toneColor
+    border.width: btn.activeFocus || !btn.isPrimary ? Style.hairline : 0
+    border.color: btn.activeFocus ? theme.borderFocus
+                : btn.isPrimary ? "transparent"
+                : btn.isDefault ? (btn.isHovered ? theme.borderStrong : theme.borderSubtle)
+                : btn.tone === "danger" ? (btn.isHovered ? theme.danger : theme.dangerBorder)
+                : btn.tone === "success" ? (btn.isHovered ? theme.success : theme.successBorder)
+                : (btn.isHovered ? theme.accent : theme.accentBorder)
 
     RowLayout {
         id: btnRow

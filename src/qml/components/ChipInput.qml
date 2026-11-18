@@ -18,9 +18,9 @@ Rectangle {
     implicitHeight: chipFlow.implicitHeight + Style.space8
     Layout.preferredHeight: implicitHeight
     radius: Math.min(Style.radius6, theme.radius)
-    color: Style.surfaceInput
+    color: theme.surfaceInput
     border.width: Style.hairline
-    border.color: chipInput.activeFocus ? theme.accent : Style.borderSubtle
+    border.color: chipInput.activeFocus ? theme.borderFocus : (chipHover.hovered ? theme.borderStrong : theme.borderSubtle)
 
     HoverHandler { id: chipHover }
 
@@ -75,9 +75,9 @@ Rectangle {
                 height: Style.controlHeightXs
                 width: chipRow.implicitWidth + Style.space16
                 radius: Math.min(Style.radius4, theme.radius)
-                color: chipMouse.containsMouse && removable ? Style.surfaceSelected : Style.surfaceCard
+                color: chipMouse.containsMouse && removable ? theme.surfaceSelected : theme.surfaceCard
                 border.width: Style.hairline
-                border.color: chipMouse.containsMouse && removable ? theme.accent : Style.borderSubtle
+                border.color: chipMouse.containsMouse && removable ? theme.accentBorder : theme.borderSubtle
                 opacity: removable ? 1.0 : Style.opacityInactive
 
                 Row {
@@ -87,21 +87,21 @@ Rectangle {
 
                     Text {
                         text: amount
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }
                     Text {
                         visible: suffix.length > 0
                         text: suffix
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font9
                     }
                     Text {
                         text: "×"
                         leftPadding: Style.space2
-                        color: chipMouse.containsMouse && removable ? theme.accent : theme.muted
+                        color: chipMouse.containsMouse && removable ? theme.accentText : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                     }
@@ -110,6 +110,7 @@ Rectangle {
                 MouseArea {
                     id: chipMouse
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: removable ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: {
                         if (!removable) {
@@ -131,9 +132,9 @@ Rectangle {
                 id: chipInput
                 anchors.fill: parent
                 verticalAlignment: TextInput.AlignVCenter
-                color: theme.foreground
-                selectionColor: theme.accent
-                selectedTextColor: theme.accentForeground
+                color: theme.textPrimary
+                selectionColor: theme.selection
+                selectedTextColor: theme.selectionText
                 selectByMouse: true
                 clip: true
                 inputMethodHints: Qt.ImhDigitsOnly
@@ -152,7 +153,7 @@ Rectangle {
                 verticalAlignment: Text.AlignVCenter
                 visible: chipInput.text.length === 0
                 text: chipRoot.placeholder
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
                 elide: Text.ElideRight

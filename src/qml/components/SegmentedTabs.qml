@@ -15,9 +15,9 @@ Rectangle {
     height: Style.controlHeight
     width: tabRow.implicitWidth + Style.space8
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceInput
+    color: theme.surfaceInput
     border.width: Style.hairline
-    border.color: Style.borderSubtle
+    border.color: theme.borderSubtle
 
     RowLayout {
         id: tabRow
@@ -33,9 +33,9 @@ Rectangle {
                 height: Style.controlHeightSm
                 width: itemRow.implicitWidth + root.itemPadding
                 radius: Math.min(Style.radius3, theme.radius)
-                color: active ? Style.surfaceSelected : "transparent"
+                color: active ? theme.surfaceSelected : (tabMouse.containsMouse ? theme.surfaceRaised : "transparent")
                 border.width: active ? Style.hairline : 0
-                border.color: theme.accent
+                border.color: theme.accentBorder
 
                 RowLayout {
                     id: itemRow
@@ -44,7 +44,7 @@ Rectangle {
 
                     Text {
                         text: modelData.label || ""
-                        color: parent.parent.active ? theme.foreground : theme.muted
+                        color: parent.parent.active ? theme.accentText : (tabMouse.containsMouse ? theme.textPrimary : theme.textMuted)
                         font.family: Style.fontSans
                         font.pixelSize: root.textSize
                         font.weight: parent.parent.active && root.mediumWhenSelected ? Font.Medium : Font.Normal
@@ -53,14 +53,16 @@ Rectangle {
                     Text {
                         visible: (modelData.key || "").length > 0
                         text: modelData.key || ""
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                     }
                 }
 
                 MouseArea {
+                    id: tabMouse
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.selected(modelData.value)
                 }

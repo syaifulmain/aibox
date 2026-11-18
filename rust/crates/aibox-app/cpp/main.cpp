@@ -47,7 +47,10 @@ extern "C" int aibox_gui_main(int argc, char *argv[], const char *version, const
     aibox_set_context_property(&engine, QStringLiteral("translator"), &translatorState);
     aibox_set_context_property(&engine, QStringLiteral("theme"), &theme);
     aibox_set_context_property(&engine, QStringLiteral("backend"), &backend);
-    engine.load(QUrl("qrc:/Main.qml"));
+    const QUrl rootQml = qEnvironmentVariableIntValue("AIBOX_GALLERY") == 1
+                             ? QUrl("qrc:/dev/ComponentGallery.qml")
+                             : QUrl("qrc:/Main.qml");
+    engine.load(rootQml);
     if (engine.rootObjects().isEmpty())
         return 1;
 

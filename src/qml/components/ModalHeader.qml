@@ -27,7 +27,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: mh.title
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font16
                 font.weight: Font.Medium
@@ -39,7 +39,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 text: mh.subtitle
-                color: theme.muted
+                color: theme.textMuted
                 font.family: mh.subtitleMono ? Style.fontMono : Style.fontSans
                 font.pixelSize: mh.subtitleMono ? Style.font10 : Style.font11
                 wrapMode: mh.subtitleMono ? Text.NoWrap : Text.WordWrap
@@ -66,6 +66,6 @@ ColumnLayout {
     Rectangle {
         Layout.fillWidth: true
         height: Style.hairline
-        color: Style.borderSubtle
+        color: theme.borderSubtle
     }
 }

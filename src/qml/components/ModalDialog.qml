@@ -7,8 +7,8 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     property bool open: false
-    property color scrimColor: Style.scrim
-    property color borderColor: theme.accent
+    property color scrimColor: theme.scrim
+    property color borderColor: theme.borderSubtle
     property real cardWidth: 520
     property real cardHeight: contentHeight + Style.modalPadding * 2
     property int padding: Style.modalPadding
@@ -36,7 +36,7 @@ Rectangle {
         width: root.cardWidth
         height: root.cardHeight
         radius: Math.min(Style.radius8, theme.radius)
-        color: Style.surfaceCard
+        color: theme.surfaceOverlay
         border.width: Style.hairline
         border.color: root.borderColor
         clip: root.clipCard

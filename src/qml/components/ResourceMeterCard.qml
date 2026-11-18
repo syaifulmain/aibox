@@ -25,13 +25,13 @@ Rectangle {
                           ? cardContent.implicitHeight + Style.space20
                           : 88
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceInput
+    color: cardHover.hovered && root.interactive ? theme.surfaceRaised : theme.surfaceCard
     border.width: Style.hairline
     border.color: root.alertLevel === 2
-                  ? theme.red
+                  ? theme.danger
                   : (root.alertLevel === 1
-                     ? Style.warning
-                     : (cardHover.hovered && root.interactive ? theme.accent : Style.borderSubtle))
+                     ? theme.warning
+                     : (cardHover.hovered && root.interactive ? theme.borderStrong : theme.borderSubtle))
 
     HoverHandler {
         id: cardHover
@@ -61,7 +61,7 @@ Rectangle {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: root.title
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -69,12 +69,12 @@ Rectangle {
             Text {
                 text: root.badge
                 color: root.alertLevel === 2
-                       ? theme.red
+                       ? theme.dangerText
                        : (root.alertLevel === 1
-                          ? Style.warning
+                          ? theme.warningText
                           : (root.active
-                             ? (root.percent >= 85 ? theme.red : theme.accent)
-                             : theme.muted))
+                             ? (root.percent >= 85 ? theme.dangerText : theme.accentText)
+                             : theme.textMuted))
                 font.family: Style.fontMono
                 font.pixelSize: Style.font10
                 font.weight: Font.Medium
@@ -85,7 +85,7 @@ Rectangle {
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: root.value
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontMono
             font.pixelSize: Style.font13
         }
@@ -99,10 +99,10 @@ Rectangle {
             value: root.percent
             minFillWidth: Style.space4
             fillColor: root.alertLevel === 2
-                       ? theme.red
+                       ? theme.danger
                        : (root.alertLevel === 1
-                          ? Style.warning
-                          : (root.percent >= 85 ? theme.red : theme.accent))
+                          ? theme.warning
+                          : (root.percent >= 85 ? theme.danger : theme.accent))
         }
 
         Loader {

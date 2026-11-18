@@ -15,12 +15,12 @@ Rectangle {
     implicitHeight: Style.menuRowHeight
     radius: Math.min(Style.radius4, theme.radius)
     color: root.hovered && !root.disabled
-           ? (root.danger ? Style.dangerSurface : Style.surfaceSelected)
-           : Style.surfaceInput
+           ? (root.danger ? theme.dangerSurface : theme.surfaceRaised)
+           : theme.surfaceInput
     border.width: Style.hairline
     border.color: root.hovered && !root.disabled
-                  ? (root.danger ? theme.red : theme.accent)
-                  : Style.borderSubtle
+                  ? (root.danger ? theme.dangerBorder : theme.borderStrong)
+                  : theme.borderSubtle
     opacity: root.disabled ? Style.opacityDisabled : 1.0
 
     RowLayout {
@@ -38,7 +38,7 @@ Rectangle {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: root.label
-                color: root.danger ? theme.red : theme.foreground
+                color: root.disabled ? theme.textDisabled : (root.danger ? theme.dangerText : theme.textPrimary)
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -49,7 +49,7 @@ Rectangle {
                 visible: root.detail.length > 0
                 elide: Text.ElideRight
                 text: root.detail
-                color: theme.muted
+                color: root.disabled ? theme.textDisabled : theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }

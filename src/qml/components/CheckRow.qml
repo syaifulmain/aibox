@@ -13,9 +13,10 @@ Rectangle {
     Layout.fillWidth: true
     height: rowHeight
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceCard
+    color: rowMouse.containsMouse ? theme.surfaceRaised : theme.surfaceCard
     border.width: Style.hairline
-    border.color: checked ? (root.danger ? theme.red : theme.accent) : Style.borderSubtle
+    border.color: checked ? (root.danger ? theme.dangerBorder : theme.accentBorder)
+                          : (rowMouse.containsMouse ? theme.borderStrong : theme.borderSubtle)
 
     RowLayout {
         anchors.fill: parent
@@ -27,15 +28,15 @@ Rectangle {
             width: 16
             height: 16
             radius: Style.radius3
-            color: root.checked ? (root.danger ? theme.red : theme.accent) : "transparent"
+            color: root.checked ? (root.danger ? theme.danger : theme.accent) : "transparent"
             border.width: Style.hairline
-            border.color: root.checked ? (root.danger ? theme.red : theme.accent) : theme.muted
+            border.color: root.checked ? (root.danger ? theme.danger : theme.accent) : theme.borderStrong
 
             Text {
                 anchors.centerIn: parent
                 visible: root.checked
                 text: "✓"
-                color: theme.accentForeground
+                color: root.danger ? theme.onDanger : theme.textOnAccent
                 font.family: Style.fontMono
                 font.pixelSize: Style.font11
             }
@@ -44,14 +45,16 @@ Rectangle {
         Text {
             Layout.fillWidth: true
             text: root.text
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
     }
 
     MouseArea {
+        id: rowMouse
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: root.toggled()
     }
