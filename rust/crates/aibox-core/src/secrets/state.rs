@@ -5,10 +5,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::secrets::error::SecretsError;
 use crate::secrets::store::{
     default_secrets_store_path, environment_secrets_store_path, instance_secrets_dir_path,
     is_valid_secret_name, load_secret_name_list, load_secrets_store, save_secrets_store,
 };
+use crate::secrets::zeroize_string;
 use crate::util::paths::clean_path;
 use crate::util::shell::shell_quote;
 
@@ -61,12 +63,40 @@ pub struct SecretsState {
     pub environment_secrets_error: String,
 }
 
+impl Drop for SecretsState {
+    fn drop(&mut self) {
+        zeroize_pairs(&mut self.secrets);
+        zeroize_vec(&mut self.instance_secret_values);
+        zeroize_env_rows(&mut self.environment_secrets);
+    }
+}
+
+fn zeroize_pairs(pairs: &mut Vec<(String, String)>) {
+    for (_, val) in pairs.iter_mut() {
+        zeroize_string(val);
+    }
+    pairs.clear();
+}
+
+fn zeroize_vec(vals: &mut Vec<String>) {
+    for val in vals.iter_mut() {
+        zeroize_string(val);
+    }
+    vals.clear();
+}
+
+fn zeroize_env_rows(rows: &mut Vec<EnvSecretRow>) {
+    for row in rows.iter_mut() {
+        zeroize_string(&mut row.value);
+    }
+    rows.clear();
+}
+
 impl SecretsState {
     pub fn new(secrets_path: String) -> Self {
-        Self {
-            secrets_path,
-            ..Self::default()
-        }
+        let mut state = Self::default();
+        state.secrets_path = secrets_path;
+        state
     }
 
     pub fn set_secrets_store_path(&mut self, path: &str, demo_mode: bool) {
@@ -81,12 +111,13 @@ impl SecretsState {
     pub fn reload_secrets(&mut self, demo_mode: bool) {
         match load_secrets_store(&self.secrets_path) {
             Ok(loaded) => {
+                zeroize_pairs(&mut self.secrets);
                 self.secrets = loaded;
                 self.secrets_error.clear();
             }
             Err(err) => {
-                self.secrets.clear();
-                self.secrets_error = err;
+                zeroize_pairs(&mut self.secrets);
+                self.secrets_error = err.to_string();
             }
         }
         self.hidden_global_secrets = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
@@ -94,7 +125,7 @@ impl SecretsState {
     }
 
     pub fn refresh_instance_secret_values_cache(&mut self, demo_mode: bool) {
-        self.instance_secret_values.clear();
+        zeroize_vec(&mut self.instance_secret_values);
         if demo_mode {
             for row in &self.environment_secrets {
                 if !row.value.is_empty()
@@ -165,7 +196,7 @@ impl SecretsState {
         demo_mode: bool,
     ) {
         self.environment_secrets_env = env_name.trim().to_string();
-        self.environment_secrets.clear();
+        zeroize_env_rows(&mut self.environment_secrets);
         self.environment_secrets_error.clear();
 
         let store_path =
@@ -185,7 +216,7 @@ impl SecretsState {
                     disabled = load_secret_name_list(&store_path, "disabled");
                 }
                 Err(err) => {
-                    self.environment_secrets_error = err;
+                    self.environment_secrets_error = err.to_string();
                 }
             }
         }
@@ -238,10 +269,15 @@ impl SecretsState {
         changed
     }
 
-    pub fn save_secret(&mut self, name: &str, value: &str, demo_mode: bool) -> Result<(), String> {
+    pub fn save_secret(
+        &mut self,
+        name: &str,
+        value: &str,
+        demo_mode: bool,
+    ) -> Result<(), SecretsError> {
         let clean_name = name.trim();
         if !is_valid_secret_name(clean_name) {
-            return Err("Secret name must match ^[A-Z_][A-Z0-9_]*$.".to_string());
+            return Err(SecretsError::InvalidSecretNameFormat);
         }
 
         if demo_mode {
@@ -261,13 +297,14 @@ impl SecretsState {
         }
 
         save_secrets_store(&self.secrets_path, &next, &[], &hidden)?;
+        zeroize_pairs(&mut self.secrets);
         self.secrets = next;
         self.hidden_global_secrets = hidden;
         self.secrets_error.clear();
         Ok(())
     }
 
-    pub fn delete_secret(&mut self, name: &str, demo_mode: bool) -> Result<(), String> {
+    pub fn delete_secret(&mut self, name: &str, demo_mode: bool) -> Result<(), SecretsError> {
         let clean_name = name.trim();
         let next: Vec<(String, String)> = self
             .secrets
@@ -277,6 +314,7 @@ impl SecretsState {
             .collect();
 
         if demo_mode {
+            zeroize_pairs(&mut self.secrets);
             self.secrets = next;
             self.hidden_global_secrets.retain(|n| n != clean_name);
             self.secrets_error.clear();
@@ -286,6 +324,7 @@ impl SecretsState {
         let mut hidden = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
         hidden.retain(|n| n != clean_name);
         save_secrets_store(&self.secrets_path, &next, &[], &hidden)?;
+        zeroize_pairs(&mut self.secrets);
         self.secrets = next;
         self.hidden_global_secrets = hidden;
         self.secrets_error.clear();
@@ -297,15 +336,20 @@ impl SecretsState {
         name: &str,
         visible: bool,
         demo_mode: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), SecretsError> {
         let clean_name = name.trim();
         if !is_valid_secret_name(clean_name) {
-            return Err(format!("Invalid secret name '{clean_name}'."));
+            return Err(SecretsError::InvalidSecretName {
+                name: clean_name.to_string(),
+            });
         }
 
         if demo_mode {
             if !self.secrets.iter().any(|(n, _)| n == clean_name) {
-                return Err(format!("Secret '{clean_name}' was not found."));
+                return Err(SecretsError::SecretNotFound {
+                    name: clean_name.to_string(),
+                    env: None,
+                });
             }
             if visible {
                 self.hidden_global_secrets.retain(|n| n != clean_name);
@@ -317,7 +361,10 @@ impl SecretsState {
 
         let pairs = load_secrets_store(&self.secrets_path)?;
         if !pairs.iter().any(|(n, _)| n == clean_name) {
-            return Err(format!("Secret '{clean_name}' was not found."));
+            return Err(SecretsError::SecretNotFound {
+                name: clean_name.to_string(),
+                env: None,
+            });
         }
 
         let mut hidden = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
@@ -327,6 +374,7 @@ impl SecretsState {
         }
 
         save_secrets_store(&self.secrets_path, &pairs, &[], &hidden)?;
+        zeroize_pairs(&mut self.secrets);
         self.secrets = pairs;
         self.hidden_global_secrets = hidden;
         self.secrets_error.clear();
@@ -340,16 +388,18 @@ impl SecretsState {
         value: &str,
         assigned_global_names: &[String],
         demo_mode: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), SecretsError> {
         let env = env_name.trim();
         let store_path = environment_secrets_store_path(&self.secrets_path, env);
         if store_path.is_empty() {
-            return Err("Select an environment before adding a secret.".to_string());
+            return Err(SecretsError::NoEnvironmentSelected {
+                action: "adding a secret",
+            });
         }
 
         let clean_name = name.trim();
         if !is_valid_secret_name(clean_name) {
-            return Err("Secret name must match ^[A-Z_][A-Z0-9_]*$.".to_string());
+            return Err(SecretsError::InvalidSecretNameFormat);
         }
 
         // Global secrets are read-only in an environment. Reject duplicate names
@@ -360,9 +410,12 @@ impl SecretsState {
             self.secrets.clone()
         };
         if globals.iter().any(|(n, _)| n == clean_name) {
-            return Err(format!(
-                "'{clean_name}' is a global secret. Manage it in Tools → Secrets."
-            ));
+            return Err(SecretsError::GlobalSecretReadOnly {
+                name: clean_name.to_string(),
+                message: format!(
+                    "'{clean_name}' is a global secret. Manage it in Tools → Secrets."
+                ),
+            });
         }
 
         if demo_mode {
@@ -372,6 +425,7 @@ impl SecretsState {
             let mut updated = false;
             for row in &mut self.environment_secrets {
                 if row.scope == "environment" && row.name == clean_name {
+                    zeroize_string(&mut row.value);
                     row.value = value.to_string();
                     row.masked_value = masked_value(value);
                     updated = true;
@@ -413,16 +467,20 @@ impl SecretsState {
         name: &str,
         assigned_global_names: &[String],
         demo_mode: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), SecretsError> {
         let env = env_name.trim();
         let store_path = environment_secrets_store_path(&self.secrets_path, env);
         if store_path.is_empty() {
-            return Err("Select an environment before deleting a secret.".to_string());
+            return Err(SecretsError::NoEnvironmentSelected {
+                action: "deleting a secret",
+            });
         }
 
         let clean_name = name.trim();
         if !is_valid_secret_name(clean_name) {
-            return Err(format!("Invalid secret name '{clean_name}'."));
+            return Err(SecretsError::InvalidSecretName {
+                name: clean_name.to_string(),
+            });
         }
 
         let mut is_global = self.secrets.iter().any(|(n, _)| n == clean_name);
@@ -432,9 +490,12 @@ impl SecretsState {
             }
         }
         if is_global {
-            return Err(format!(
-                "'{clean_name}' is a global secret and cannot be deleted from an environment. Manage it in Tools → Secrets."
-            ));
+            return Err(SecretsError::GlobalSecretReadOnly {
+                name: clean_name.to_string(),
+                message: format!(
+                    "'{clean_name}' is a global secret and cannot be deleted from an environment. Manage it in Tools → Secrets."
+                ),
+            });
         }
 
         if demo_mode {
@@ -442,12 +503,18 @@ impl SecretsState {
                 self.reload_environment_secrets(env, assigned_global_names, demo_mode);
             }
             let before_len = self.environment_secrets.len();
+            for row in &mut self.environment_secrets {
+                if row.scope == "environment" && row.name == clean_name {
+                    zeroize_string(&mut row.value);
+                }
+            }
             self.environment_secrets
                 .retain(|r| !(r.scope == "environment" && r.name == clean_name));
             if self.environment_secrets.len() == before_len {
-                return Err(format!(
-                    "Secret '{clean_name}' does not belong to environment '{env}'."
-                ));
+                return Err(SecretsError::SecretNotFound {
+                    name: clean_name.to_string(),
+                    env: Some(env.to_string()),
+                });
             }
             self.environment_secrets_error.clear();
             self.refresh_instance_secret_values_cache(demo_mode);
@@ -458,17 +525,19 @@ impl SecretsState {
         let mut disabled = load_secret_name_list(&store_path, "disabled");
         let mut found = false;
         let mut next = Vec::with_capacity(current.len());
-        for (n, v) in current {
+        for (n, mut v) in current {
             if n == clean_name {
+                zeroize_string(&mut v);
                 found = true;
             } else {
                 next.push((n, v));
             }
         }
         if !found {
-            return Err(format!(
-                "Secret '{clean_name}' does not belong to environment '{env}'."
-            ));
+            return Err(SecretsError::SecretNotFound {
+                name: clean_name.to_string(),
+                env: Some(env.to_string()),
+            });
         }
         disabled.retain(|n| n != clean_name);
 
@@ -487,16 +556,20 @@ impl SecretsState {
         enabled: bool,
         assigned_global_names: &[String],
         demo_mode: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), SecretsError> {
         let env = env_name.trim();
         let store_path = environment_secrets_store_path(&self.secrets_path, env);
         if store_path.is_empty() {
-            return Err("Select an environment before changing a secret.".to_string());
+            return Err(SecretsError::NoEnvironmentSelected {
+                action: "changing a secret",
+            });
         }
 
         let clean_name = name.trim();
         if !is_valid_secret_name(clean_name) {
-            return Err(format!("Invalid secret name '{clean_name}'."));
+            return Err(SecretsError::InvalidSecretName {
+                name: clean_name.to_string(),
+            });
         }
 
         if demo_mode {
@@ -506,16 +579,18 @@ impl SecretsState {
                     return Ok(());
                 }
             }
-            return Err(format!(
-                "Secret '{clean_name}' does not belong to environment '{env}'."
-            ));
+            return Err(SecretsError::SecretNotFound {
+                name: clean_name.to_string(),
+                env: Some(env.to_string()),
+            });
         }
 
         let pairs = load_secrets_store(&store_path)?;
         if !pairs.iter().any(|(n, _)| n == clean_name) {
-            return Err(format!(
-                "Secret '{clean_name}' does not belong to environment '{env}'."
-            ));
+            return Err(SecretsError::SecretNotFound {
+                name: clean_name.to_string(),
+                env: Some(env.to_string()),
+            });
         }
 
         let mut disabled = load_secret_name_list(&store_path, "disabled");
@@ -536,7 +611,7 @@ impl SecretsState {
         env_name: &str,
         assigned_global_names: &[String],
         demo_mode: bool,
-    ) -> Result<Vec<(String, String)>, String> {
+    ) -> Result<Vec<(String, String)>, SecretsError> {
         let mut resolved: Vec<(String, String)> = Vec::new();
         if !assigned_global_names.is_empty() {
             let store = if demo_mode {
@@ -579,6 +654,7 @@ impl SecretsState {
 
 fn upsert_pair(list: &mut Vec<(String, String)>, name: &str, value: &str) {
     if let Some(existing) = list.iter_mut().find(|(n, _)| n == name) {
+        zeroize_string(&mut existing.1);
         existing.1 = value.to_string();
     } else {
         list.push((name.to_string(), value.to_string()));

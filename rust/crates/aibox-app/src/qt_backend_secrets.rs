@@ -74,7 +74,7 @@ impl qobject::Backend {
             rust.engine.secrets.save_secret(&name_s, &val_s, demo)
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
         self.as_mut().sync_secrets_properties();
         QString::default()
@@ -88,7 +88,7 @@ impl qobject::Backend {
             rust.engine.secrets.delete_secret(&name_s, demo)
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
         self.as_mut().sync_secrets_properties();
         QString::default()
@@ -126,7 +126,7 @@ impl qobject::Backend {
                 .set_global_secret_instance_visible(&name_s, visible, demo)
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
 
         if !visible {
@@ -189,7 +189,7 @@ impl qobject::Backend {
             )
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
         if demo || self.engine.secrets.environment_secrets_env == env_trimmed {
             self.as_mut().sync_environment_secrets_properties();
@@ -219,7 +219,7 @@ impl qobject::Backend {
             )
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
         if demo || self.engine.secrets.environment_secrets_env == env_trimmed {
             self.as_mut().sync_environment_secrets_properties();
@@ -278,7 +278,7 @@ impl qobject::Backend {
             )
         };
         if let Err(e) = res {
-            return QString::from(e.as_str());
+            return QString::from(e.to_string().as_str());
         }
         if demo || self.engine.secrets.environment_secrets_env == env_trimmed {
             self.as_mut().sync_environment_secrets_properties();

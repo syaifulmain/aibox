@@ -301,11 +301,12 @@ fn dispatch(fn_name: &str, args: &Value) -> Value {
             let hidden = vec!["API_KEY".to_string(), "API_KEY".to_string()];
             let save_err = secrets::save_secrets_store(&store_path, &initial, &disabled, &hidden)
                 .err()
+                .map(|e| e.to_string())
                 .unwrap_or_default();
             let raw_json = fs::read_to_string(&store_path).unwrap_or_default();
             let (loaded, load_err) = match secrets::load_secrets_store(&store_path) {
                 Ok(v) => (v, String::new()),
-                Err(e) => (Vec::new(), e),
+                Err(e) => (Vec::new(), e.to_string()),
             };
             let loaded_arr: Vec<Value> = loaded
                 .into_iter()
@@ -334,6 +335,7 @@ fn dispatch(fn_name: &str, args: &Value) -> Value {
                 &[],
             )
             .err()
+            .map(|e| e.to_string())
             .unwrap_or_default();
             let _ = fs::remove_dir_all(work);
             json!(err)

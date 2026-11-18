@@ -435,7 +435,7 @@ fn push_secrets_for_env(engine: &Engine, env: &Environment) -> Result<String, St
         engine
             .secrets
             .resolve_environment_secrets(&env.name, &env.secret_names, false)?;
-    push_environment_secrets_to_container(&env.name, &resolved).map(|opt| opt.unwrap_or_default())
+    Ok(push_environment_secrets_to_container(&env.name, &resolved)?.unwrap_or_default())
 }
 
 fn run_enter(

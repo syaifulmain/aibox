@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Secrets: `SecretsError`, Unified Atomic Write, Aho-Corasick Redaction & Security Tests (`rust/crates/aibox-core/src/secrets/`)
+
+- **Typed error (`secrets/error.rs`):** Added `SecretsError` (`thiserror`) across `store.rs`, `state.rs`, and `inject.rs`, ensuring `Display` never exposes secret values (only secret names, paths, modes, or static messages), with `From<SecretsError> for String` for boundary callers.
+- **Regex-free validation & unified atomic write (`secrets/store.rs`):** Replaced per-call `Regex::new` in `is_valid_secret_name` with direct ASCII byte validation (`^[A-Z_][A-Z0-9_]*$`), and replaced custom temp-file/rename logic in `save_secrets_store` with `util::paths::atomic_write_with_mode(..., Some(0o600))` while preserving `0700` directory permissions.
+- **Non-polling inject wait & zeroize (`secrets/inject.rs`, `secrets/mod.rs`, `secrets/state.rs`):** Replaced the 15 ms `try_wait` polling loop with `wait_child_with_timeout` (`child.wait_with_output()` in a worker thread + `mpsc::recv_timeout` + `SIGKILL` on timeout). Added volatile `zeroize_bytes` / `zeroize_string` helpers and applied them to transient secret buffers, JSON payloads, env-file strings, and `SecretsState::drop`.
+- **Single-pass Aho-Corasick & streaming redaction (`secrets/redact.rs`):** Implemented `SecretRedactor` (leftmost-longest O(n) multi-pattern Aho-Corasick matcher) and `StreamingRedactor` (buffering `max_secret_len - 1` trailing bytes across arbitrary chunk boundaries).
+- **Security & canary tests (`secrets/mod.rs`):** Added tests for `0600`/`0700` creation under permissive `umask(0o000)`, chunk-boundary streaming redaction, non-leakage in history/session/error messages, child timeout killing, buffer zeroization, multi-pattern Aho-Corasick redaction, and an end-to-end canary secret state-directory leak check.
+
 ### Core i18n: Zero-Allocation Lookup, Placeholder Validation & Catalog Lint (`rust/crates/aibox-core/src/i18n.rs`, `src/i18n/da.json`)
 
 - **Zero-allocation catalog lookup (`i18n.rs`, `qt_translator.rs`):** Changed `Catalog` and `Entry` storage from `String` to `Box<str>` (`HashMap<Box<str>, Entry>`) and `Catalog::lookup` to return `Option<&str>`, eliminating per-lookup `String` allocations on the core side.

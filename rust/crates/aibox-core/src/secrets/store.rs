@@ -2,18 +2,19 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use regex::Regex;
 use serde_json::{json, Value};
 
+use crate::secrets::error::SecretsError;
+use crate::secrets::{zeroize_bytes, zeroize_string};
+use crate::util::error::IoError;
 use crate::util::json::to_json_indented;
-use crate::util::paths::{clean_path, xdg_config_dir};
+use crate::util::paths::{atomic_write_with_mode, clean_path, xdg_config_dir};
 
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -90,11 +91,16 @@ pub fn environment_secrets_store_path(secrets_path: &str, env_name: &str) -> Str
 
 /// Returns true if `name` matches `^[A-Z_][A-Z0-9_]*$`.
 pub fn is_valid_secret_name(name: &str) -> bool {
-    // Use \A..\z so trailing newlines are rejected like QRegularExpression::match on single line,
-    // wait: QRegularExpression "^...$" without MultilineOption still matches before trailing \n!
-    // Check ASCII directly for exact ^[A-Z_][A-Z0-9_]*$ behaviour without regex overhead.
-    let re = Regex::new(r"^[A-Z_][A-Z0-9_]*$").expect("valid secret name regex");
-    re.is_match(name)
+    let bytes = name.as_bytes();
+    let Some(&first) = bytes.first() else {
+        return false;
+    };
+    if !(first.is_ascii_uppercase() || first == b'_') {
+        return false;
+    }
+    bytes[1..]
+        .iter()
+        .all(|&b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// Parses a comma-separated list of secret names, keeping valid unique names in order.
@@ -113,33 +119,33 @@ pub fn parse_env_secret_names(raw_csv: &str) -> Vec<String> {
 }
 
 /// Loads `(name, value)` pairs from `file_path`, refusing group/world-accessible files.
-pub fn load_secrets_store(file_path: &str) -> Result<Vec<(String, String)>, String> {
+pub fn load_secrets_store(file_path: &str) -> Result<Vec<(String, String)>, SecretsError> {
     if file_path.trim().is_empty() {
         return Ok(Vec::new());
     }
 
-    let meta = match fs::metadata(file_path) {
+    let path = Path::new(file_path);
+    let meta = match fs::metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(_) => {
-            return Err(format!(
-                "Could not inspect secrets file permissions: {file_path}"
-            ))
-        }
+        Err(e) => return Err(IoError::new("inspect permissions on", path, e).into()),
     };
 
     let mode = meta.permissions().mode();
     if (mode & 0o077) != 0 {
-        return Err(format!(
-            "Refusing to read {file_path} with insecure permissions ({:o}). Run: chmod 600 {file_path}",
-            mode & 0o777
-        ));
+        return Err(SecretsError::InsecurePermissions {
+            path: path.to_path_buf(),
+            mode: mode & 0o777,
+        });
     }
 
-    let bytes =
-        fs::read(file_path).map_err(|_| format!("Could not open secrets file: {file_path}"))?;
-    let doc: Value =
-        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid JSON in secrets file: {e}"))?;
+    let mut bytes = fs::read(path).map_err(|e| IoError::new("read", path, e))?;
+    let parse_res: Result<Value, _> = serde_json::from_slice(&bytes);
+    zeroize_bytes(&mut bytes);
+    let doc = parse_res.map_err(|source| SecretsError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
     let arr = if let Some(obj) = doc.as_object() {
         obj.get("secrets").and_then(|v| v.as_array())
@@ -212,19 +218,19 @@ pub fn save_secrets_store(
     secrets: &[(String, String)],
     disabled_names: &[String],
     hidden_in_instances: &[String],
-) -> Result<(), String> {
+) -> Result<(), SecretsError> {
     let clean = clean_path(file_path.trim());
     if clean.is_empty() {
-        return Err("Invalid secrets store path.".to_string());
+        return Err(SecretsError::InvalidPath);
     }
 
     let mut arr = Vec::new();
     let mut seen = HashSet::new();
     for (name, value) in secrets {
         if !is_valid_secret_name(name) {
-            return Err(format!(
-                "Invalid secret name '{name}'. Use ^[A-Z_][A-Z0-9_]*$."
-            ));
+            return Err(SecretsError::InvalidSecretName {
+                name: name.to_string(),
+            });
         }
         if !seen.insert(name.clone()) {
             continue;
@@ -246,12 +252,11 @@ pub fn save_secrets_store(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("/"));
-    let dir_str = dir_path.to_string_lossy();
 
     fs::create_dir_all(&dir_path)
-        .map_err(|_| format!("Could not create secrets directory: {dir_str}"))?;
+        .map_err(|e| IoError::new("create secrets directory", &dir_path, e))?;
     fs::set_permissions(&dir_path, fs::Permissions::from_mode(0o700))
-        .map_err(|_| format!("Could not set 0700 permissions on directory: {dir_str}"))?;
+        .map_err(|e| IoError::new("set 0700 permissions on", &dir_path, e))?;
 
     let mut root = BTreeMap::new();
     root.insert("secrets", Value::Array(arr));
@@ -284,31 +289,10 @@ pub fn save_secrets_store(
         root.insert("hiddenInInstances", Value::Array(hidden_arr));
     }
 
-    let payload =
-        to_json_indented(&root).map_err(|e| format!("Could not serialize secrets store: {e}"))?;
-
-    let tmp_path = format!("{clean}.tmp.{}", unique_id128());
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp_path)
-        .map_err(|_| format!("Could not create temporary secrets file: {tmp_path}"))?;
-
-    let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
-    if file.write_all(payload.as_bytes()).is_err() {
-        drop(file);
-        let _ = fs::remove_file(&tmp_path);
-        return Err(format!("Could not write secrets file: {clean}"));
-    }
-    drop(file);
-
-    if fs::rename(&tmp_path, &clean).is_err() {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(format!("Could not replace secrets file: {clean}"));
-    }
-    fs::set_permissions(&clean, fs::Permissions::from_mode(0o600))
-        .map_err(|_| format!("Could not set 0600 permissions on secrets file: {clean}"))?;
+    let mut payload = to_json_indented(&root).map_err(SecretsError::Serialize)?;
+    let write_res = atomic_write_with_mode(Path::new(&clean), payload.as_bytes(), Some(0o600));
+    zeroize_string(&mut payload);
+    write_res?;
 
     Ok(())
 }

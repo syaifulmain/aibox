@@ -544,7 +544,7 @@ impl qobject::Backend {
         ) {
             Ok(p) => p,
             Err(err) => {
-                self.as_mut().finish_enter(&err);
+                self.as_mut().finish_enter(&err.to_string());
                 return;
             }
         };
@@ -553,11 +553,13 @@ impl qobject::Backend {
             return;
         }
 
-        let content = build_secret_env_file_content(&pairs);
-        let host_secret_file = match create_host_temp_secret_file(&content) {
+        let mut content = build_secret_env_file_content(&pairs);
+        let file_res = create_host_temp_secret_file(&content);
+        aibox_core::secrets::zeroize_string(&mut content);
+        let host_secret_file = match file_res {
             Ok(path) => path,
             Err(err) => {
-                self.as_mut().finish_enter(&err);
+                self.as_mut().finish_enter(&err.to_string());
                 return;
             }
         };
