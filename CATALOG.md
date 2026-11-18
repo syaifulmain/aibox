@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Network: Incremental Egress Tailing, IPv6 Allowlist/Egress, ACL Diff & Safe IP Parsing (`rust/crates/aibox-core/src/network/`)
+
+- **Safe IP parsing (`network/allowlist.rs`):** Removed `.unwrap()` calls on IP parsing and ensured invalid CIDRs, malformed hostnames, and garbage DNS responses are skipped with warnings without panicking.
+- **Incremental egress parsing & aggregation (`network/egress.rs`):** Added `EgressEnvState` and `EgressLogCache` to track per-environment byte offsets (`Seek`), detect log rotation/truncation (file size shrinking resets offset), and aggregate `(DST, DPT, PROTO)` counts using a single-pass token parser instead of per-line regexes.
+- **IPv6 support (`network/allowlist.rs`, `network/egress.rs`, `network/acl.rs`):** Added `is_private_or_reserved_ipv6`, `parse_ipv6_subnet`, `HostResolver::resolve_ips`, `resolve_allowlist_cidrs_with_ipv6`, IPv6 `SRC`/`DST` handling in kernel egress logs, and `/128` deduplication in `add_egress_destination_allowlist`.
+- **Incremental ACL diff (`network/acl.rs`):** Added `diff_acl_cidrs`, `parse_acl_egress_destinations`, and `acl_diff_shell_snippet` to compute minimal rule additions/removals instead of recreating the entire Incus ACL.
+- **Verification tests (`network/`):** Added tests for a 100k-line egress log fixture (second refresh without new data completing in `< 5 ms`), log append and rotation, IPv6 allowlist/egress parsing, ACL diffing, and invalid allowlist entry handling.
+
 ### Core Workspace: Symlink-Safe Restore, Streaming Diff, Diff Cache & `diff/` Split (`rust/crates/aibox-core/src/workspace/diff/`, `aibox-app`)
 
 - **Modular split (`workspace/diff/mod.rs`, `rsync.rs`, `file.rs`, `restore.rs`):** Split `workspace/diff.rs` into focused submodules for rsync arg building/parsing/caching (`rsync.rs`), per-file diff preparation and binary/line checks (`file.rs`), and symlink-safe single-file restore (`restore.rs`), preserving all `aibox_core::workspace::diff` exports.
