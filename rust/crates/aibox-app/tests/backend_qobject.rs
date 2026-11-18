@@ -29,6 +29,11 @@ extern "C" {
     fn aibox_test_backend_selected_env_empty(ptr: *mut c_void) -> bool;
     fn aibox_test_backend_env_count(ptr: *mut c_void) -> c_int;
     fn aibox_test_backend_enter_environment(ptr: *mut c_void, name: *const c_char);
+    fn aibox_test_backend_environments_json(
+        ptr: *mut c_void,
+        buf: *mut c_char,
+        buf_len: c_int,
+    ) -> c_int;
 
     fn aibox_test_theme_new() -> *mut c_void;
     fn aibox_test_theme_free(ptr: *mut c_void);
@@ -133,6 +138,21 @@ impl BackendHandle {
     fn enter_environment(&self, name: &str) {
         let c_name = CString::new(name).unwrap();
         unsafe { aibox_test_backend_enter_environment(self.0, c_name.as_ptr()) };
+    }
+
+    fn environments_json(&self) -> String {
+        let mut buf = vec![0u8; 65536];
+        let len = unsafe {
+            aibox_test_backend_environments_json(
+                self.0,
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len() as c_int,
+            )
+        };
+        if len <= 0 {
+            return "[]".to_string();
+        }
+        String::from_utf8_lossy(&buf[..len as usize]).to_string()
     }
 }
 
@@ -445,6 +465,139 @@ fn test_theme_qobject_live_switch_dark_to_light_emits_changed_once() {
     assert_ne!(theme.string_prop("borderSubtle"), prev_border);
 }
 
+struct CaptureCliIo {
+    stdout: Vec<u8>,
+}
+
+impl aibox_core::cli::CliIo for CaptureCliIo {
+    fn write_stdout(&mut self, data: &[u8]) {
+        self.stdout.extend_from_slice(data);
+    }
+    fn write_stderr(&mut self, _data: &[u8]) {}
+    fn read_line(&mut self) -> Option<String> {
+        None
+    }
+    fn run_forwarded(&mut self, _program: &str, _args: &[String]) -> i32 {
+        0
+    }
+    fn exec_replace(&mut self, _program: &str, _args: &[String]) -> i32 {
+        0
+    }
+}
+
+fn test_backend_and_cli_produce_identical_environment_model() {
+    let dir = TempDir::new("backend-cli-parity");
+    let stub_dir = dir.path().join("bin");
+    let proj_dir = dir.path().join("proj");
+    let ws_base = proj_dir.join(".aibox/workspaces");
+    fs::create_dir_all(&stub_dir).unwrap();
+    fs::create_dir_all(proj_dir.join(".aibox/state")).unwrap();
+    fs::create_dir_all(ws_base.join("app-box")).unwrap();
+    fs::write(
+        proj_dir.join(".aibox/config.json"),
+        r#"{"firstRunCompleted":true,"autoSnapshot":true,"watchdogAutoStop":false,"recordSessions":false}"#,
+    )
+    .unwrap();
+
+    let list_json_file = dir.path().join("list.json");
+    let list_json = format!(
+        r#"[
+  {{
+    "name": "app-box",
+    "status": "Stopped",
+    "type": "container",
+    "profiles": ["default", "ai-gui"],
+    "config": {{
+      "image.description": "Ubuntu noble amd64 (20261110)",
+      "limits.cpu": "4",
+      "limits.memory": "6GiB",
+      "user.aibox.autosnap": "true"
+    }},
+    "devices": {{
+      "root": {{ "size": "35GiB" }},
+      "workspace": {{ "type": "disk", "source": "{}/app-box" }}
+    }},
+    "snapshots": [{{ "name": "snap-initial" }}]
+  }}
+]"#,
+        ws_base.display()
+    );
+    fs::write(&list_json_file, &list_json).unwrap();
+
+    let incus_stub = format!(
+        "#!/bin/sh\nif [ \"$1\" = \"list\" ]; then\n    cat \"{}\"\n    exit 0\nfi\nif [ \"$1\" = \"image\" ]; then\n    echo '[]'\n    exit 0\nfi\nexit 0\n",
+        list_json_file.display()
+    );
+    write_executable(&stub_dir.join("incus"), &incus_stub);
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{old_path}", stub_dir.display());
+    std::env::set_var("PATH", &new_path);
+
+    let backend = BackendHandle::new();
+    backend.configure(&proj_dir, true);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while backend.env_count() == 0 && Instant::now() < deadline {
+        unsafe { aibox_test_process_events(50) };
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(backend.env_count(), 1);
+    let backend_json: serde_json::Value =
+        serde_json::from_str(&backend.environments_json()).expect("backend json");
+
+    let mut cli_io = CaptureCliIo { stdout: Vec::new() };
+    let args = aibox_core::cli::parse_args(&[
+        "--project".to_string(),
+        proj_dir.to_string_lossy().to_string(),
+        "list".to_string(),
+        "--json".to_string(),
+    ]);
+    let rc = aibox_core::cli::execute_with(
+        &args,
+        &mut cli_io,
+        &aibox_core::process::SystemRunner,
+        "/tmp",
+    );
+    std::env::set_var("PATH", old_path);
+    assert_eq!(rc, 0);
+
+    let cli_json: serde_json::Value =
+        serde_json::from_slice(&cli_io.stdout).expect("cli list json");
+
+    let b_arr = backend_json.as_array().expect("backend array");
+    let c_arr = cli_json.as_array().expect("cli array");
+    assert_eq!(b_arr.len(), c_arr.len());
+
+    // Compare shared Environment model fields (excluding GUI/CLI-specific fileAccess key names).
+    for (b_env, c_env) in b_arr.iter().zip(c_arr.iter()) {
+        for key in [
+            "name",
+            "type",
+            "status",
+            "running",
+            "osName",
+            "preset",
+            "cpuCores",
+            "cpuLimit",
+            "memoryLimit",
+            "diskLimit",
+            "workspacePath",
+            "snapshots",
+            "snapshotCount",
+            "autoSnapshotEnabled",
+        ] {
+            assert_eq!(
+                b_env.get(key),
+                c_env.get(key),
+                "mismatch on Environment.{key}: backend={:?} cli={:?}",
+                b_env.get(key),
+                c_env.get(key)
+            );
+        }
+    }
+}
+
 fn main() {
     let _ = aibox_app::ensure_cxx_qt_linked();
     unsafe { aibox_test_init_gui_app() };
@@ -466,6 +619,10 @@ fn main() {
         (
             "theme_qobject_live_switch_dark_to_light_emits_changed_once",
             test_theme_qobject_live_switch_dark_to_light_emits_changed_once,
+        ),
+        (
+            "backend_and_cli_produce_identical_environment_model",
+            test_backend_and_cli_produce_identical_environment_model,
         ),
     ];
 

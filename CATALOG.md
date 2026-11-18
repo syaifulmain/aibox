@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Engine: Unified Refresh Path (`fetch_snapshot` / `apply_snapshot`), `RefreshDelta` & `EngineError` (`rust/crates/aibox-core/src/engine.rs`, `aibox-app`)
+
+- **Unified refresh pipeline (`engine.rs`, `qt_backend.rs`):** Split refresh into `Engine::fetch_snapshot` / `Engine::fetch_snapshot_with_options` (pure I/O via `CommandRunner`, safe on worker threads) and `Engine::apply_snapshot` (pure state update + file access + pool/catalog evaluation). Removed the duplicated `sh -c` refresh script and `apply_refresh_output` in `Backend` so both CLI (`Engine::refresh`, `Engine::refresh_sync`) and GUI (`Backend::refresh_with_catalog`, `Backend::apply_refresh_snapshot`) share one code path.
+- **`RefreshDelta` (`engine.rs`, `qt_backend.rs`):** `Engine::apply_snapshot` now returns `RefreshDelta` (`environments_changed`, `catalog_changed`, `pool_changed`, `list_parsed`, `allocated_bytes`, `unbounded_count`) so `Backend` only updates QVariant properties and emits `pool_info_changed`, `environments_changed`, and `os_catalog_changed` when state actually changes.
+- **Typed `EngineError` (`engine.rs`):** Added `EngineError` (`thiserror::Error`) wrapping `IncusDaemonUnreachable`, `InvalidJson`, `ConfigError`, `SecretsError`, and `IoError`, replacing `Result<(), String>` on `Engine::refresh` and `Engine::refresh_sync`.
+- **Verification & unit tests (`engine.rs`, `backend_qobject.rs`, `test_helpers.h/.cpp`):** Added mock-runner tests for unreachable Incus daemon, corrupted `incus list` JSON, missing storage pool, and `RefreshDelta` flags, plus a `backend_qobject` parity test confirming `Backend` and CLI `list --json` produce identical environment models from the same fixture.
+
 ### Core Task: Anti-PID-Reuse Lock, Atomic Writes, Streaming Incremental Log, `inotify` Watch & `result.json` (`rust/crates/aibox-core/src/task/`, `aibox-app`)
 
 - **Anti-PID-reuse lock (`task/files.rs`, `task/lock.rs`, `task/runner.rs`):** Recorded `/proc/<pid>/stat` field 22 (`starttime`) alongside the PID in `task.pid` (`read_process_start_time`, `read_task_lock`, `write_task_lock`) and in `build_detached_launch_command`; `is_task_lock_active` now treats a live PID with a mismatched start time as stale.

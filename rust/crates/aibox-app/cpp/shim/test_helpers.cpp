@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QMutex>
@@ -182,6 +184,13 @@ int aibox_test_backend_env_count(void *ptr) {
 void aibox_test_backend_enter_environment(void *ptr, const char *name) {
     auto *b = static_cast<Backend *>(ptr);
     b->enterEnvironment(QString::fromUtf8(name));
+}
+
+int aibox_test_backend_environments_json(void *ptr, char *buf, int buf_len) {
+    auto *b = static_cast<Backend *>(ptr);
+    const QJsonArray arr = QJsonArray::fromVariantList(b->getEnvironments());
+    const QString json = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    return copy_to_buf(json, buf, buf_len);
 }
 
 void *aibox_test_theme_new(void) {
