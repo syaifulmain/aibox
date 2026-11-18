@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core CLI: `ExitCode` Enum, `commands/` Split, `--json` Parity, Shell Completions & `clap` Evaluation (`rust/crates/aibox-core/src/cli/`, `README.md`)
+
+- **Typed `ExitCode` enum (`cli/mod.rs`, `cli/parse.rs`, `cli/commands/`, `README.md`):** Added `ExitCode` (`Ok = 0`, `Failed = 1`, `Usage = 2`, `Busy = 3`, `NotFound = 4`) across CLI argument parsing and command execution, and documented the exit code table in `README.md`.
+- **Modular `commands/` split (`cli/commands/mod.rs`, `env.rs`, `snapshot.rs`, `completions.rs`):** Split the 1058-line `cli/commands.rs` into focused submodules for environment lifecycle (`env.rs`), snapshot/restore/diff (`snapshot.rs`), shell completions (`completions.rs`), and shared dispatch/diagnostics/theme helpers (`mod.rs`).
+- **Shell completions (`cli/commands/completions.rs`, `cli/parse.rs`, `cli/help.rs`, `README.md`):** Added `aibox completions <bash|zsh|fish>` generating standalone completion scripts for `bash`, `zsh`, and `fish`.
+- **`clap` evaluation (`cli/parse.rs`):** Evaluated replacing the 357-line hand-rolled parser with `clap`; retained the zero-dependency parser because `clap` derive + custom GUI passthrough (`--project <dir>` without subcommand) + golden error-message parity would save fewer than 300 lines while adding proc-macro compile overhead and binary size.
+- **Verification & golden tests (`cli/mod.rs`, `tests/golden/cli.jsonl`, `tests/golden.rs`):** Verified `--json` outputs across `list`, `check`, `snapshots`, `diff`, and `theme dump`, and added unit and golden tests for `ExitCode`, `completions`, `check --json`, `diff --json`, `snapshots --json`, and `enter` exit codes.
+
 ### Core Engine: Unified Refresh Path (`fetch_snapshot` / `apply_snapshot`), `RefreshDelta` & `EngineError` (`rust/crates/aibox-core/src/engine.rs`, `aibox-app`)
 
 - **Unified refresh pipeline (`engine.rs`, `qt_backend.rs`):** Split refresh into `Engine::fetch_snapshot` / `Engine::fetch_snapshot_with_options` (pure I/O via `CommandRunner`, safe on worker threads) and `Engine::apply_snapshot` (pure state update + file access + pool/catalog evaluation). Removed the duplicated `sh -c` refresh script and `apply_refresh_output` in `Backend` so both CLI (`Engine::refresh`, `Engine::refresh_sync`) and GUI (`Backend::refresh_with_catalog`, `Backend::apply_refresh_snapshot`) share one code path.

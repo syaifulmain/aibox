@@ -11,6 +11,30 @@ use crate::process::{CommandRunner, SystemRunner};
 pub use help::help_text;
 pub use parse::{argv_without_program, is_cli_invocation, parse_args, parse_command_name};
 
+/// Documented CLI exit codes for automation scripts.
+#[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExitCode {
+    #[default]
+    Ok = 0,
+    Failed = 1,
+    Usage = 2,
+    Busy = 3,
+    NotFound = 4,
+}
+
+impl ExitCode {
+    pub const fn as_i32(self) -> i32 {
+        self as i32
+    }
+}
+
+impl From<ExitCode> for i32 {
+    fn from(code: ExitCode) -> Self {
+        code.as_i32()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Command {
     #[default]
@@ -27,6 +51,7 @@ pub enum Command {
     Restore,
     Diff,
     Theme,
+    Completions,
 }
 
 impl Command {
@@ -45,6 +70,7 @@ impl Command {
             Command::Restore => "restore",
             Command::Diff => "diff",
             Command::Theme => "theme",
+            Command::Completions => "completions",
         }
     }
 }
@@ -63,6 +89,7 @@ pub struct ParsedArgs {
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
+    pub shell: String,
     pub json_output: bool,
     pub fix: bool,
     pub system_only: bool,
@@ -74,7 +101,7 @@ impl Default for ParsedArgs {
     fn default() -> Self {
         Self {
             valid: true,
-            exit_code: 0,
+            exit_code: ExitCode::Ok.as_i32(),
             error_message: String::new(),
             command: Command::None,
             help_target: Command::None,
@@ -85,6 +112,7 @@ impl Default for ParsedArgs {
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
+            shell: String::new(),
             json_output: false,
             fix: false,
             system_only: false,
@@ -834,5 +862,229 @@ mod tests {
         assert!(!parse_args(&svec(&["list", "--output", &out_str])).valid);
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn cli_exit_code_enum_matches_documented_values() {
+        assert_eq!(ExitCode::Ok.as_i32(), 0);
+        assert_eq!(ExitCode::Failed.as_i32(), 1);
+        assert_eq!(ExitCode::Usage.as_i32(), 2);
+        assert_eq!(ExitCode::Busy.as_i32(), 3);
+        assert_eq!(ExitCode::NotFound.as_i32(), 4);
+        assert_eq!(i32::from(ExitCode::Busy), 3);
+    }
+
+    #[test]
+    fn cli_completions_generates_scripts_and_rejects_invalid_shells() {
+        let runner = StubRunner::new("[]".to_string());
+
+        for (shell, expected_marker) in [
+            ("bash", "_aibox_completions()"),
+            ("zsh", "#compdef aibox"),
+            ("fish", "complete -c aibox"),
+        ] {
+            let parsed = parse_args(&svec(&["completions", shell]));
+            assert!(parsed.valid, "failed to parse completions {shell}");
+            assert_eq!(parsed.command, Command::Completions);
+            assert_eq!(parsed.shell, shell);
+
+            let mut io = TestCliIo::new();
+            let rc = execute_with(&parsed, &mut io, &runner, "/tmp");
+            assert_eq!(rc, ExitCode::Ok.as_i32());
+            assert!(io.stderr_str().is_empty());
+            assert!(io.stdout_str().contains(expected_marker));
+        }
+
+        for bad in [
+            svec(&["completions"]),
+            svec(&["completions", "powershell"]),
+            svec(&["completions", "bash", "--json"]),
+        ] {
+            let parsed = parse_args(&bad);
+            assert!(!parsed.valid, "expected usage error for {:?}", bad);
+            assert_eq!(parsed.exit_code, ExitCode::Usage.as_i32());
+            let mut io = TestCliIo::new();
+            let rc = execute_with(&parsed, &mut io, &runner, "/tmp");
+            assert_eq!(rc, ExitCode::Usage.as_i32());
+            assert!(io.stdout_str().is_empty());
+            assert!(io.stderr_str().contains("Error:"));
+        }
+    }
+
+    #[test]
+    fn cli_check_and_diff_json_and_text_outputs() {
+        let dir = temp_dir("check_diff_json");
+        let proj = dir.join("proj");
+        let ws_base = proj.join(".aibox/workspaces");
+        let snap_dir = ws_base.join(".snapshots/dev");
+        let ws_dir = ws_base.join("dev");
+        fs::create_dir_all(snap_dir.join("snap-1")).expect("mkdir snap");
+        fs::create_dir_all(&ws_dir).expect("mkdir ws");
+        fs::create_dir_all(proj.join(".aibox/state")).expect("mkdir state");
+
+        struct CheckDiffRunner {
+            list_json: String,
+        }
+        impl CommandRunner for CheckDiffRunner {
+            fn run(&self, program: &str, args: &[&str]) -> CommandOutput {
+                if program == "incus" && args.first() == Some(&"list") {
+                    return CommandOutput {
+                        exit_code: 0,
+                        std_out: self.list_json.clone(),
+                        std_err: String::new(),
+                    };
+                }
+                if program == "rsync" {
+                    return CommandOutput {
+                        exit_code: 0,
+                        std_out: "*deleting   0 added.txt\n".to_string(),
+                        std_err: String::new(),
+                    };
+                }
+                CommandOutput {
+                    exit_code: 1,
+                    std_out: String::new(),
+                    std_err: String::new(),
+                }
+            }
+            fn socket_writable(&self, _path: &str) -> bool {
+                false
+            }
+        }
+
+        let list_json = format!(
+            r#"[{{"name":"dev","type":"container","status":"Stopped","config":{{"user.aibox.wssnap":"true"}},"expanded_devices":{{"workspace":{{"source":"{}","path":"/home/workspace"}}}},"snapshots":[{{"name":"snap-1"}}]}}]"#,
+            ws_dir.display()
+        );
+        let runner = CheckDiffRunner { list_json };
+        let proj_str = proj.to_string_lossy().to_string();
+
+        // check --json
+        let mut io_check = TestCliIo::new();
+        let rc_check = execute_with(
+            &parse_args(&svec(&["check", "--json"])),
+            &mut io_check,
+            &runner,
+            "/tmp",
+        );
+        assert_eq!(rc_check, ExitCode::Failed.as_i32());
+        let check_val: serde_json::Value =
+            serde_json::from_str(&io_check.stdout_str()).expect("valid check json");
+        assert_eq!(check_val["allOk"], false);
+        assert!(check_val["checks"].is_array());
+
+        // diff --json
+        let mut io_diff_json = TestCliIo::new();
+        let rc_diff_json = execute_with(
+            &parse_args(&svec(&[
+                "--project",
+                &proj_str,
+                "diff",
+                "dev",
+                "snap-1",
+                "--json",
+            ])),
+            &mut io_diff_json,
+            &runner,
+            "/tmp",
+        );
+        assert_eq!(rc_diff_json, ExitCode::Ok.as_i32());
+        let diff_val: serde_json::Value =
+            serde_json::from_str(&io_diff_json.stdout_str()).expect("valid diff json");
+        assert_eq!(diff_val["summary"]["addedCount"], 1);
+        assert_eq!(diff_val["entries"][0]["path"], "added.txt");
+
+        // diff text
+        let mut io_diff_txt = TestCliIo::new();
+        let rc_diff_txt = execute_with(
+            &parse_args(&svec(&["--project", &proj_str, "diff", "dev", "snap-1"])),
+            &mut io_diff_txt,
+            &runner,
+            "/tmp",
+        );
+        assert_eq!(rc_diff_txt, ExitCode::Ok.as_i32());
+        assert!(io_diff_txt
+            .stdout_str()
+            .contains("Snapshot: snap-1 (+1 ~0 -0, total 1)"));
+        assert!(io_diff_txt.stdout_str().contains("added.txt"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_snapshots_json_and_enter_exit_codes() {
+        let dir = temp_dir("snaps_enter");
+        let proj = dir.join("proj");
+        let ws_dir = proj.join(".aibox/workspaces/dev");
+        fs::create_dir_all(&ws_dir).expect("mkdir ws");
+        fs::create_dir_all(proj.join(".aibox/state")).expect("mkdir state");
+
+        let list_json = format!(
+            r#"[{{"name":"dev","type":"container","status":"Stopped","config":{{}},"expanded_devices":{{"workspace":{{"source":"{}","path":"/home/workspace"}}}},"snapshots":[{{"name":"snap-1"}}]}},{{"name":"tpl","type":"container","status":"Stopped","config":{{"user.aibox.template":"true"}},"expanded_devices":{{}},"snapshots":[]}}]"#,
+            ws_dir.display()
+        );
+        let runner = StubRunner::new(list_json);
+        let proj_str = proj.to_string_lossy().to_string();
+
+        // snapshots --json
+        let mut io_snaps = TestCliIo::new();
+        let rc_snaps = execute_with(
+            &parse_args(&svec(&[
+                "--project",
+                &proj_str,
+                "snapshots",
+                "dev",
+                "--json",
+            ])),
+            &mut io_snaps,
+            &runner,
+            "/tmp",
+        );
+        assert_eq!(rc_snaps, ExitCode::Ok.as_i32());
+        let snaps_val: serde_json::Value =
+            serde_json::from_str(&io_snaps.stdout_str()).expect("valid snapshots json");
+        assert_eq!(snaps_val[0]["name"], "snap-1");
+        assert_eq!(snaps_val[0]["hasSystem"], true);
+
+        // enter missing & template -> ExitCode::NotFound (4)
+        let mut io_missing = TestCliIo::new();
+        assert_eq!(
+            execute_with(
+                &parse_args(&svec(&["--project", &proj_str, "enter", "missing"])),
+                &mut io_missing,
+                &runner,
+                "/tmp",
+            ),
+            ExitCode::NotFound.as_i32()
+        );
+        assert!(io_missing.stderr_str().contains("was not found"));
+
+        let mut io_tpl = TestCliIo::new();
+        assert_eq!(
+            execute_with(
+                &parse_args(&svec(&["--project", &proj_str, "enter", "tpl"])),
+                &mut io_tpl,
+                &runner,
+                "/tmp",
+            ),
+            ExitCode::NotFound.as_i32()
+        );
+        assert!(io_tpl.stderr_str().contains("is a template"));
+
+        // enter dev -> exec_replace("incus", ...)
+        let mut io_enter = TestCliIo::new();
+        assert_eq!(
+            execute_with(
+                &parse_args(&svec(&["--project", &proj_str, "enter", "dev"])),
+                &mut io_enter,
+                &runner,
+                "/tmp",
+            ),
+            ExitCode::Ok.as_i32()
+        );
+        assert_eq!(io_enter.exec_calls.len(), 1);
+        assert_eq!(io_enter.exec_calls[0].0, "incus");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

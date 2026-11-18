@@ -64,6 +64,17 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 - `aibox restore <env> <snap> [--system-only|--workspace-only] [--yes]` — restore snapshot with safety backup
 - `aibox diff <env> [snap] [--json]` — review `/home/workspace` changes since a snapshot
 - `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
+- `aibox completions <bash|zsh|fish>` — generate shell completion scripts for `bash`, `zsh`, or `fish`
+
+### Exit Codes
+
+| Code | Name | Meaning |
+| :--- | :--- | :--- |
+| `0` | `Ok` | Command succeeded (or forwarded `<cmd>` exit code for `exec`) |
+| `1` | `Failed` | Operation failed |
+| `2` | `Usage` | Invalid CLI arguments or unknown command/option |
+| `3` | `Busy` | Another AIBox background task is currently running |
+| `4` | `NotFound` | Environment not found or is a template |
 
 ## Keyboard Shortcuts
 

@@ -47,6 +47,10 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20      aibox theme render-icon [--output PATH] [--theme-dir DIR]\n\n\
              Inspect derived semantic theme tokens or render the adaptive desktop icon.\n"
         }
+        Command::Completions => {
+            "Usage: aibox completions <bash|zsh|fish>\n\n\
+             Generate shell completion script for bash, zsh, or fish.\n"
+        }
         Command::Help | Command::None => {
             "Usage: aibox [--project <dir>] <command> [options]\n\n\
              Commands:\n\
@@ -61,6 +65,7 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20 restore <env> <snap> [--system-only|--workspace-only] [--yes]\n\
              \x20                                                     Restore snapshot\n\
              \x20 diff <env> [snap] [--json]                          Review /home/workspace changes\n\
+             \x20 completions <bash|zsh|fish>                         Generate shell completions\n\
              \x20 help [command]                                      Show help\n\n\
              Global options:\n\
              \x20 --project <dir>                                     Select project directory containing aibox/ (default: ~/aibox)\n\

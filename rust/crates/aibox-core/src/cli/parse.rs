@@ -1,4 +1,5 @@
-use crate::cli::{Command, ParsedArgs};
+use crate::cli::commands::completions::ShellKind;
+use crate::cli::{Command, ExitCode, ParsedArgs};
 use crate::util::names::sanitize_name;
 
 pub fn parse_command_name(token: &str) -> Command {
@@ -15,6 +16,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "restore" => Command::Restore,
         "diff" => Command::Diff,
         "theme" => Command::Theme,
+        "completions" => Command::Completions,
         _ => Command::None,
     }
 }
@@ -22,7 +24,7 @@ pub fn parse_command_name(token: &str) -> Command {
 pub fn make_usage_error(message: impl Into<String>, target: Command) -> ParsedArgs {
     ParsedArgs {
         valid: false,
-        exit_code: 2,
+        exit_code: ExitCode::Usage.as_i32(),
         error_message: message.into(),
         command: target,
         ..ParsedArgs::default()
@@ -339,6 +341,12 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 );
             }
         },
+        Command::Completions => {
+            if positionals.len() != 1 || ShellKind::parse(&positionals[0]).is_none() {
+                return make_usage_error("Expected <bash|zsh|fish>.", Command::Completions);
+            }
+            parsed.shell = positionals[0].clone();
+        }
         Command::None | Command::Help => {}
     }
 

@@ -1538,6 +1538,8 @@ fn dispatch(fn_name: &str, args: &Value) -> Value {
                 "snapshots" => cli::Command::Snapshots,
                 "restore" => cli::Command::Restore,
                 "diff" => cli::Command::Diff,
+                "theme" => cli::Command::Theme,
+                "completions" => cli::Command::Completions,
                 other => panic!("unknown cmd {other}"),
             };
             json!(cli::help_text(cmd))
