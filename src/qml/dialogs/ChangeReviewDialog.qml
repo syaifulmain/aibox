@@ -42,6 +42,8 @@ ModalDialog {
             Layout.fillWidth: true
             Layout.preferredHeight: Style.rowHeight
             clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
             RowLayout {
                 spacing: Style.gapSm
@@ -298,6 +300,8 @@ ModalDialog {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
                     TextArea {
                         readOnly: true

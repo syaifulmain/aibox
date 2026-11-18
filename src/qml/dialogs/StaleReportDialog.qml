@@ -166,6 +166,7 @@ ModalDialog {
         Layout.fillHeight: true
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
             width: staleReportScroll.availableWidth

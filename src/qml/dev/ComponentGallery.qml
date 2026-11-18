@@ -21,6 +21,8 @@ Window {
     ScrollView {
         anchors.fill: parent
         contentWidth: availableWidth
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
             width: galleryWin.width - Style.padModal * 2

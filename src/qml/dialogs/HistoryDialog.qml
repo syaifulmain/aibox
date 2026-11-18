@@ -178,6 +178,8 @@ ModalDialog {
                 anchors.fill: parent
                 anchors.margins: Style.gap
                 clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
                 TextArea {
                     readOnly: true
@@ -347,6 +349,8 @@ ModalDialog {
                 anchors.fill: parent
                 anchors.margins: Style.gap
                 clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
                 TextArea {
                     readOnly: true

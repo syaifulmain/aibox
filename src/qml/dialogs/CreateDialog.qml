@@ -64,6 +64,7 @@ ModalDialog {
         visible: !backend.busy
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
             id: createFormContent

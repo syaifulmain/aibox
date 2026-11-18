@@ -63,6 +63,10 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Hide ScrollBar Indicators Across All ScrollViews (`src/qml/`)
+
+- **Scrollbars hidden (`EnvironmentInspector.qml`, `SettingsPanel.qml`, `SecretsDialog.qml`, `CreateDialog.qml`, `StaleReportDialog.qml`, `ChangeReviewDialog.qml`, `HistoryDialog.qml`, `ComponentGallery.qml`):** Set `ScrollBar.horizontal.policy: ScrollBar.AlwaysOff` and `ScrollBar.vertical.policy: ScrollBar.AlwaysOff` on all `ScrollView`s so wheel/touchpad/keyboard scrolling works without visible scrollbar indicators.
+
 ### Secrets Inline Save & History List Surface (`SecretsDialog.qml`, `HistoryDialog.qml`)
 
 - **Secrets inline Save (`src/qml/dialogs/SecretsDialog.qml`):** Moved the `Save` primary button onto the same `RowLayout` to the right of the secret inputs and removed the separate footer row.
