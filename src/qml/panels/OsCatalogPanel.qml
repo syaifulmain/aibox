@@ -8,27 +8,27 @@ ColumnLayout {
     property QtObject app: null
 
     anchors.fill: parent
-    anchors.margins: Style.space20
-    spacing: Style.space14
+    anchors.margins: Style.padSection
+    spacing: Style.padCard
 
     RowLayout {
         Layout.fillWidth: true
 
         ColumnLayout {
-            spacing: Style.space2
+            spacing: Style.gapXs
 
             Text {
                 text: qsTr("Linux OS Image Catalog")
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font16
+                font.pixelSize: Style.fontHeading
                 font.weight: Font.Medium
             }
             Text {
                 text: qsTr("Pre-download OS images to local storage so new environments launch in under 1 second, or click 'Use This OS' to start immediately.")
                 color: theme.textSecondary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
         }
     }
@@ -38,29 +38,29 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
-        spacing: Style.space8
+        spacing: Style.gapMd
         model: backend.osCatalog
 
         delegate: Rectangle {
             required property var modelData
             width: osListView.width
             height: Style.listRowHeight
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceCard
             border.width: Style.hairline
             border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Style.space16
-                anchors.rightMargin: Style.space16
-                spacing: Style.space14
+                anchors.leftMargin: Style.padSection
+                anchors.rightMargin: Style.padSection
+                spacing: Style.padCard
 
                 // Cached / download state icon
                 Rectangle {
-                    width: Style.iconTile
-                    height: Style.iconTile
-                    radius: Math.min(Style.radius4, theme.radius)
+                    width: Style.controlHeight
+                    height: Style.controlHeight
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: modelData.downloaded ? theme.successSurface : theme.surfaceInput
                     border.width: Style.hairline
                     border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
@@ -70,35 +70,43 @@ ColumnLayout {
                         text: modelData.downloaded ? "✓" : "↓"
                         color: modelData.downloaded ? theme.successText : theme.accentText
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font14
+                        font.pixelSize: Style.fontTitle
                     }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space3
+                    spacing: Style.gapXs
 
                     RowLayout {
-                        spacing: Style.space8
+                        spacing: Style.gapMd
 
                         Text {
                             text: modelData.name
                             color: theme.textPrimary
                             font.family: Style.fontSans
-                            font.pixelSize: Style.font14
+                            font.pixelSize: Style.fontBody
                             font.weight: Font.Medium
+                        }
+
+                        Text {
+                            visible: (modelData.id || "").length > 0
+                            text: modelData.id || ""
+                            color: theme.textMuted
+                            font.family: Style.fontMono
+                            font.pixelSize: Style.fontCaption
                         }
 
                         TagBadge {
                             text: modelData.badge
                             tone: "accentQuiet"
-                            textSize: Style.font10
+                            textSize: Style.fontCaption
                         }
 
                         TagBadge {
                             text: modelData.downloading ? qsTr("Downloading...") : modelData.sizeText
                             tone: modelData.downloaded ? "success" : "quiet"
-                            textSize: Style.font10
+                            textSize: Style.fontCaption
                         }
                     }
 
@@ -108,16 +116,16 @@ ColumnLayout {
                         text: modelData.description
                         color: theme.textSecondary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                     }
                 }
 
                 ActionButton {
+                    compact: true
                     label: modelData.downloading
                            ? qsTr("Downloading...")
                            : (modelData.downloaded ? qsTr("Remove Cache") : qsTr("Download OS"))
-                    variant: modelData.downloaded ? "danger" : ""
-                    minWidth: 135
+                    variant: modelData.downloaded ? "danger" : "default"
                     disabled: backend.busy
                     onClicked: {
                         if (modelData.downloaded)
@@ -128,9 +136,9 @@ ColumnLayout {
                 }
 
                 ActionButton {
+                    compact: true
                     label: qsTr("Use This OS")
                     variant: "primary"
-                    minWidth: 125
                     disabled: backend.busy
                     onClicked: osCatalogRoot.app.openCreateDialog(modelData.id)
                 }

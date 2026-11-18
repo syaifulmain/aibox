@@ -66,8 +66,8 @@ Card {
                    ? theme.dangerText
                    : (root.alertLevel === 1
                       ? theme.warningText
-                      : (root.active
-                         ? (root.percent >= 85 ? theme.dangerText : theme.accentText)
+                      : (root.active && root.percent >= 85
+                         ? theme.dangerText
                          : theme.textMuted))
             font.family: Style.fontMono
             font.pixelSize: Style.fontCaption

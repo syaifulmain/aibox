@@ -4,220 +4,262 @@ import "../components"
 
 // Snapshot list plus the per-environment snapshot, idle-stop and session
 // recording policies.
-Rectangle {
+Card {
     id: root
     property QtObject app: null
     readonly property string snapshotNameText: snapNameInput.text
 
-    Layout.fillWidth: true
     Layout.fillHeight: true
     Layout.minimumHeight: 150
-    radius: Math.min(Style.radius4, theme.radius)
-    color: theme.surfaceInput
-    border.width: Style.hairline
-    border.color: theme.borderSubtle
-
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Style.space14
-        spacing: Style.space10
-
-        // Header and snapshot actions
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space10
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                spacing: Style.space2
-
-                Text {
-                    text: qsTr("Btrfs Snapshots")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font12
-                    font.weight: Font.Medium
-                }
-                Text {
-                    Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    text: qsTr("Before Enter & Start")
-                    color: theme.textSecondary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font11
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-
-            FlatInput {
-                id: snapNameInput
-                Layout.preferredWidth: 165
-                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                placeholder: qsTr("Snapshot label (optional)")
-                onAccepted: {
-                    if (!backend.busy) {
-                        backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
-                        snapNameInput.text = ""
-                    }
-                }
-            }
-
-            ActionButton {
-                minWidth: 138
-                label: qsTr("+ Save Snapshot")
-                disabled: backend.busy
-                Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
-                onClicked: {
+    title: qsTr("Btrfs Snapshots")
+    subtitle: qsTr("Before Enter & Start")
+    actions: [
+        FlatInput {
+            id: snapNameInput
+            Layout.preferredWidth: 165
+            Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+            placeholder: qsTr("Snapshot label (optional)")
+            onAccepted: {
+                if (!backend.busy) {
                     backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
                     snapNameInput.text = ""
                 }
             }
-        }
-
-        // Compact snapshot and safety policies
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space8
-
-            SelectChip {
-                readonly property bool policyOn: backend.selectedEnvironment.autoSnapshotEnabled !== false
-                text: policyOn ? qsTr("Auto-snapshot: ON") : qsTr("Auto-snapshot: OFF")
-                selected: policyOn
-                mono: false
-                textSize: Style.font10
-                chipHeight: Style.controlHeightXs
-                horizontalPadding: Style.space12
-                interactive: !backend.busy
-                onClicked: backend.setEnvironmentAutoSnapshot(
-                    backend.selectedEnvironment.name || "", !policyOn)
-            }
-
-            SelectChip {
-                readonly property bool policyOn: backend.selectedEnvironment.workspaceSnapshotEnabled !== false
-                visible: backend.selectedEnvironment.workspaceIsSubvolume || false
-                text: policyOn ? qsTr("Workspace: ON") : qsTr("Workspace: OFF")
-                selected: policyOn
-                mono: false
-                textSize: Style.font10
-                chipHeight: Style.controlHeightXs
-                horizontalPadding: Style.space12
-                interactive: !backend.busy
-                onClicked: backend.setEnvironmentWorkspaceSnapshot(
-                    backend.selectedEnvironment.name || "", !policyOn)
-            }
-
-            SelectChip {
-                readonly property bool policyOn: backend.selectedEnvironment.autoStopOnCritical || false
-                text: policyOn ? qsTr("Auto-stop critical: ON") : qsTr("Auto-stop critical: OFF")
-                selected: policyOn
-                mono: false
-                textSize: Style.font10
-                selectedFill: theme.dangerSurface
-                selectedBorderColor: theme.dangerBorder
-                selectedTextColor: theme.dangerText
-                chipHeight: Style.controlHeightXs
-                horizontalPadding: Style.space12
-                interactive: !backend.busy
-                onClicked: backend.setEnvironmentAutoStop(
-                    backend.selectedEnvironment.name || "", !policyOn)
-            }
-
-            Item { Layout.fillWidth: true }
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            height: Style.hairline
-            color: theme.borderSubtle
-        }
-
-        // One-time conversion banner for plain-directory workspaces on Btrfs
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space10
-            visible: ((backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)) || (backend.selectedEnvironment.hasPreSubvolBackup || false)
-
-            Text {
-                Layout.fillWidth: true
-                elide: Text.ElideRight
-                text: (backend.selectedEnvironment.hasPreSubvolBackup || false)
-                      ? qsTr("Pre-subvolume backup (.pre-subvol) is kept on disk.")
-                      : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired %1 snapshots.").arg(backend.containerWorkspacePath)
-                color: theme.textSecondary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-
-            ActionButton {
-                implicitHeight: Style.controlHeightSm
-                visible: (backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)
-                label: qsTr("Convert to Subvolume")
-                disabled: backend.busy || (backend.selectedEnvironment.running || false)
-                onClicked: backend.convertWorkspaceToSubvolume(backend.selectedEnvironment.name || "")
-            }
-
-            ActionButton {
-                implicitHeight: Style.controlHeightSm
-                visible: backend.selectedEnvironment.hasPreSubvolBackup || false
-                label: qsTr("Delete .pre-subvol")
-                variant: "danger"
-                disabled: backend.busy
-                onClicked: backend.deletePreSubvolBackup(backend.selectedEnvironment.name || "")
+        },
+        ActionButton {
+            label: qsTr("+ Save Snapshot")
+            disabled: backend.busy
+            Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+            onClicked: {
+                backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
+                snapNameInput.text = ""
             }
         }
+    ]
+
+    // Snapshot and safety policy toggles (34 px)
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.gap
+
+        ToggleChip {
+            readonly property bool policyOn: backend.selectedEnvironment.autoSnapshotEnabled !== false
+            label: qsTr("Auto-snapshot")
+            checked: policyOn
+            disabled: backend.busy
+            onToggled: backend.setEnvironmentAutoSnapshot(
+                backend.selectedEnvironment.name || "", !policyOn)
+        }
+
+        ToggleChip {
+            readonly property bool policyOn: backend.selectedEnvironment.workspaceSnapshotEnabled !== false
+            visible: backend.selectedEnvironment.workspaceIsSubvolume || false
+            label: qsTr("Workspace")
+            checked: policyOn
+            disabled: backend.busy
+            onToggled: backend.setEnvironmentWorkspaceSnapshot(
+                backend.selectedEnvironment.name || "", !policyOn)
+        }
+
+        ToggleChip {
+            readonly property bool policyOn: backend.selectedEnvironment.autoStopOnCritical || false
+            label: qsTr("Auto-stop critical")
+            checked: policyOn
+            disabled: backend.busy
+            onToggled: backend.setEnvironmentAutoStop(
+                backend.selectedEnvironment.name || "", !policyOn)
+        }
+
+        Item { Layout.fillWidth: true }
+    }
+
+    Rectangle {
+        Layout.fillWidth: true
+        height: Style.hairline
+        color: theme.borderSubtle
+    }
+
+    // One-time conversion banner for plain-directory workspaces on Btrfs
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Style.gap
+        visible: ((backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)) || (backend.selectedEnvironment.hasPreSubvolBackup || false)
 
         Text {
-            visible: (!backend.selectedEnvironment.snapshots || backend.selectedEnvironment.snapshots.length === 0) && (!backend.selectedEnvironment.orphanWorkspaceSnapshots || backend.selectedEnvironment.orphanWorkspaceSnapshots.length === 0)
-            text: qsTr("No snapshots saved for this environment yet.")
-            color: theme.textMuted
+            Layout.fillWidth: true
+            elide: Text.ElideRight
+            text: (backend.selectedEnvironment.hasPreSubvolBackup || false)
+                  ? qsTr("Pre-subvolume backup (.pre-subvol) is kept on disk.")
+                  : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired %1 snapshots.").arg(backend.containerWorkspacePath)
+            color: theme.textSecondary
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontSmall
         }
 
-        ListView {
-            id: snapListView
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            spacing: Style.space6
-            model: backend.selectedEnvironment.snapshots || []
+        ActionButton {
+            visible: (backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)
+            label: qsTr("Convert to Subvolume")
+            disabled: backend.busy || (backend.selectedEnvironment.running || false)
+            onClicked: backend.convertWorkspaceToSubvolume(backend.selectedEnvironment.name || "")
+        }
+
+        ActionButton {
+            visible: backend.selectedEnvironment.hasPreSubvolBackup || false
+            label: qsTr("Delete .pre-subvol")
+            variant: "danger"
+            disabled: backend.busy
+            onClicked: backend.deletePreSubvolBackup(backend.selectedEnvironment.name || "")
+        }
+    }
+
+    Text {
+        visible: (!backend.selectedEnvironment.snapshots || backend.selectedEnvironment.snapshots.length === 0) && (!backend.selectedEnvironment.orphanWorkspaceSnapshots || backend.selectedEnvironment.orphanWorkspaceSnapshots.length === 0)
+        Layout.fillWidth: true
+        horizontalAlignment: Text.AlignHCenter
+        text: qsTr("No snapshots saved for this environment yet.")
+        color: theme.textMuted
+        font.family: Style.fontSans
+        font.pixelSize: Style.fontSmall
+    }
+
+    ListView {
+        id: snapListView
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        clip: true
+        spacing: Style.gapSm
+        model: backend.selectedEnvironment.snapshots || []
+
+        delegate: Rectangle {
+            required property string modelData
+            readonly property bool hasWsHalf: (backend.selectedEnvironment.workspaceSnapshots || []).indexOf(modelData) >= 0
+            width: snapListView.width
+            height: Style.rowHeight
+            radius: Math.min(Style.radiusSm, theme.radius)
+            color: theme.surfaceInput
+            border.width: Style.hairline
+            border.color: theme.borderSubtle
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Style.padCard
+                anchors.rightMargin: Style.gap
+                spacing: Style.gap
+
+                Text {
+                    text: "●"
+                    color: theme.accent
+                    font.pixelSize: Style.fontCaption
+                }
+
+                TagBadge {
+                    visible: modelData.startsWith("auto-")
+                    text: qsTr("AUTO")
+                    tone: "quiet"
+                }
+
+                TagBadge {
+                    visible: hasWsHalf
+                    text: qsTr("W")
+                    tone: "accent"
+                    fillColor: theme.surfaceCard
+                    textWeight: Font.Bold
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
+                    text: modelData
+                    color: theme.textPrimary
+                    font.family: Style.fontMono
+                    font.pixelSize: Style.fontBody
+                }
+
+                Text {
+                    readonly property string snapSize: (backend.selectedEnvironment.snapshotSizes
+                                                        && backend.selectedEnvironment.snapshotSizes[modelData])
+                                                       ? backend.selectedEnvironment.snapshotSizes[modelData]
+                                                       : ""
+                    readonly property string wsSize: (backend.selectedEnvironment.workspaceSnapshotSizes
+                                                      && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
+                                                     ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
+                                                     : ""
+                    readonly property string combinedSize: {
+                        if (snapSize.length > 0 && wsSize.length > 0)
+                            return snapSize + " · W: " + wsSize
+                        if (snapSize.length > 0)
+                            return snapSize
+                        if (wsSize.length > 0)
+                            return "W: " + wsSize
+                        return ""
+                    }
+                    visible: combinedSize.length > 0
+                    text: combinedSize
+                    color: theme.textMuted
+                    font.family: Style.fontMono
+                    font.pixelSize: Style.fontSmall
+                }
+
+                ActionButton {
+                    compact: true
+                    visible: hasWsHalf
+                    label: qsTr("Changes")
+                    onClicked: app.openChangeReviewDialog(modelData)
+                }
+
+                ActionButton {
+                    compact: true
+                    label: qsTr("Restore")
+                    disabled: backend.busy
+                    onClicked: app.openRestoreDialog(modelData, true, hasWsHalf)
+                }
+
+                ActionButton {
+                    compact: true
+                    label: qsTr("Delete")
+                    variant: "danger"
+                    disabled: backend.busy
+                    onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
+                }
+            }
+        }
+    }
+
+    // Workspace-only snapshots (pre-restore safety snapshots or orphans)
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.gapSm
+        visible: (backend.selectedEnvironment.orphanWorkspaceSnapshots || []).length > 0
+
+        Text {
+            text: qsTr("Workspace-only snapshots")
+            color: theme.textSecondary
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+        }
+
+        Repeater {
+            model: backend.selectedEnvironment.orphanWorkspaceSnapshots || []
 
             delegate: Rectangle {
                 required property string modelData
-                readonly property bool hasWsHalf: (backend.selectedEnvironment.workspaceSnapshots || []).indexOf(modelData) >= 0
-                width: snapListView.width
+                Layout.fillWidth: true
                 height: Style.rowHeight
-                radius: Math.min(Style.radius3, theme.radius)
-                color: theme.surfaceCard
+                radius: Math.min(Style.radiusSm, theme.radius)
+                color: theme.surfaceInput
                 border.width: Style.hairline
                 border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space10
-                    spacing: Style.space10
-
-                    Text {
-                        text: "●"
-                        color: theme.accent
-                        font.pixelSize: Style.font10
-                    }
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.gap
+                    spacing: Style.gap
 
                     TagBadge {
-                        visible: modelData.startsWith("auto-")
-                        text: qsTr("AUTO")
+                        text: qsTr("WS ONLY")
                         tone: "quiet"
-                    }
-
-                    TagBadge {
-                        visible: hasWsHalf
-                        text: qsTr("W")
-                        tone: "accent"
-                        fillColor: theme.surfaceInput
-                        textWeight: Font.Bold
                     }
 
                     Text {
@@ -227,137 +269,40 @@ Rectangle {
                         text: modelData
                         color: theme.textPrimary
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontSmall
                     }
 
                     Text {
-                        readonly property string snapSize: (backend.selectedEnvironment.snapshotSizes
-                                                            && backend.selectedEnvironment.snapshotSizes[modelData])
-                                                           ? backend.selectedEnvironment.snapshotSizes[modelData]
-                                                           : ""
-                        readonly property string wsSize: (backend.selectedEnvironment.workspaceSnapshotSizes
-                                                          && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
-                                                         ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
-                                                         : ""
-                        readonly property string combinedSize: {
-                            if (snapSize.length > 0 && wsSize.length > 0)
-                                return snapSize + " · W: " + wsSize
-                            if (snapSize.length > 0)
-                                return snapSize
-                            if (wsSize.length > 0)
-                                return "W: " + wsSize
-                            return ""
-                        }
-                        visible: combinedSize.length > 0
-                        text: combinedSize
+                        readonly property string wsOnlySize: (backend.selectedEnvironment.workspaceSnapshotSizes
+                                                              && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
+                                                             ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
+                                                             : ""
+                        visible: wsOnlySize.length > 0
+                        text: wsOnlySize
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
 
                     ActionButton {
-                        implicitHeight: Style.controlHeightXxs
-                        visible: hasWsHalf
+                        compact: true
                         label: qsTr("Changes")
                         onClicked: app.openChangeReviewDialog(modelData)
                     }
 
                     ActionButton {
-                        implicitHeight: Style.controlHeightXxs
+                        compact: true
                         label: qsTr("Restore")
                         disabled: backend.busy
-                        onClicked: app.openRestoreDialog(modelData, true, hasWsHalf)
+                        onClicked: app.openRestoreDialog(modelData, false, true)
                     }
 
                     ActionButton {
-                        implicitHeight: Style.controlHeightXxs
+                        compact: true
                         label: qsTr("Delete")
                         variant: "danger"
                         disabled: backend.busy
                         onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
-                    }
-                }
-            }
-        }
-
-        // Workspace-only snapshots (pre-restore safety snapshots or orphans)
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: Style.space4
-            visible: (backend.selectedEnvironment.orphanWorkspaceSnapshots || []).length > 0
-
-            Text {
-                text: qsTr("Workspace-only snapshots")
-                color: theme.textSecondary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-
-            Repeater {
-                model: backend.selectedEnvironment.orphanWorkspaceSnapshots || []
-
-                delegate: Rectangle {
-                    required property string modelData
-                    Layout.fillWidth: true
-                    height: Style.rowHeight
-                    radius: Math.min(Style.radius3, theme.radius)
-                    color: theme.surfaceCard
-                    border.width: Style.hairline
-                    border.color: theme.borderSubtle
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: Style.space12
-                        anchors.rightMargin: Style.space10
-                        spacing: Style.space10
-
-                        TagBadge {
-                            text: qsTr("WS ONLY")
-                            tone: "quiet"
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            elide: Text.ElideRight
-                            text: modelData
-                            color: theme.textPrimary
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font11
-                        }
-
-                        Text {
-                            readonly property string wsOnlySize: (backend.selectedEnvironment.workspaceSnapshotSizes
-                                                                  && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
-                                                                 ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
-                                                                 : ""
-                            visible: wsOnlySize.length > 0
-                            text: wsOnlySize
-                            color: theme.textMuted
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font11
-                        }
-
-                        ActionButton {
-                            implicitHeight: Style.controlHeightXxs
-                            label: qsTr("Changes")
-                            onClicked: app.openChangeReviewDialog(modelData)
-                        }
-
-                        ActionButton {
-                            implicitHeight: Style.controlHeightXxs
-                            label: qsTr("Restore")
-                            disabled: backend.busy
-                            onClicked: app.openRestoreDialog(modelData, false, true)
-                        }
-
-                        ActionButton {
-                            implicitHeight: Style.controlHeightXxs
-                            label: qsTr("Delete")
-                            variant: "danger"
-                            disabled: backend.busy
-                            onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
-                        }
                     }
                 }
             }

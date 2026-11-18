@@ -32,14 +32,14 @@ Item {
 
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - Style.space20 * 4, 480)
-                spacing: Style.space12
+                width: Math.min(parent.width - Style.padModal * 3, 480)
+                spacing: Style.padCard
 
                 BrandMark {
                     Layout.alignment: Qt.AlignHCenter
                     markSize: 42
-                    markRadius: Style.radius6
-                    textSize: Style.font16
+                    markRadius: Style.radiusLg
+                    textSize: Style.fontHeading
                     quiet: true
                 }
 
@@ -49,7 +49,7 @@ Item {
                     text: qsTr("No Isolated Environments Yet")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font16
+                    font.pixelSize: Style.fontHeading
                     font.weight: Font.Medium
                 }
 
@@ -61,13 +61,13 @@ Item {
                     text: qsTr("Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via %1, and wipe it in 1 second when done.").arg(backend.containerWorkspacePath)
                     color: theme.textSecondary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                 }
 
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.topMargin: Style.space8
-                    spacing: Style.space10
+                    Layout.topMargin: Style.gapMd
+                    spacing: Style.gap
 
                     ActionButton {
                         label: qsTr("+ Create First Environment")
