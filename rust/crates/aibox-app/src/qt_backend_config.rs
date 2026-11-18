@@ -14,7 +14,7 @@ use aibox_core::config::settings::{
 use aibox_core::util::paths::{default_location_file_path, save_location_file};
 
 use crate::qt_backend::{find_executable, qobject};
-use crate::variant::json_array_to_qvariant_list;
+use crate::qt_convert::json_array_to_qvariant_list;
 
 const BUSY_CONFIG_MSG: &str =
     "Wait for the current operation to finish before changing the configuration.";

@@ -16,7 +16,7 @@ use aibox_core::network::ports::{
 };
 
 use crate::qt_backend::{qobject, spawn_detached};
-use crate::variant::{json_array_to_qvariant_list, serialize_to_qvariant_list};
+use crate::qt_convert::{json_array_to_qvariant_list, serialize_to_qvariant_list};
 
 impl qobject::Backend {
     pub fn set_network_mode(

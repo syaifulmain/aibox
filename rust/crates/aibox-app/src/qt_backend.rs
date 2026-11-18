@@ -5,37 +5,31 @@ use std::path::Path;
 use std::pin::Pin;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use cxx_qt::{CxxQtType, Threading};
+use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QUrl, QVariant};
 
-use aibox_core::backup::{build_stale_report, scan_backup_archives};
 use aibox_core::config::defaults::{
     default_cpu_options, default_disk_options, default_presets, default_ram_options,
 };
 use aibox_core::config::settings::stale_day_options;
-use aibox_core::engine::{Engine, RawSnapshot, RefreshContext};
+use aibox_core::engine::Engine;
 use aibox_core::health::idle::IdleCpuSample;
 use aibox_core::health::pool::StoragePoolInfo;
 use aibox_core::incus::catalog::catalog_for_entries;
 use aibox_core::incus::demo::build_demo_state_now;
-use aibox_core::incus::list::templates as extract_templates;
-use aibox_core::incus::monitor::parse_lifecycle_event;
-use aibox_core::process::SystemRunner;
-use aibox_core::session::scan_recorded_sessions;
-use aibox_core::snapshot::{
-    compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes, SnapshotSizeCache,
-};
+use aibox_core::incus::list::{templates as extract_templates, Environment};
+use aibox_core::snapshot::SnapshotSizeCache;
 use aibox_core::util::paths::{
     clean_path, default_os_storage_path, default_system_path, default_workspace_path,
     CONTAINER_WORKSPACE_PATH,
 };
 use aibox_core::workspace::diff::{default_diff_excludes, WorkspaceDiffCache};
-use aibox_core::workspace::file_access::{apply_file_access_state, FileAccessEnvInput};
 
-use crate::variant::{
+use crate::qt_backend_refresh::SchedulerState;
+use crate::qt_convert::{
     i32s_to_qvariant_list, json_array_to_qvariant_list, json_object_to_qvariant_map,
     serialize_to_qvariant_list, serialize_to_qvariant_map, strings_to_qstringlist,
 };
@@ -317,6 +311,10 @@ pub mod qobject {
 
         #[qinvokable]
         fn refresh(self: Pin<&mut Backend>);
+
+        #[qinvokable]
+        #[cxx_name = "setWindowActive"]
+        fn set_window_active(self: Pin<&mut Backend>, active: bool);
 
         #[qinvokable]
         #[cxx_name = "clearError"]
@@ -886,9 +884,9 @@ pub mod qobject {
 }
 
 pub struct BackendRust {
-    count: i32,
-    environments: QListQVariant,
-    os_catalog: QListQVariant,
+    pub(crate) count: i32,
+    pub(crate) environments: QListQVariant,
+    pub(crate) os_catalog: QListQVariant,
     pub(crate) selected_index: i32,
     pub(crate) busy: bool,
     pub(crate) task_progress: i32,
@@ -916,26 +914,26 @@ pub struct BackendRust {
     default_disk: QString,
     default_ram: QString,
     default_cpu: i32,
-    auto_snapshot_enabled: bool,
+    pub(crate) auto_snapshot_enabled: bool,
     auto_snapshot_keep: i32,
     process_limit_options: QStringList,
     io_limit_options: QStringList,
     default_process_limit: QString,
     default_io_limit: QString,
     watchdog_enabled: bool,
-    watchdog_disk_warn: i32,
-    watchdog_disk_critical: i32,
-    watchdog_auto_stop: bool,
+    pub(crate) watchdog_disk_warn: i32,
+    pub(crate) watchdog_disk_critical: i32,
+    pub(crate) watchdog_auto_stop: bool,
     idle_stop_minutes: i32,
     idle_stop_options: QListQVariant,
-    stale_days: i32,
+    pub(crate) stale_days: i32,
     stale_day_options: QListQVariant,
     pub(crate) stale_report: QMapQStringQVariant,
-    record_sessions: bool,
+    pub(crate) record_sessions: bool,
     theme_mode_override: QString,
     high_contrast: bool,
     reduce_motion: bool,
-    recorded_sessions: QListQVariant,
+    pub(crate) recorded_sessions: QListQVariant,
     pub(crate) operation_history: QListQVariant,
     pub(crate) egress_logs: QListQVariant,
     pub(crate) egress_logs_env_name: QString,
@@ -951,25 +949,33 @@ pub struct BackendRust {
     pub(crate) environment_secrets: QListQVariant,
     pub(crate) environment_secrets_error: QString,
     pub(crate) environment_secrets_env_name: QString,
-    pool_info: QMapQStringQVariant,
+    pub(crate) pool_info: QMapQStringQVariant,
 
     // Non-QML internal state
     pub(crate) engine: Engine,
     pub(crate) project_mode: bool,
     pub(crate) remember_system_location: bool,
     pub(crate) demo_mode: bool,
-    demo_environments: Vec<serde_json::Value>,
+    pub(crate) demo_environments: Vec<serde_json::Value>,
     pub(crate) history_seen_id: String,
-    last_images_json: Vec<u8>,
+    pub(crate) last_images_json: Vec<u8>,
     pub(crate) last_list_json: Vec<u8>,
-    last_alert_thresholds: (i32, i32),
-    last_pool_quotas: (i64, i32),
-    last_refresh_at: Option<Instant>,
-    refresh_in_flight: Arc<AtomicBool>,
-    stop_flag: Arc<AtomicBool>,
-    poll_started: bool,
-    monitor_active: Arc<AtomicBool>,
-    monitor_child: Arc<std::sync::Mutex<Option<std::process::Child>>>,
+    pub(crate) environments_arc: Arc<[Environment]>,
+    pub(crate) last_environments_hash: u64,
+    pub(crate) last_list_hash: u64,
+    pub(crate) last_alert_thresholds: (i32, i32),
+    pub(crate) last_pool_quotas: (i64, i32),
+    pub(crate) last_refresh_at: Option<Instant>,
+    pub(crate) last_pool_refresh_at: Option<Instant>,
+    pub(crate) refresh_in_flight: Arc<AtomicBool>,
+    pub(crate) stop_flag: Arc<AtomicBool>,
+    pub(crate) poll_started: bool,
+    pub(crate) window_active: Arc<AtomicBool>,
+    pub(crate) has_running_envs: Arc<AtomicBool>,
+    pub(crate) poll_wake: Arc<(Mutex<()>, Condvar)>,
+    pub(crate) scheduler: Arc<SchedulerState>,
+    pub(crate) monitor_active: Arc<AtomicBool>,
+    pub(crate) monitor_child: Arc<std::sync::Mutex<Option<std::process::Child>>>,
     pub(crate) task_watch_active: Arc<AtomicBool>,
     pub(crate) diff_generation: Arc<AtomicU64>,
     pub(crate) diff_cache: WorkspaceDiffCache,
@@ -1086,12 +1092,20 @@ impl Default for BackendRust {
             history_seen_id: String::new(),
             last_images_json: Vec::new(),
             last_list_json: Vec::new(),
+            environments_arc: Arc::from(Vec::new()),
+            last_environments_hash: 0,
+            last_list_hash: 0,
             last_alert_thresholds: (0, 0),
             last_pool_quotas: (0, 0),
             last_refresh_at: None,
+            last_pool_refresh_at: None,
             refresh_in_flight: Arc::new(AtomicBool::new(false)),
             stop_flag: Arc::new(AtomicBool::new(false)),
             poll_started: false,
+            window_active: Arc::new(AtomicBool::new(true)),
+            has_running_envs: Arc::new(AtomicBool::new(false)),
+            poll_wake: Arc::new((Mutex::new(()), Condvar::new())),
+            scheduler: Arc::new(SchedulerState::default()),
             monitor_active: Arc::new(AtomicBool::new(false)),
             monitor_child: Arc::new(std::sync::Mutex::new(None)),
             task_watch_active: Arc::new(AtomicBool::new(false)),
@@ -1120,6 +1134,8 @@ impl Default for BackendRust {
 impl Drop for BackendRust {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
+        self.poll_wake.1.notify_all();
+        self.scheduler.notify_all();
         if let Ok(mut guard) = self.monitor_child.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.kill();
@@ -1465,15 +1481,8 @@ impl qobject::Backend {
             return false;
         }
         self.as_mut().set_status_message(status_msg);
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(3000));
-            let _ = qt_thread.queue(|mut qobject| {
-                if !*qobject.busy() {
-                    qobject.as_mut().set_status_message("");
-                }
-            });
-        });
+        self.as_mut()
+            .schedule_status_clear(Duration::from_millis(3000));
         true
     }
 
@@ -1489,201 +1498,6 @@ impl qobject::Backend {
             &pairs,
             name,
         )
-    }
-
-    pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
-        let state_dir = self.engine.paths.state_dir.clone();
-        let fa_inputs: Vec<FileAccessEnvInput> = self
-            .engine
-            .environments
-            .iter()
-            .map(|e| FileAccessEnvInput {
-                name: e.name.clone(),
-                running: e.running,
-            })
-            .collect();
-        let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
-        let mut env_values: Vec<serde_json::Value> = self
-            .engine
-            .environments
-            .iter()
-            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
-            .collect();
-        for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
-            if let Some(obj) = val.as_object_mut() {
-                obj.insert("fileAccessEnabled".into(), serde_json::json!(fa.active));
-                obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
-                obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
-            }
-        }
-        let q_envs = json_array_to_qvariant_list(&env_values);
-        let count = self.engine.environments.len() as i32;
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.environments = q_envs;
-            rust.count = count;
-        }
-        self.as_mut().environments_changed();
-        self.as_mut().count_changed();
-        self.as_mut().selected_index_changed();
-    }
-
-    pub(crate) fn start_background_workers(mut self: Pin<&mut Self>) {
-        if self.poll_started {
-            return;
-        }
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.poll_started = true;
-        }
-
-        // Metric refresh poll thread (4s fallback, 10s when incus monitor is active)
-        let qt_thread_poll = self.qt_thread();
-        let stop_poll = Arc::clone(&self.stop_flag);
-        let monitor_active_poll = Arc::clone(&self.monitor_active);
-        std::thread::spawn(move || {
-            while !stop_poll.load(Ordering::Relaxed) {
-                let ticks = if monitor_active_poll.load(Ordering::Relaxed) {
-                    50
-                } else {
-                    20
-                };
-                for _ in 0..ticks {
-                    if stop_poll.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(200));
-                }
-                let _ = qt_thread_poll.queue(|mut backend| {
-                    if !backend.busy {
-                        backend.as_mut().refresh_with_catalog(false);
-                    }
-                });
-            }
-        });
-
-        // Instant lifecycle event stream via `incus monitor --type=lifecycle --format=json`
-        let qt_thread_mon = self.qt_thread();
-        let stop_mon = Arc::clone(&self.stop_flag);
-        let monitor_active_mon = Arc::clone(&self.monitor_active);
-        let monitor_child_slot = Arc::clone(&self.monitor_child);
-        std::thread::spawn(move || {
-            use std::io::{BufRead, BufReader};
-            use std::process::Stdio;
-
-            while !stop_mon.load(Ordering::Relaxed) {
-                let child_res = Command::new("incus")
-                    .args(["monitor", "--type=lifecycle", "--format=json"])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn();
-
-                let Ok(mut child) = child_res else {
-                    monitor_active_mon.store(false, Ordering::Relaxed);
-                    for _ in 0..25 {
-                        if stop_mon.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
-                    continue;
-                };
-
-                let stdout = child.stdout.take();
-                if let Ok(mut guard) = monitor_child_slot.lock() {
-                    *guard = Some(child);
-                }
-                monitor_active_mon.store(true, Ordering::Relaxed);
-
-                if let Some(out) = stdout {
-                    let reader = BufReader::new(out);
-                    for line in reader.lines() {
-                        if stop_mon.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        let Ok(line_str) = line else {
-                            break;
-                        };
-                        if let Some(ev) = parse_lifecycle_event(&line_str) {
-                            if ev.should_trigger_refresh() {
-                                let include_catalog = ev.invalidates_catalog();
-                                let _ = qt_thread_mon.queue(move |mut backend| {
-                                    if !backend.busy {
-                                        backend.as_mut().refresh_with_catalog(include_catalog);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-
-                monitor_active_mon.store(false, Ordering::Relaxed);
-                if let Ok(mut guard) = monitor_child_slot.lock() {
-                    if let Some(mut c) = guard.take() {
-                        let _ = c.kill();
-                        let _ = c.wait();
-                    }
-                }
-
-                if stop_mon.load(Ordering::Relaxed) {
-                    return;
-                }
-                for _ in 0..25 {
-                    if stop_mon.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(200));
-                }
-            }
-        });
-
-        // inotify task watch on state_dir with 1s fallback polling
-        let qt_thread_watch = self.qt_thread();
-        let stop_watch = Arc::clone(&self.stop_flag);
-        let task_watch_active = Arc::clone(&self.task_watch_active);
-        let watch_state_dir = self.engine.paths.state_dir.clone();
-        std::thread::spawn(move || {
-            use notify::{RecursiveMode, Watcher};
-            use std::sync::mpsc;
-
-            let _ = std::fs::create_dir_all(&watch_state_dir);
-            let (fs_tx, fs_rx) = mpsc::channel::<()>();
-            let mut watcher =
-                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                    if let Ok(ev) = res {
-                        let touches_task = ev.paths.iter().any(|p| {
-                            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                                matches!(n, "task.log" | "task.pid" | "result.json")
-                            })
-                        });
-                        if touches_task {
-                            let _ = fs_tx.send(());
-                        }
-                    }
-                })
-                .ok();
-            if let Some(ref mut w) = watcher {
-                let _ = w.watch(
-                    std::path::Path::new(&watch_state_dir),
-                    RecursiveMode::NonRecursive,
-                );
-            }
-
-            while !stop_watch.load(Ordering::Relaxed) {
-                if fs_rx.recv_timeout(Duration::from_secs(1)).is_ok() {
-                    while fs_rx.try_recv().is_ok() {}
-                }
-                if stop_watch.load(Ordering::Relaxed) {
-                    return;
-                }
-                if task_watch_active.load(Ordering::Relaxed) {
-                    let _ = qt_thread_watch.queue(|mut backend| {
-                        backend.as_mut().check_background_task();
-                    });
-                }
-            }
-            drop(watcher);
-        });
     }
 
     pub fn set_selected_index(mut self: Pin<&mut Self>, index: i32) {
@@ -1718,288 +1532,6 @@ impl qobject::Backend {
             }
             self.as_mut().error_message_changed();
         }
-    }
-
-    pub fn refresh(self: Pin<&mut Self>) {
-        self.refresh_with_catalog(true);
-    }
-
-    pub(crate) fn refresh_with_catalog(mut self: Pin<&mut Self>, include_catalog: bool) {
-        if self.demo_mode {
-            return;
-        }
-        if self
-            .refresh_in_flight
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return;
-        }
-
-        let in_flight = Arc::clone(&self.refresh_in_flight);
-        let qt_thread = self.qt_thread();
-        let elapsed_wall_ns = self
-            .last_refresh_at
-            .map(|t| t.elapsed().as_nanos() as i64)
-            .unwrap_or(0);
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.last_refresh_at = Some(Instant::now());
-        }
-
-        std::thread::spawn(move || {
-            let runner = SystemRunner;
-            let result = Engine::fetch_snapshot_with_options(&runner, include_catalog, true);
-            in_flight.store(false, Ordering::SeqCst);
-
-            let Ok(snapshot) = result else {
-                return;
-            };
-            let _ = qt_thread.queue(move |mut backend| {
-                backend
-                    .as_mut()
-                    .apply_refresh_snapshot(snapshot, elapsed_wall_ns);
-            });
-        });
-    }
-
-    fn apply_refresh_snapshot(
-        mut self: Pin<&mut Self>,
-        snapshot: RawSnapshot,
-        elapsed_wall_ns: i64,
-    ) {
-        let list_unchanged =
-            !self.last_list_json.is_empty() && self.last_list_json == snapshot.list_json;
-        let downloading_os_id = self.downloading_os_id.to_string();
-
-        let (envs_changed, pool_changed, catalog_changed, pending_sizes) = {
-            let mut rust = self.as_mut().rust_mut();
-            let warn = rust.watchdog_disk_warn;
-            let crit = rust.watchdog_disk_critical;
-            let thresholds_changed = rust.last_alert_thresholds != (warn, crit);
-            rust.last_alert_thresholds = (warn, crit);
-
-            // Keep Engine config defaults aligned with live GUI properties before parsing.
-            rust.engine.config.auto_snapshot_enabled = rust.auto_snapshot_enabled;
-            rust.engine.config.watchdog_auto_stop = rust.watchdog_auto_stop;
-            rust.engine.config.record_sessions = rust.record_sessions;
-
-            let ctx = RefreshContext {
-                elapsed_wall_ns,
-                track_cpu_and_net: true,
-                force_reparse: thresholds_changed,
-                disk_warn_percent: warn,
-                disk_critical_percent: crit,
-                downloading_os_id,
-                compute_pool_quotas: !list_unchanged,
-            };
-
-            let Ok(delta) = rust.engine.apply_snapshot(&snapshot, &ctx) else {
-                return;
-            };
-
-            let (allocated_bytes, unbounded_count) = if list_unchanged {
-                rust.last_pool_quotas
-            } else {
-                (delta.allocated_bytes, delta.unbounded_count)
-            };
-            let quotas_changed = (allocated_bytes, unbounded_count) != rust.last_pool_quotas;
-            let pool_changed = delta.pool_changed || quotas_changed || rust.pool_info.is_empty();
-            if pool_changed {
-                let pool_json_str = rust
-                    .engine
-                    .pool_info
-                    .to_json(allocated_bytes, unbounded_count);
-                let pool_json: serde_json::Value =
-                    serde_json::from_str(&pool_json_str).unwrap_or(serde_json::Value::Null);
-                rust.pool_info = match &pool_json {
-                    serde_json::Value::Object(map) => json_object_to_qvariant_map(map),
-                    _ => QMapQStringQVariant::default(),
-                };
-                rust.last_pool_quotas = (allocated_bytes, unbounded_count);
-            }
-
-            if snapshot.include_catalog {
-                rust.last_images_json = snapshot.images_json;
-            }
-            let catalog_changed =
-                delta.catalog_changed || (snapshot.include_catalog && rust.os_catalog.is_empty());
-            if catalog_changed {
-                rust.os_catalog = serialize_to_qvariant_list(&rust.engine.os_catalog);
-            }
-
-            let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
-            let envs_changed = if delta.list_parsed {
-                rust.last_list_json = snapshot.list_json;
-                let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
-                for env in &mut rust.engine.environments {
-                    if !env.snapshot_sizes.is_empty() {
-                        cache.insert_incus(&env.name, env.snapshot_sizes.clone());
-                    }
-                    cache.prune_removed(&env.name, &env.snapshots, &env.workspace_snapshots);
-                    cache.apply_to_environment(env);
-
-                    let missing_incus = !cache
-                        .missing_incus_snapshots(&env.name, &env.snapshots)
-                        .is_empty();
-                    let missing_ws =
-                        cache.missing_workspace_snapshots(&env.name, &env.workspace_snapshots);
-                    if missing_incus || !missing_ws.is_empty() {
-                        pending_sizes.push((
-                            env.name.clone(),
-                            env.workspace_snapshot_dir.clone(),
-                            missing_incus,
-                            missing_ws,
-                        ));
-                    }
-                }
-                rust.snapshot_size_cache = cache;
-
-                let changed = delta.environments_changed
-                    || (rust.environments.is_empty() && !rust.engine.environments.is_empty());
-                if changed {
-                    let mut env_values: Vec<serde_json::Value> = rust
-                        .engine
-                        .environments
-                        .iter()
-                        .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
-                        .collect();
-                    for (val, fa) in env_values
-                        .iter_mut()
-                        .zip(rust.engine.file_access.envs.iter())
-                    {
-                        if let Some(obj) = val.as_object_mut() {
-                            obj.insert("fileAccessEnabled".into(), serde_json::json!(fa.active));
-                            obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
-                            obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
-                        }
-                    }
-                    rust.environments = json_array_to_qvariant_list(&env_values);
-                    rust.count = rust.engine.environments.len() as i32;
-                }
-                let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
-                if rust.selected_index >= rust.engine.environments.len() as i32 {
-                    rust.selected_index = max_idx;
-                }
-                changed
-            } else {
-                false
-            };
-
-            (envs_changed, pool_changed, catalog_changed, pending_sizes)
-        };
-
-        if pool_changed {
-            self.as_mut().pool_info_changed();
-        }
-        if envs_changed {
-            self.as_mut().environments_changed();
-            self.as_mut().count_changed();
-            self.as_mut().selected_index_changed();
-            if !self.stale_report.is_empty() {
-                self.as_mut().refresh_stale_report();
-            }
-        }
-        self.as_mut().schedule_snapshot_size_worker(pending_sizes);
-        self.as_mut().evaluate_all_watchdogs();
-        self.as_mut().trigger_idle_auto_stops_check();
-        if catalog_changed {
-            self.as_mut().os_catalog_changed();
-        }
-    }
-
-    fn schedule_snapshot_size_worker(
-        self: Pin<&mut Self>,
-        pending: Vec<(String, String, bool, Vec<String>)>,
-    ) {
-        if pending.is_empty() || self.demo_mode {
-            return;
-        }
-        let in_flight = Arc::clone(&self.snapshot_sizes_in_flight);
-        if in_flight.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            let mut results = Vec::with_capacity(pending.len());
-            for (env_name, snap_dir, need_incus, missing_ws) in pending {
-                let incus_sizes = if need_incus {
-                    fetch_incus_snapshot_sizes(&env_name)
-                } else {
-                    Default::default()
-                };
-                let ws_sizes = if !missing_ws.is_empty() && !snap_dir.is_empty() {
-                    compute_workspace_snapshot_sizes(&snap_dir, &missing_ws)
-                } else {
-                    Default::default()
-                };
-                if !incus_sizes.is_empty() || !ws_sizes.is_empty() {
-                    results.push((env_name, incus_sizes, ws_sizes));
-                }
-            }
-            let _ = qt_thread.queue(move |mut backend| {
-                in_flight.store(false, Ordering::Release);
-                if results.is_empty() {
-                    return;
-                }
-                let changed = {
-                    let mut rust = backend.as_mut().rust_mut();
-                    let mut any_new = false;
-                    for (env_name, incus_sizes, ws_sizes) in results {
-                        if rust
-                            .snapshot_size_cache
-                            .insert_incus(&env_name, incus_sizes)
-                        {
-                            any_new = true;
-                        }
-                        if rust
-                            .snapshot_size_cache
-                            .insert_workspace(&env_name, ws_sizes)
-                        {
-                            any_new = true;
-                        }
-                    }
-                    if any_new {
-                        let cache = rust.snapshot_size_cache.clone();
-                        for env in &mut rust.engine.environments {
-                            cache.apply_to_environment(env);
-                        }
-                        let state_dir = rust.engine.paths.state_dir.clone();
-                        let fa_inputs: Vec<FileAccessEnvInput> = rust
-                            .engine
-                            .environments
-                            .iter()
-                            .map(|e| FileAccessEnvInput {
-                                name: e.name.clone(),
-                                running: e.running,
-                            })
-                            .collect();
-                        let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
-                        let mut env_values: Vec<serde_json::Value> = rust
-                            .engine
-                            .environments
-                            .iter()
-                            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
-                            .collect();
-                        for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
-                            if let Some(obj) = val.as_object_mut() {
-                                obj.insert(
-                                    "fileAccessEnabled".into(),
-                                    serde_json::json!(fa.active),
-                                );
-                                obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
-                                obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
-                            }
-                        }
-                        rust.environments = json_array_to_qvariant_list(&env_values);
-                    }
-                    any_new
-                };
-                if changed {
-                    backend.as_mut().environments_changed();
-                }
-            });
-        });
     }
 
     pub fn path_to_url(&self, path: &QString) -> QUrl {
@@ -2044,54 +1576,6 @@ impl qobject::Backend {
 
     pub fn admin_fix_command(&self, message: &QString) -> QString {
         QString::from(aibox_core::task::files::admin_fix_command(&message.to_string()).as_str())
-    }
-
-    pub fn refresh_backups(mut self: Pin<&mut Self>) {
-        let dir = aibox_core::backup::backups_dir_path(&self.engine.config.os_storage_path);
-        let archives = scan_backup_archives(&dir);
-        let q_archives = json_array_to_qvariant_list(&archives);
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.backup_archives = q_archives;
-        }
-        self.as_mut().backup_archives_changed();
-    }
-
-    pub fn refresh_recorded_sessions(mut self: Pin<&mut Self>) {
-        let dir = aibox_core::session::sessions_dir_path(&self.engine.paths.state_dir);
-        let sessions = scan_recorded_sessions(&dir);
-        let q_sessions = json_array_to_qvariant_list(&sessions);
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.recorded_sessions = q_sessions;
-        }
-        self.as_mut().recorded_sessions_changed();
-    }
-
-    pub fn refresh_stale_report(mut self: Pin<&mut Self>) {
-        let envs_arr = if self.demo_mode {
-            self.demo_environments.clone()
-        } else {
-            let envs_val = serde_json::to_value(&self.engine.environments).unwrap_or_default();
-            envs_val.as_array().cloned().unwrap_or_default()
-        };
-        let backups_dir = aibox_core::backup::backups_dir_path(&self.engine.config.os_storage_path);
-        let report = build_stale_report(
-            &envs_arr,
-            &self.engine.config.workspace_base,
-            &backups_dir,
-            self.stale_days,
-            0,
-        );
-        let q_report = match report {
-            serde_json::Value::Object(map) => json_object_to_qvariant_map(&map),
-            _ => QMapQStringQVariant::default(),
-        };
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.stale_report = q_report;
-        }
-        self.as_mut().stale_report_changed();
     }
 }
 

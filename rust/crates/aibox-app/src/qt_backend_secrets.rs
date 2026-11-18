@@ -10,7 +10,7 @@ use aibox_core::secrets::state::{
 use aibox_core::secrets::store::parse_env_secret_names;
 
 use crate::qt_backend::qobject;
-use crate::variant::serialize_to_qvariant_list;
+use crate::qt_convert::serialize_to_qvariant_list;
 
 impl qobject::Backend {
     fn sync_secrets_properties(mut self: Pin<&mut Self>) {

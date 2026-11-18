@@ -39,7 +39,7 @@ use aibox_core::util::shell::shell_quote;
 use aibox_core::util::time::{now_compact_stamp, now_epoch_millis, now_epoch_secs, now_utc_iso};
 
 use crate::qt_backend::{find_executable, launch_command_in_terminal, qobject, spawn_detached};
-use crate::variant::json_array_to_qvariant_list;
+use crate::qt_convert::json_array_to_qvariant_list;
 
 static REMOTE_ENV_SEQ: AtomicU64 = AtomicU64::new(1);
 
@@ -366,19 +366,10 @@ impl qobject::Backend {
             let _ = spawn_detached("/bin/bash", &["-c", &cmd], None);
         }
 
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(800));
-            let _ = qt_thread.queue(|mut backend| {
-                backend.as_mut().refresh();
-            });
-            std::thread::sleep(Duration::from_millis(2200));
-            let _ = qt_thread.queue(|mut backend| {
-                if !*backend.busy() {
-                    backend.as_mut().set_status_message("");
-                }
-            });
-        });
+        self.as_mut()
+            .schedule_refresh(Duration::from_millis(800), true);
+        self.as_mut()
+            .schedule_status_clear(Duration::from_millis(3000));
     }
 
     pub fn enter_environment(mut self: Pin<&mut Self>, name: &QString) {

@@ -10,14 +10,15 @@ mod qt_backend_config;
 mod qt_backend_health;
 mod qt_backend_network;
 mod qt_backend_provision;
+mod qt_backend_refresh;
 mod qt_backend_secrets;
 mod qt_backend_sessions;
 mod qt_backend_snapshot;
 mod qt_backend_task;
 mod qt_backend_workspace;
+pub mod qt_convert;
 pub mod qt_theme;
 pub mod qt_translator;
-pub mod variant;
 
 extern "C" {
     fn aibox_gui_main(

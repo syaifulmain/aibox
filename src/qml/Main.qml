@@ -16,6 +16,9 @@ ApplicationWindow {
     title: qsTr("AIBox")
     color: theme.surfaceCanvas
 
+    onActiveChanged: backend.setWindowActive(win.active && win.visibility !== Window.Minimized && win.visibility !== Window.Hidden)
+    onVisibilityChanged: backend.setWindowActive(win.active && win.visibility !== Window.Minimized && win.visibility !== Window.Hidden)
+
     Behavior on color {
         enabled: !theme.reduceMotion
         ColorAnimation { duration: 150 }

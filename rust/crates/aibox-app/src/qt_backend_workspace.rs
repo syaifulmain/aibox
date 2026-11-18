@@ -35,7 +35,7 @@ use aibox_core::workspace::paste::{
 };
 
 use crate::qt_backend::{find_executable, qobject, spawn_detached};
-use crate::variant::{
+use crate::qt_convert::{
     json_array_to_qvariant_list, serialize_to_qvariant_list, serialize_to_qvariant_map,
 };
 
@@ -147,15 +147,8 @@ impl qobject::Backend {
         self.as_mut().set_error_message("");
         self.as_mut()
             .set_status_message(&format!("Root file access enabled: {url}"));
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(3000));
-            let _ = qt_thread.queue(|mut qobject| {
-                if !*qobject.busy() {
-                    qobject.as_mut().set_status_message("");
-                }
-            });
-        });
+        self.as_mut()
+            .schedule_status_clear(Duration::from_millis(3000));
         QString::default()
     }
 
@@ -169,15 +162,8 @@ impl qobject::Backend {
         self.as_mut().sync_environments_from_engine();
         self.as_mut()
             .set_status_message(&format!("Root file access disabled for '{name_s}'."));
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(3000));
-            let _ = qt_thread.queue(|mut qobject| {
-                if !*qobject.busy() {
-                    qobject.as_mut().set_status_message("");
-                }
-            });
-        });
+        self.as_mut()
+            .schedule_status_clear(Duration::from_millis(3000));
     }
 
     pub fn open_file_access(mut self: Pin<&mut Self>, name: &QString) {
@@ -274,15 +260,8 @@ impl qobject::Backend {
         self.as_mut().set_status_message(&format!(
             "Saved clipboard image as '{container_path}'. Path is on the clipboard; paste it in the terminal."
         ));
-        let qt_thread = self.qt_thread();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(6000));
-            let _ = qt_thread.queue(|mut qobject| {
-                if !*qobject.busy() {
-                    qobject.as_mut().set_status_message("");
-                }
-            });
-        });
+        self.as_mut()
+            .schedule_status_clear(Duration::from_millis(6000));
         q_container_path
     }
 

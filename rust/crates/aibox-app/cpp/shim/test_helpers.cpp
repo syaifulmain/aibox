@@ -193,6 +193,33 @@ int aibox_test_backend_environments_json(void *ptr, char *buf, int buf_len) {
     return copy_to_buf(json, buf, buf_len);
 }
 
+void aibox_test_backend_refresh(void *ptr) {
+    auto *b = static_cast<Backend *>(ptr);
+    b->refresh();
+}
+
+struct BackendEnvsChangedSpy {
+    int count = 0;
+    QMetaObject::Connection conn;
+};
+
+void *aibox_test_backend_environments_spy_new(void *ptr) {
+    auto *b = static_cast<Backend *>(ptr);
+    auto *spy = new BackendEnvsChangedSpy();
+    spy->conn = QObject::connect(b, &Backend::environmentsChanged, b, [spy]() { ++spy->count; });
+    return spy;
+}
+
+int aibox_test_backend_environments_spy_count(void *spy) {
+    return static_cast<BackendEnvsChangedSpy *>(spy)->count;
+}
+
+void aibox_test_backend_environments_spy_free(void *spy) {
+    auto *s = static_cast<BackendEnvsChangedSpy *>(spy);
+    QObject::disconnect(s->conn);
+    delete s;
+}
+
 void *aibox_test_theme_new(void) {
     return new Theme();
 }

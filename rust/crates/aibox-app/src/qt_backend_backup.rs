@@ -24,7 +24,7 @@ use aibox_core::util::time::now_compact_stamp;
 use aibox_core::workspace::file_access::stop_file_access_process;
 
 use crate::qt_backend::{find_executable, launch_command_in_terminal, qobject, spawn_detached};
-use crate::variant::serialize_to_qvariant_map;
+use crate::qt_convert::serialize_to_qvariant_map;
 
 type QMapQStringQVariant = QMap<QMapPair_QString_QVariant>;
 

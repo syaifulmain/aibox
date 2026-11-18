@@ -34,6 +34,10 @@ extern "C" {
         buf: *mut c_char,
         buf_len: c_int,
     ) -> c_int;
+    fn aibox_test_backend_refresh(ptr: *mut c_void);
+    fn aibox_test_backend_environments_spy_new(ptr: *mut c_void) -> *mut c_void;
+    fn aibox_test_backend_environments_spy_count(spy: *mut c_void) -> c_int;
+    fn aibox_test_backend_environments_spy_free(spy: *mut c_void);
 
     fn aibox_test_theme_new() -> *mut c_void;
     fn aibox_test_theme_free(ptr: *mut c_void);
@@ -153,6 +157,30 @@ impl BackendHandle {
             return "[]".to_string();
         }
         String::from_utf8_lossy(&buf[..len as usize]).to_string()
+    }
+
+    fn refresh(&self) {
+        unsafe { aibox_test_backend_refresh(self.0) };
+    }
+}
+
+struct BackendEnvsSpy(*mut c_void);
+
+impl BackendEnvsSpy {
+    fn new(backend: &BackendHandle) -> Self {
+        let ptr = unsafe { aibox_test_backend_environments_spy_new(backend.0) };
+        assert!(!ptr.is_null());
+        Self(ptr)
+    }
+
+    fn count(&self) -> i32 {
+        unsafe { aibox_test_backend_environments_spy_count(self.0) }
+    }
+}
+
+impl Drop for BackendEnvsSpy {
+    fn drop(&mut self) {
+        unsafe { aibox_test_backend_environments_spy_free(self.0) };
     }
 }
 
@@ -598,6 +626,72 @@ fn test_backend_and_cli_produce_identical_environment_model() {
     }
 }
 
+fn test_identical_refresh_emits_environments_changed_once() {
+    let tmp = TempDir::new("identical-refresh");
+    let bin_dir = tmp.path().join("bin");
+    let proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::create_dir_all(&proj_dir).unwrap();
+
+    let incus_script = r#"#!/usr/bin/env bash
+if [ "$1" = "list" ]; then
+  cat <<'EOF'
+[{"name":"steady-box","status":"Stopped","type":"container","profiles":["default"],"config":{"limits.cpu":"2","limits.memory":"2GiB"},"state":{"status":"Stopped","cpu":{"usage":0},"memory":{"usage":0},"disk":{"root":{"usage":1024}}},"snapshots":[]}]
+EOF
+  exit 0
+fi
+if [ "$1" = "image" ] && [ "$2" = "list" ]; then
+  echo "[]"
+  exit 0
+fi
+if [ "$1" = "storage" ] && [ "$2" = "info" ]; then
+  echo "info: {name: default, driver: dir}"
+  exit 0
+fi
+if [ "$1" = "storage" ] && [ "$2" = "get" ]; then
+  echo ""
+  exit 0
+fi
+if [ "$1" = "monitor" ]; then
+  sleep 10
+  exit 0
+fi
+exit 0
+"#;
+    write_executable(&bin_dir.join("incus"), incus_script);
+
+    let orig_path = std::env::var("PATH").unwrap_or_default();
+    let test_path = format!("{}:{orig_path}", bin_dir.display());
+    std::env::set_var("PATH", &test_path);
+
+    let backend = BackendHandle::new();
+    let spy = BackendEnvsSpy::new(&backend);
+    backend.configure(&proj_dir, true);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while backend.env_count() == 0 && Instant::now() < deadline {
+        unsafe { aibox_test_process_events(25) };
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(backend.env_count(), 1);
+    assert_eq!(spy.count(), 1);
+
+    backend.refresh();
+    let settle_until = Instant::now() + Duration::from_millis(250);
+    while Instant::now() < settle_until {
+        unsafe { aibox_test_process_events(20) };
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        spy.count(),
+        1,
+        "identical refresh JSON must not re-emit environmentsChanged"
+    );
+
+    drop(backend);
+    std::env::set_var("PATH", orig_path);
+}
+
 fn main() {
     let _ = aibox_app::ensure_cxx_qt_linked();
     unsafe { aibox_test_init_gui_app() };
@@ -623,6 +717,10 @@ fn main() {
         (
             "backend_and_cli_produce_identical_environment_model",
             test_backend_and_cli_produce_identical_environment_model,
+        ),
+        (
+            "identical_refresh_emits_environments_changed_once",
+            test_identical_refresh_emits_environments_changed_once,
         ),
     ];
 

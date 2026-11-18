@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### App Backend: Worker Parsing, Split Modules, Adaptive Poll, Single Scheduler & Hash-Gated Signals (`rust/crates/aibox-app/src/`, `Main.qml`)
+
+- **Split `qt_backend.rs` (`qt_backend.rs`, `qt_backend_refresh.rs`, `qt_convert.rs`):** Extracted refresh, background poll/monitor/watch workers, snapshot size worker, and stale/backup/session refresh helpers into `qt_backend_refresh.rs`, renamed `variant.rs` to `qt_convert.rs`, and brought `qt_backend.rs` under the 1500-line ceiling.
+- **Worker-thread parsing & `Arc<[Environment]>` (`qt_backend_refresh.rs`):** Moved `Engine::apply_snapshot` parsing and JSON pre-serialization into `parse_refresh_in_worker` on the background thread, sharing `Arc<[Environment]>` between worker output and `BackendRust` so the Qt thread only applies snapshot-size cache updates and converts to `QVariant`.
+- **Cadence separation & hash-gated signals (`qt_backend_refresh.rs`, `tests/backend_qobject.rs`):** Polled `incus list` on the fast cadence, `incus storage info/get` every 30s (`should_include_pool`), and `incus image list` only on-demand/lifecycle invalidation; gated `environmentsChanged` / `countChanged` / `selectedIndexChanged` on the serialized model hash (`hash_json_values`) and verified with `identical_refresh_emits_environments_changed_once`.
+- **Single scheduler & adaptive polling (`qt_backend_refresh.rs`, `qt_backend_task.rs`, `qt_backend_workspace.rs`, `Main.qml`):** Replaced ad-hoc `thread::spawn` + `sleep` timers with a single debounced `SchedulerState` (`schedule_refresh`, `schedule_status_clear`), wired `Backend.setWindowActive` from `Main.qml` so polling scales between 4s/8s (active with running instances) and 20s (hidden/idle) with immediate focus-return refresh, and lowered idle task-watch wakeups to 5s (500ms when active + `inotify`).
+
 ### Core CLI: `ExitCode` Enum, `commands/` Split, `--json` Parity, Shell Completions & `clap` Evaluation (`rust/crates/aibox-core/src/cli/`, `README.md`)
 
 - **Typed `ExitCode` enum (`cli/mod.rs`, `cli/parse.rs`, `cli/commands/`, `README.md`):** Added `ExitCode` (`Ok = 0`, `Failed = 1`, `Usage = 2`, `Busy = 3`, `NotFound = 4`) across CLI argument parsing and command execution, and documented the exit code table in `README.md`.
