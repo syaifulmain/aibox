@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Adaptive Theme M2 — Qt Theme Bridge & Material Controls (`aibox-app`, `Main.qml`)
+* **Semantic `Theme` QObject Properties (`rust/crates/aibox-app/src/qt_theme.rs`)**: Exposed `isDark`, `mode`, and all contrast-guarded semantic `Palette` tokens (`surface*`, `border*`, `text*`, `accent*`/`onAccent`, `danger*`/`onDanger`, `success*`/`onSuccess`, `warning*`/`onWarning`, `info*`/`onInfo`, `scrim`, `scrimStrong`, `selection`, `selectionText`) on `Theme` with `NOTIFY = changed`, while keeping legacy raw color properties marked deprecated through M6.
+* **Single-Signal Reload & `theme.name` Watch (`qt_theme.rs`)**: Updated `Theme::reload()` to derive both `ThemeColors` and `Palette`, compare for changes, and emit a single `changed` signal per theme switch. Added `theme.name` and `colors.toml` to `rearm_theme_watches`.
+* **Adaptive Material Controls (`src/qml/Main.qml`)**: Bound `ApplicationWindow` `color` to `theme.surfaceCanvas`, `Material.theme` to `theme.isDark ? Material.Dark : Material.Light`, `Material.background` to `theme.surfaceCanvas`, `Material.foreground` to `theme.textPrimary`, and `Material.primary`/`Material.accent` to `theme.accent`.
+* **QObject & QML Smoke Tests (`rust/crates/aibox-app/tests/`, `cpp/shim/test_helpers.{h,cpp}`)**: Added `theme_qobject_loads_light_fixture_and_emits_changed_once` in `backend_qobject.rs` and updated `qml_smoke.rs` to verify both dark (`tokyo-night`) and light (`catppuccin-latte`) fixtures with zero QML warnings.
+
 ### Adaptive Theme M1 — Core Palette & Color Math (`aibox-core`)
 * **Theme Module Split (`rust/crates/aibox-core/src/theme/`)**: Replaced `theme.rs` with `theme/{mod.rs, color.rs, parse.rs, palette.rs}` while preserving all existing `ThemeColors` and `parse_colors` behavior.
 * **Color Math & Contrast Guard (`theme/color.rs`)**: Added `Rgb`, `Oklab`, WCAG 2.x `relative_luminance` and `contrast_ratio`, perceptual `to_oklab` / `from_oklab`, `mix`, `oklab_delta_e`, `is_near_gray`, and binary-search `ensure_contrast`.

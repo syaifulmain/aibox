@@ -136,7 +136,57 @@ void aibox_test_backend_enter_environment(void *ptr, const char *name) {
     b->enterEnvironment(QString::fromUtf8(name));
 }
 
+void *aibox_test_theme_new(void) {
+    return new Theme();
+}
+
+void aibox_test_theme_free(void *ptr) {
+    delete static_cast<Theme *>(ptr);
+}
+
+void aibox_test_theme_configure(void *ptr, const char *dir) {
+    auto *t = static_cast<Theme *>(ptr);
+    t->configure(QString::fromUtf8(dir ? dir : ""), QString());
+}
+
+bool aibox_test_theme_is_dark(void *ptr) {
+    auto *t = static_cast<Theme *>(ptr);
+    return t->getIsDark();
+}
+
+int aibox_test_theme_string_prop(void *ptr, const char *prop_name, char *buf, int buf_len) {
+    auto *t = static_cast<Theme *>(ptr);
+    const QVariant val = t->property(prop_name);
+    return copy_to_buf(val.toString(), buf, buf_len);
+}
+
+struct ThemeChangedSpy {
+    int count = 0;
+    QMetaObject::Connection conn;
+};
+
+void *aibox_test_theme_spy_new(void *ptr) {
+    auto *t = static_cast<Theme *>(ptr);
+    auto *spy = new ThemeChangedSpy();
+    spy->conn = QObject::connect(t, &Theme::changed, t, [spy]() { ++spy->count; });
+    return spy;
+}
+
+int aibox_test_theme_spy_count(void *spy) {
+    return static_cast<ThemeChangedSpy *>(spy)->count;
+}
+
+void aibox_test_theme_spy_free(void *spy) {
+    auto *s = static_cast<ThemeChangedSpy *>(spy);
+    QObject::disconnect(s->conn);
+    delete s;
+}
+
 int aibox_test_qml_smoke(char *err_buf, int err_buf_len) {
+    return aibox_test_qml_smoke_with_theme(nullptr, err_buf, err_buf_len);
+}
+
+int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int err_buf_len) {
     aibox_test_init_gui_app();
 
     {
@@ -155,6 +205,8 @@ int aibox_test_qml_smoke(char *err_buf, int err_buf_len) {
         QCoreApplication::installTranslator(&translator);
 
         Theme theme;
+        if (theme_dir && theme_dir[0] != '\0')
+            theme.configure(QString::fromUtf8(theme_dir), QString());
         Backend backend;
         backend.configure(QString(), true);
 
@@ -228,7 +280,6 @@ int aibox_test_qml_smoke(char *err_buf, int err_buf_len) {
             rc = static_cast<int>(g_collected_warnings.size());
         }
     }
-    aibox_test_shutdown_gui_app();
     return rc;
 }
 

@@ -19,7 +19,64 @@ pub mod qobject {
 
     unsafe extern "RustQt" {
         #[qobject]
+        // Semantic mode
+        #[qproperty(bool, is_dark, cxx_name = "isDark", READ, NOTIFY = changed)]
+        #[qproperty(QString, mode, READ, NOTIFY = changed)]
+        // Surfaces
+        #[qproperty(QString, surface_canvas, cxx_name = "surfaceCanvas", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_card, cxx_name = "surfaceCard", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_sidebar, cxx_name = "surfaceSidebar", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_input, cxx_name = "surfaceInput", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_raised, cxx_name = "surfaceRaised", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_selected, cxx_name = "surfaceSelected", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_track, cxx_name = "surfaceTrack", READ, NOTIFY = changed)]
+        #[qproperty(QString, surface_overlay, cxx_name = "surfaceOverlay", READ, NOTIFY = changed)]
+        // Borders
+        #[qproperty(QString, border_subtle, cxx_name = "borderSubtle", READ, NOTIFY = changed)]
+        #[qproperty(QString, border_strong, cxx_name = "borderStrong", READ, NOTIFY = changed)]
+        #[qproperty(QString, border_focus, cxx_name = "borderFocus", READ, NOTIFY = changed)]
+        // Text
+        #[qproperty(QString, text_primary, cxx_name = "textPrimary", READ, NOTIFY = changed)]
+        #[qproperty(QString, text_secondary, cxx_name = "textSecondary", READ, NOTIFY = changed)]
+        #[qproperty(QString, text_muted, cxx_name = "textMuted", READ, NOTIFY = changed)]
+        #[qproperty(QString, text_disabled, cxx_name = "textDisabled", READ, NOTIFY = changed)]
+        #[qproperty(QString, text_on_accent, cxx_name = "textOnAccent", READ, NOTIFY = changed)]
+        // Accent
         #[qproperty(QString, accent, READ, NOTIFY = changed)]
+        #[qproperty(QString, accent_text, cxx_name = "accentText", READ, NOTIFY = changed)]
+        #[qproperty(QString, accent_surface, cxx_name = "accentSurface", READ, NOTIFY = changed)]
+        #[qproperty(QString, accent_border, cxx_name = "accentBorder", READ, NOTIFY = changed)]
+        #[qproperty(QString, on_accent, cxx_name = "onAccent", READ, NOTIFY = changed)]
+        // Danger
+        #[qproperty(QString, danger, READ, NOTIFY = changed)]
+        #[qproperty(QString, danger_text, cxx_name = "dangerText", READ, NOTIFY = changed)]
+        #[qproperty(QString, danger_surface, cxx_name = "dangerSurface", READ, NOTIFY = changed)]
+        #[qproperty(QString, danger_border, cxx_name = "dangerBorder", READ, NOTIFY = changed)]
+        #[qproperty(QString, on_danger, cxx_name = "onDanger", READ, NOTIFY = changed)]
+        // Success
+        #[qproperty(QString, success, READ, NOTIFY = changed)]
+        #[qproperty(QString, success_text, cxx_name = "successText", READ, NOTIFY = changed)]
+        #[qproperty(QString, success_surface, cxx_name = "successSurface", READ, NOTIFY = changed)]
+        #[qproperty(QString, success_border, cxx_name = "successBorder", READ, NOTIFY = changed)]
+        #[qproperty(QString, on_success, cxx_name = "onSuccess", READ, NOTIFY = changed)]
+        // Warning
+        #[qproperty(QString, warning, READ, NOTIFY = changed)]
+        #[qproperty(QString, warning_text, cxx_name = "warningText", READ, NOTIFY = changed)]
+        #[qproperty(QString, warning_surface, cxx_name = "warningSurface", READ, NOTIFY = changed)]
+        #[qproperty(QString, warning_border, cxx_name = "warningBorder", READ, NOTIFY = changed)]
+        #[qproperty(QString, on_warning, cxx_name = "onWarning", READ, NOTIFY = changed)]
+        // Info
+        #[qproperty(QString, info, READ, NOTIFY = changed)]
+        #[qproperty(QString, info_text, cxx_name = "infoText", READ, NOTIFY = changed)]
+        #[qproperty(QString, info_surface, cxx_name = "infoSurface", READ, NOTIFY = changed)]
+        #[qproperty(QString, info_border, cxx_name = "infoBorder", READ, NOTIFY = changed)]
+        #[qproperty(QString, on_info, cxx_name = "onInfo", READ, NOTIFY = changed)]
+        // Overlay & selection
+        #[qproperty(QString, scrim, READ, NOTIFY = changed)]
+        #[qproperty(QString, scrim_strong, cxx_name = "scrimStrong", READ, NOTIFY = changed)]
+        #[qproperty(QString, selection, READ, NOTIFY = changed)]
+        #[qproperty(QString, selection_text, cxx_name = "selectionText", READ, NOTIFY = changed)]
+        // Deprecated legacy raw color properties (kept through M6 transition)
         #[qproperty(QString, accent_foreground, cxx_name = "accentForeground", READ, NOTIFY = changed)]
         #[qproperty(QString, background, READ, NOTIFY = changed)]
         #[qproperty(QString, dark_background, cxx_name = "darkBackground", READ, NOTIFY = changed)]
@@ -48,49 +105,135 @@ struct WatcherState {
     watched_paths: HashSet<PathBuf>,
 }
 
-pub struct ThemeRust {
-    accent: QString,
-    accent_foreground: QString,
-    background: QString,
-    dark_background: QString,
-    lighter_background: QString,
-    foreground: QString,
-    muted: QString,
-    green: QString,
-    red: QString,
-    yellow: QString,
-    radius: i32,
-    directory: String,
-    hyprctl: String,
-    watcher_state: Option<Arc<Mutex<WatcherState>>>,
-    stop_flag: Arc<AtomicBool>,
-    rounding_wake_tx: Option<mpsc::Sender<()>>,
+macro_rules! define_theme_rust {
+    ($($palette_field:ident),+ $(,)?) => {
+        pub struct ThemeRust {
+            is_dark: bool,
+            mode: QString,
+            $($palette_field: QString,)+
+            // Deprecated legacy fields (kept through M6 transition)
+            accent_foreground: QString,
+            background: QString,
+            dark_background: QString,
+            lighter_background: QString,
+            foreground: QString,
+            muted: QString,
+            green: QString,
+            red: QString,
+            yellow: QString,
+            radius: i32,
+            colors: aibox_core::theme::ThemeColors,
+            palette: aibox_core::theme::Palette,
+            directory: String,
+            hyprctl: String,
+            watcher_state: Option<Arc<Mutex<WatcherState>>>,
+            stop_flag: Arc<AtomicBool>,
+            rounding_wake_tx: Option<mpsc::Sender<()>>,
+        }
+
+        impl Default for ThemeRust {
+            fn default() -> Self {
+                let colors = aibox_core::theme::ThemeColors::default();
+                let palette = aibox_core::theme::derive_palette(&colors);
+                let accent_fg = aibox_core::theme::accent_foreground(&colors.accent);
+                Self {
+                    is_dark: palette.is_dark,
+                    mode: QString::from(&colors.mode),
+                    $($palette_field: QString::from(&palette.$palette_field),)+
+                    accent_foreground: QString::from(accent_fg),
+                    background: QString::from(&colors.background),
+                    dark_background: QString::from(&colors.dark_background),
+                    lighter_background: QString::from(&colors.lighter_background),
+                    foreground: QString::from(&colors.foreground),
+                    muted: QString::from(&colors.muted),
+                    green: QString::from(&colors.green),
+                    red: QString::from(&colors.red),
+                    yellow: QString::from(&colors.yellow),
+                    radius: 0,
+                    colors,
+                    palette,
+                    directory: String::new(),
+                    hyprctl: String::new(),
+                    watcher_state: None,
+                    stop_flag: Arc::new(AtomicBool::new(false)),
+                    rounding_wake_tx: None,
+                }
+            }
+        }
+
+        impl ThemeRust {
+            fn apply_theme(
+                &mut self,
+                colors: aibox_core::theme::ThemeColors,
+                palette: aibox_core::theme::Palette,
+            ) {
+                let accent_fg = aibox_core::theme::accent_foreground(&colors.accent);
+                self.is_dark = palette.is_dark;
+                self.mode = QString::from(&colors.mode);
+                $(self.$palette_field = QString::from(&palette.$palette_field);)+
+                self.accent_foreground = QString::from(accent_fg);
+                self.background = QString::from(&colors.background);
+                self.dark_background = QString::from(&colors.dark_background);
+                self.lighter_background = QString::from(&colors.lighter_background);
+                self.foreground = QString::from(&colors.foreground);
+                self.muted = QString::from(&colors.muted);
+                self.green = QString::from(&colors.green);
+                self.red = QString::from(&colors.red);
+                self.yellow = QString::from(&colors.yellow);
+                self.colors = colors;
+                self.palette = palette;
+            }
+        }
+    };
 }
 
-impl Default for ThemeRust {
-    fn default() -> Self {
-        let defaults = aibox_core::theme::ThemeColors::default();
-        let accent_fg = aibox_core::theme::accent_foreground(&defaults.accent);
-        Self {
-            accent: QString::from(&defaults.accent),
-            accent_foreground: QString::from(accent_fg),
-            background: QString::from(&defaults.background),
-            dark_background: QString::from(&defaults.dark_background),
-            lighter_background: QString::from(&defaults.lighter_background),
-            foreground: QString::from(&defaults.foreground),
-            muted: QString::from(&defaults.muted),
-            green: QString::from(&defaults.green),
-            red: QString::from(&defaults.red),
-            yellow: QString::from(&defaults.yellow),
-            radius: 0,
-            directory: String::new(),
-            hyprctl: String::new(),
-            watcher_state: None,
-            stop_flag: Arc::new(AtomicBool::new(false)),
-            rounding_wake_tx: None,
-        }
-    }
-}
+define_theme_rust!(
+    surface_canvas,
+    surface_card,
+    surface_sidebar,
+    surface_input,
+    surface_raised,
+    surface_selected,
+    surface_track,
+    surface_overlay,
+    border_subtle,
+    border_strong,
+    border_focus,
+    text_primary,
+    text_secondary,
+    text_muted,
+    text_disabled,
+    text_on_accent,
+    accent,
+    accent_text,
+    accent_surface,
+    accent_border,
+    on_accent,
+    danger,
+    danger_text,
+    danger_surface,
+    danger_border,
+    on_danger,
+    success,
+    success_text,
+    success_surface,
+    success_border,
+    on_success,
+    warning,
+    warning_text,
+    warning_surface,
+    warning_border,
+    on_warning,
+    info,
+    info_text,
+    info_surface,
+    info_border,
+    on_info,
+    scrim,
+    scrim_strong,
+    selection,
+    selection_text,
+);
 
 impl Drop for ThemeRust {
     fn drop(&mut self) {
@@ -245,46 +388,16 @@ impl qobject::Theme {
             }
         }
 
-        let toml_path = format!("{directory}/theme/colors.toml");
-        let colors = aibox_core::theme::parse_colors_file(&toml_path);
-        let accent = QString::from(&colors.accent);
-        let bg = QString::from(&colors.background);
-        let dark_bg = QString::from(&colors.dark_background);
-        let lighter_bg = QString::from(&colors.lighter_background);
-        let fg = QString::from(&colors.foreground);
-        let muted = QString::from(&colors.muted);
-        let green = QString::from(&colors.green);
-        let red = QString::from(&colors.red);
-        let yellow = QString::from(&colors.yellow);
+        let (colors, palette) = load_colors_and_palette(Path::new(&directory));
 
         let changed = {
             let rust = self.rust();
-            accent != rust.accent
-                || bg != rust.background
-                || dark_bg != rust.dark_background
-                || lighter_bg != rust.lighter_background
-                || fg != rust.foreground
-                || muted != rust.muted
-                || green != rust.green
-                || red != rust.red
-                || yellow != rust.yellow
+            colors != rust.colors || palette != rust.palette
         };
 
         if changed {
-            let accent_fg = QString::from(aibox_core::theme::accent_foreground(&colors.accent));
-            {
-                let mut rust = self.as_mut().rust_mut();
-                rust.accent = accent;
-                rust.accent_foreground = accent_fg;
-                rust.background = bg;
-                rust.dark_background = dark_bg;
-                rust.lighter_background = lighter_bg;
-                rust.foreground = fg;
-                rust.muted = muted;
-                rust.green = green;
-                rust.red = red;
-                rust.yellow = yellow;
-            }
+            self.as_mut().rust_mut().apply_theme(colors, palette);
+            // Emit one changed signal per theme switch; M7 will hook window icon retinting here.
             self.as_mut().changed();
         }
     }
@@ -295,6 +408,30 @@ impl qobject::Theme {
             self.as_mut().changed();
         }
     }
+}
+
+fn load_colors_and_palette(
+    theme_dir: &Path,
+) -> (aibox_core::theme::ThemeColors, aibox_core::theme::Palette) {
+    let candidate = if theme_dir.is_file() {
+        Some(theme_dir.to_path_buf())
+    } else if theme_dir.join("theme").join("colors.toml").is_file() {
+        Some(theme_dir.join("theme").join("colors.toml"))
+    } else if theme_dir.join("colors.toml").is_file() {
+        Some(theme_dir.join("colors.toml"))
+    } else {
+        None
+    };
+
+    let colors = match candidate {
+        Some(path) => match path.to_str() {
+            Some(s) => aibox_core::theme::parse_colors_file(s),
+            None => aibox_core::theme::ThemeColors::default(),
+        },
+        None => aibox_core::theme::ThemeColors::default(),
+    };
+    let palette = aibox_core::theme::derive_palette(&colors);
+    (colors, palette)
 }
 
 fn default_theme_dir(override_dir: &str) -> String {
@@ -340,6 +477,8 @@ fn rearm_theme_watches(state: &mut WatcherState, directory: &Path) {
         candidates.push(parent.to_path_buf());
     }
     candidates.push(directory.to_path_buf());
+    candidates.push(directory.join("colors.toml"));
+    candidates.push(directory.join("theme.name"));
     candidates.push(directory.join("theme"));
     candidates.push(directory.join("theme").join("colors.toml"));
 

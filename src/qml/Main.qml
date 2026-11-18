@@ -15,10 +15,13 @@ ApplicationWindow {
     minimumHeight: 560
     visible: true
     title: qsTr("AIBox")
-    color: theme.background
+    color: theme.surfaceCanvas
 
-    Material.theme: Material.Dark
+    Material.theme: theme.isDark ? Material.Dark : Material.Light
     Material.accent: theme.accent
+    Material.background: theme.surfaceCanvas
+    Material.foreground: theme.textPrimary
+    Material.primary: theme.accent
     Material.roundedScale: theme.radius
 
     property int activeTab: 0
