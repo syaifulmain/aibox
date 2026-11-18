@@ -200,93 +200,110 @@ Item {
                 }
             }
 
-            // Shared workspace card
-            Card {
-                title: qsTr("Shared Workspace")
-                actions: [
-                    ActionButton {
-                        label: (backend.selectedEnvironment.extraMountCount || 0) > 0
-                               ? qsTr("Mounts (%1)").arg(backend.selectedEnvironment.extraMountCount)
-                               : qsTr("Extra Mounts")
-                        onClicked: app.openMountsDialog()
-                    },
-                    ActionButton {
-                        label: qsTr("Open Shared Folder")
-                        onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
-                    }
-                ]
+            // Shared workspace & Root file access cards
+            GridLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+                columns: 2
+                columnSpacing: Style.gap
+                rowSpacing: Style.gap
 
-                KeyValue {
-                    label: qsTr("Host ↔ Guest")
-                    value: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
-                    bodyValue: true
-                }
-            }
-
-            // Root file access (localhost-only SFTP) card
-            Card {
-                title: qsTr("Root Files")
-                borderColor: (backend.selectedEnvironment.fileAccessActive || false)
-                             ? theme.accentBorder
-                             : theme.borderSubtle
-                actions: [
-                    ActionButton {
-                        visible: backend.selectedEnvironment.fileAccessActive || false
-                        label: qsTr("Open")
-                        onClicked: backend.openFileAccess(backend.selectedEnvironment.name || "")
-                    },
-                    ToggleChip {
-                        label: qsTr("Enabled")
-                        checked: backend.selectedEnvironment.fileAccessActive || false
-                        disabled: backend.busy
-                                  || (backend.selectedEnvironment.isTemplate || false)
-                                  || (!(backend.selectedEnvironment.fileAccessActive || false)
-                                      && !(backend.selectedEnvironment.running || false))
-                        onToggled: {
-                            const name = backend.selectedEnvironment.name || ""
-                            if (backend.selectedEnvironment.fileAccessActive || false)
-                                backend.disableFileAccess(name)
-                            else
-                                backend.enableFileAccess(name)
-                        }
-                    }
-                ]
-
-                Text {
+                // Shared workspace card
+                Card {
+                    id: sharedWorkspaceCard
                     Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    elide: Text.ElideMiddle
-                    text: (backend.selectedEnvironment.fileAccessActive || false)
-                          ? (backend.selectedEnvironment.fileAccessUrl || "")
-                          : (backend.selectedEnvironment.running
-                             ? qsTr("Off — browse the container root in your file manager")
-                             : qsTr("Off — start the environment to enable"))
-                    color: (backend.selectedEnvironment.fileAccessActive || false)
-                           ? theme.accentText
-                           : theme.textMuted
-                    font.family: (backend.selectedEnvironment.fileAccessActive || false)
-                                 ? Style.fontMono
-                                 : Style.fontSans
-                    font.pixelSize: (backend.selectedEnvironment.fileAccessActive || false)
-                                    ? Style.fontBody
-                                    : Style.fontSmall
-                    ToolTip.visible: rootUrlHover.hovered
-                    ToolTip.delay: 400
-                    ToolTip.text: (backend.selectedEnvironment.fileAccessActive || false)
-                                  ? qsTr("Click to copy this SFTP URL")
-                                  : qsTr("Browse this environment's root filesystem in your file manager over a localhost-only, passwordless SFTP connection. Anyone on this machine can read and write files as root while it is enabled.")
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: Math.max(sharedWorkspaceCard.implicitHeight, rootFilesCard.implicitHeight)
+                    title: qsTr("Shared Workspace")
+                    actions: [
+                        ActionButton {
+                            label: (backend.selectedEnvironment.extraMountCount || 0) > 0
+                                   ? qsTr("Mounts (%1)").arg(backend.selectedEnvironment.extraMountCount)
+                                   : qsTr("Extra Mounts")
+                            onClicked: app.openMountsDialog()
+                        },
+                        ActionButton {
+                            label: qsTr("Open Shared Folder")
+                            onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
+                        }
+                    ]
 
-                    HoverHandler {
-                        id: rootUrlHover
-                        cursorShape: (backend.selectedEnvironment.fileAccessActive || false)
-                                     ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    KeyValue {
+                        label: qsTr("Host ↔ Guest")
+                        value: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
+                        bodyValue: true
                     }
+                }
 
-                    TapHandler {
-                        enabled: backend.selectedEnvironment.fileAccessActive || false
-                        onTapped: backend.copyText(
-                            backend.selectedEnvironment.fileAccessUrl || "",
-                            qsTr("SFTP URL"))
+                // Root file access (localhost-only SFTP) card
+                Card {
+                    id: rootFilesCard
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: Math.max(sharedWorkspaceCard.implicitHeight, rootFilesCard.implicitHeight)
+                    title: qsTr("Root Files")
+                    borderColor: (backend.selectedEnvironment.fileAccessActive || false)
+                                 ? theme.accentBorder
+                                 : theme.borderSubtle
+                    actions: [
+                        ActionButton {
+                            visible: backend.selectedEnvironment.fileAccessActive || false
+                            label: qsTr("Open")
+                            onClicked: backend.openFileAccess(backend.selectedEnvironment.name || "")
+                        },
+                        ToggleChip {
+                            label: qsTr("Enabled")
+                            checked: backend.selectedEnvironment.fileAccessActive || false
+                            disabled: backend.busy
+                                      || (backend.selectedEnvironment.isTemplate || false)
+                                      || (!(backend.selectedEnvironment.fileAccessActive || false)
+                                          && !(backend.selectedEnvironment.running || false))
+                            onToggled: {
+                                const name = backend.selectedEnvironment.name || ""
+                                if (backend.selectedEnvironment.fileAccessActive || false)
+                                    backend.disableFileAccess(name)
+                                else
+                                    backend.enableFileAccess(name)
+                            }
+                        }
+                    ]
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideMiddle
+                        text: (backend.selectedEnvironment.fileAccessActive || false)
+                              ? (backend.selectedEnvironment.fileAccessUrl || "")
+                              : (backend.selectedEnvironment.running
+                                 ? qsTr("Off — browse the container root in your file manager")
+                                 : qsTr("Off — start the environment to enable"))
+                        color: (backend.selectedEnvironment.fileAccessActive || false)
+                               ? theme.accentText
+                               : theme.textMuted
+                        font.family: (backend.selectedEnvironment.fileAccessActive || false)
+                                     ? Style.fontMono
+                                     : Style.fontSans
+                        font.pixelSize: (backend.selectedEnvironment.fileAccessActive || false)
+                                        ? Style.fontBody
+                                        : Style.fontSmall
+                        ToolTip.visible: rootUrlHover.hovered
+                        ToolTip.delay: 400
+                        ToolTip.text: (backend.selectedEnvironment.fileAccessActive || false)
+                                      ? qsTr("Click to copy this SFTP URL")
+                                      : qsTr("Browse this environment's root filesystem in your file manager over a localhost-only, passwordless SFTP connection. Anyone on this machine can read and write files as root while it is enabled.")
+
+                        HoverHandler {
+                            id: rootUrlHover
+                            cursorShape: (backend.selectedEnvironment.fileAccessActive || false)
+                                         ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        }
+
+                        TapHandler {
+                            enabled: backend.selectedEnvironment.fileAccessActive || false
+                            onTapped: backend.copyText(
+                                backend.selectedEnvironment.fileAccessUrl || "",
+                                qsTr("SFTP URL"))
+                        }
                     }
                 }
             }

@@ -46,7 +46,7 @@ ColumnLayout {
             width: osListView.width
             height: Style.listRowHeight
             radius: Math.min(Style.radiusMd, theme.radius)
-            color: theme.surfaceCard
+            color: theme.surfaceInput
             border.width: Style.hairline
             border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
@@ -61,7 +61,7 @@ ColumnLayout {
                     width: Style.controlHeight
                     height: Style.controlHeight
                     radius: Math.min(Style.radiusMd, theme.radius)
-                    color: modelData.downloaded ? theme.successSurface : theme.surfaceInput
+                    color: modelData.downloaded ? theme.successSurface : theme.surfaceCard
                     border.width: Style.hairline
                     border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
@@ -76,12 +76,15 @@ ColumnLayout {
 
                 ColumnLayout {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     spacing: Style.gapXs
 
                     RowLayout {
+                        Layout.fillWidth: true
                         spacing: Style.gapMd
 
                         Text {
+                            elide: Text.ElideRight
                             text: modelData.name
                             color: theme.textPrimary
                             font.family: Style.fontSans
@@ -91,22 +94,12 @@ ColumnLayout {
 
                         Text {
                             visible: (modelData.id || "").length > 0
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
                             text: modelData.id || ""
                             color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.fontCaption
-                        }
-
-                        TagBadge {
-                            text: modelData.badge
-                            tone: "accentQuiet"
-                            textSize: Style.fontCaption
-                        }
-
-                        TagBadge {
-                            text: modelData.downloading ? qsTr("Downloading...") : modelData.sizeText
-                            tone: modelData.downloaded ? "success" : "quiet"
-                            textSize: Style.fontCaption
                         }
                     }
 
@@ -120,8 +113,24 @@ ColumnLayout {
                     }
                 }
 
+                TagBadge {
+                    text: modelData.badge
+                    tone: "accentQuiet"
+                }
+
+                Text {
+                    Layout.preferredWidth: Style.buttonMinWidth + Style.padSection
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideRight
+                    text: modelData.downloading ? qsTr("Downloading...") : modelData.sizeText
+                    color: modelData.downloaded ? theme.successText : theme.textMuted
+                    font.family: Style.fontMono
+                    font.pixelSize: Style.fontCaption
+                }
+
                 ActionButton {
                     compact: true
+                    minWidth: Style.buttonMinWidth + Style.padModal + Style.gapMd
                     label: modelData.downloading
                            ? qsTr("Downloading...")
                            : (modelData.downloaded ? qsTr("Remove Cache") : qsTr("Download OS"))

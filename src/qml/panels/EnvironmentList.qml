@@ -9,7 +9,7 @@ Rectangle {
     id: listRoot
     property QtObject app: null
 
-    color: theme.surfaceSidebar
+    color: theme.surfaceInput
     radius: theme.radius
     border.width: Style.hairline
     border.color: theme.borderSubtle

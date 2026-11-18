@@ -187,7 +187,7 @@ ColumnLayout {
             Layout.fillWidth: true
             height: Style.listRowHeight
             radius: Math.min(Style.radiusMd, theme.radius)
-            color: theme.surfaceCard
+            color: theme.surfaceInput
             border.width: Style.hairline
             border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
@@ -201,7 +201,7 @@ ColumnLayout {
                     width: Style.controlHeight
                     height: Style.controlHeight
                     radius: Math.min(Style.radiusMd, theme.radius)
-                    color: modelData.downloaded ? theme.successSurface : theme.surfaceInput
+                    color: modelData.downloaded ? theme.successSurface : theme.surfaceCard
                     border.width: Style.hairline
                     border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 

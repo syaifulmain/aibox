@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Inspector Two-Column Workspace & Root Files Row & Card Surface (`EnvironmentInspector.qml`, `EnvironmentList.qml`, `Card.qml`, `ResourceMeterCard.qml`)
+
+- **Shared Workspace & Root Files layout (`src/qml/panels/EnvironmentInspector.qml`):** Placed the `Shared Workspace` and `Root Files` cards side by side in a 2-column `GridLayout` (`Layout.fillHeight: false`) with equal widths and matching compact heights (`Math.max(sharedWorkspaceCard.implicitHeight, rootFilesCard.implicitHeight)`).
+- **OS Images row alignment (`src/qml/panels/OsCatalogPanel.qml`):** Aligned the OS `TagBadge` and right-aligned `Cached` / `Not Cached` size text in fixed columns matching `OsCatalogSection.qml`, and gave `Remove Cache` / `Download OS` a uniform `minWidth` (`Style.buttonMinWidth + Style.padModal + Style.gapMd`).
+- **Sidebar & card surface (`src/qml/panels/EnvironmentList.qml`, `src/qml/panels/SettingsPanel.qml`, `src/qml/panels/OsCatalogPanel.qml`, `src/qml/panels/settings/OsCatalogSection.qml`, `src/qml/components/Card.qml`, `src/qml/components/ResourceMeterCard.qml`):** Unified the environment list and settings sidebars, all inspector cards (the 3 resource cards, `Shared Workspace`, `Root Files`, `Network`, and `Btrfs Snapshots`), and OS catalog cards on `theme.surfaceInput` (with `theme.surfaceCard` for nested non-downloaded OS icon tiles).
+
 ### Disabled Primary Button Contrast & Dialog Polish (`ActionButton.qml`, `CheckRow.qml`, `SecretsDialog.qml`, `MountsDialog.qml`)
 
 - **Disabled button contrast (`src/qml/components/ActionButton.qml`):** Disabled buttons across all variants (including `primary` Save buttons) now render with `theme.surfaceInput`, `theme.borderSubtle` border, and `theme.textDisabled` label without double-dimming via `opacityDisabled`, keeping disabled primary labels legible on both light and dark themes.

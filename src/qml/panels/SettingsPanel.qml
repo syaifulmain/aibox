@@ -63,7 +63,7 @@ ModalDialog {
             id: sidebar
             Layout.preferredWidth: 232
             Layout.fillHeight: true
-            color: theme.surfaceSidebar
+            color: theme.surfaceInput
             activeFocusOnTab: true
 
             Keys.onUpPressed: function(event) {

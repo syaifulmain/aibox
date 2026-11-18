@@ -7,7 +7,7 @@ Rectangle {
     property string title: ""
     property string subtitle: ""
     property bool showHeader: true
-    property color fillColor: theme.surfaceCard
+    property color fillColor: theme.surfaceInput
     property color borderColor: theme.borderSubtle
     property int cardPadding: Style.padCard
     property int contentSpacing: Style.gap
