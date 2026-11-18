@@ -11,7 +11,6 @@ use aibox_core::config::settings::{
     save_idle_stop_settings, save_os_entry, save_preset, save_session_recording_settings,
     save_settings, save_stale_settings, save_watchdog_settings, FirstRunRequest,
 };
-use aibox_core::history::{load_history_seen_marker, load_operation_history};
 use aibox_core::util::paths::{default_location_file_path, save_location_file};
 
 use crate::qt_backend::{find_executable, qobject};
@@ -94,13 +93,13 @@ impl qobject::Backend {
         self.as_mut().refresh_backups();
         self.as_mut().rebuild_os_catalog();
 
-        let state_dir = self.engine.paths.state_dir.clone();
-        let seen_id = load_history_seen_marker(&state_dir);
-        let history = load_operation_history(&state_dir);
         {
             let mut rust = self.as_mut().rust_mut();
+            rust.engine.reload_history();
+            let seen_id = rust.engine.history_seen_id().to_string();
+            let q_hist = json_array_to_qvariant_list(rust.engine.cached_operation_history());
             rust.history_seen_id = seen_id;
-            rust.operation_history = json_array_to_qvariant_list(&history);
+            rust.operation_history = q_hist;
         }
         self.as_mut().operation_history_changed();
 

@@ -21,9 +21,6 @@ use aibox_core::health::idle::IdleCpuSample;
 use aibox_core::health::pool::{
     parse_incus_storage_info, sum_root_disk_quotas_bytes, StoragePoolInfo,
 };
-use aibox_core::history::{
-    load_history_seen_marker, load_operation_history, recent_failed_history_count,
-};
 use aibox_core::incus::catalog::catalog_for_entries;
 use aibox_core::incus::demo::build_demo_state_now;
 use aibox_core::incus::list::{
@@ -1143,8 +1140,7 @@ impl qobject::Backend {
     }
 
     pub fn recent_failed_history_count(&self) -> i32 {
-        let history = load_operation_history(&self.engine.paths.state_dir);
-        recent_failed_history_count(&history, &self.history_seen_id)
+        self.engine.recent_failed_history_count()
     }
 
     pub fn backups_dir_path(&self) -> QString {
@@ -1186,13 +1182,13 @@ impl qobject::Backend {
         self.as_mut().sync_config_properties();
         self.as_mut().rebuild_os_catalog();
 
-        let state_dir = self.engine.paths.state_dir.clone();
-        let seen_id = load_history_seen_marker(&state_dir);
-        let history = load_operation_history(&state_dir);
         {
             let mut rust = self.as_mut().rust_mut();
+            rust.engine.reload_history();
+            let seen_id = rust.engine.history_seen_id().to_string();
+            let q_hist = json_array_to_qvariant_list(rust.engine.cached_operation_history());
             rust.history_seen_id = seen_id;
-            rust.operation_history = json_array_to_qvariant_list(&history);
+            rust.operation_history = q_hist;
         }
         self.as_mut().operation_history_changed();
 

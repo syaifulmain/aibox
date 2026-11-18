@@ -1,5 +1,6 @@
 //! Operation history persistence, pruning, redaction, and unread-failure tracking.
 
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -10,6 +11,7 @@ use serde_json::{json, Value};
 use crate::secrets::redact::{redact_secrets, redact_secrets_bytes};
 use crate::util::bytes::truncate_log_tail;
 use crate::util::json::to_json_compact;
+use crate::util::paths::atomic_write;
 
 const DEFAULT_LOG_TAIL_BYTES: i64 = 204_800;
 
@@ -58,14 +60,63 @@ pub fn recent_failed_history_count_json(entries_json: &str, history_seen_id: &st
     recent_failed_history_count(&entries, history_seen_id)
 }
 
-/// Loads all valid `*.json` history entries from `<state_dir>/history`, newest first.
-pub fn load_operation_history(state_dir: &str) -> Vec<Value> {
-    let dir_path = history_dir_path(state_dir);
-    let Ok(read_dir) = fs::read_dir(&dir_path) else {
+fn entry_id(val: &Value) -> &str {
+    val.get("id").and_then(Value::as_str).unwrap_or("")
+}
+
+fn is_valid_entry(val: &Value) -> bool {
+    val.is_object() && !entry_id(val).is_empty()
+}
+
+fn parse_jsonl_bytes(bytes: &[u8], out: &mut Vec<Value>) {
+    for raw_line in bytes.split(|&b| b == b'\n') {
+        let line = trim_ascii_whitespace(raw_line);
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(val) = serde_json::from_slice::<Value>(line) {
+            if is_valid_entry(&val) {
+                out.push(val);
+            }
+        }
+    }
+}
+
+fn trim_ascii_whitespace(mut slice: &[u8]) -> &[u8] {
+    while let Some((&first, rest)) = slice.split_first() {
+        if first.is_ascii_whitespace() {
+            slice = rest;
+        } else {
+            break;
+        }
+    }
+    while let Some((&last, rest)) = slice.split_last() {
+        if last.is_ascii_whitespace() {
+            slice = rest;
+        } else {
+            break;
+        }
+    }
+    slice
+}
+
+enum EntrySource {
+    Jsonl(PathBuf),
+    LegacyJson(PathBuf),
+}
+
+struct LoadedEntry {
+    value: Value,
+    source: EntrySource,
+}
+
+fn load_entries_with_sources(dir_path: &str) -> Vec<LoadedEntry> {
+    let Ok(read_dir) = fs::read_dir(dir_path) else {
         return Vec::new();
     };
 
-    let mut json_files: Vec<(String, PathBuf)> = Vec::new();
+    let mut jsonl_files: Vec<PathBuf> = Vec::new();
+    let mut json_files: Vec<PathBuf> = Vec::new();
     for entry in read_dir.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -74,32 +125,56 @@ pub fn load_operation_history(state_dir: &str) -> Vec<Value> {
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
             continue;
         };
-        if name.ends_with(".json") {
-            json_files.push((name.to_string(), path));
+        if name.ends_with(".jsonl") {
+            jsonl_files.push(path);
+        } else if name.ends_with(".json") {
+            json_files.push(path);
         }
     }
 
-    // Reverse lexicographical order matches QDir::Name | QDir::Reversed.
-    json_files.sort_by(|a, b| b.0.cmp(&a.0));
-
     let mut loaded = Vec::new();
-    for (_, path) in json_files {
+
+    for path in jsonl_files {
         let Ok(bytes) = fs::read(&path) else {
             continue;
         };
-        let Ok(val) = serde_json::from_slice::<Value>(&bytes) else {
-            continue;
-        };
-        let Some(obj) = val.as_object() else {
-            continue;
-        };
-        let id = obj.get("id").and_then(Value::as_str).unwrap_or("");
-        if id.is_empty() {
-            continue;
+        let mut parsed = Vec::new();
+        parse_jsonl_bytes(&bytes, &mut parsed);
+        for value in parsed {
+            loaded.push(LoadedEntry {
+                value,
+                source: EntrySource::Jsonl(path.clone()),
+            });
         }
-        loaded.push(val);
     }
+
+    for path in json_files {
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        if is_valid_entry(&value) {
+            loaded.push(LoadedEntry {
+                value,
+                source: EntrySource::LegacyJson(path),
+            });
+        }
+    }
+
+    // Reverse lexicographical order on IDs matches newest-first ordering.
+    loaded.sort_by(|a, b| entry_id(&b.value).cmp(entry_id(&a.value)));
     loaded
+}
+
+/// Loads all valid history entries (`*.jsonl` and legacy `*.json`) from `<state_dir>/history`, newest first.
+pub fn load_operation_history(state_dir: &str) -> Vec<Value> {
+    let dir_path = history_dir_path(state_dir);
+    load_entries_with_sources(&dir_path)
+        .into_iter()
+        .map(|item| item.value)
+        .collect()
 }
 
 fn parse_iso_datetime(started_at_iso: &str) -> Option<DateTime<Local>> {
@@ -120,6 +195,132 @@ fn parse_iso_datetime(started_at_iso: &str) -> Option<DateTime<Local>> {
     None
 }
 
+fn parse_entry_datetime(entry: &Value) -> Option<DateTime<Local>> {
+    if let Some(started) = entry.get("startedAt").and_then(Value::as_str) {
+        if let Some(dt) = parse_iso_datetime(started) {
+            return Some(dt);
+        }
+    }
+    if let Some(ts) = entry.get("timestamp").and_then(Value::as_str) {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(ts.trim(), "%Y-%m-%d %H:%M:%S") {
+            if let Some(dt) = Local.from_local_datetime(&naive).earliest() {
+                return Some(dt);
+            }
+        }
+    }
+    let id = entry_id(entry);
+    if id.len() >= 15 {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(&id[..15], "%Y%m%d-%H%M%S") {
+            if let Some(dt) = Local.from_local_datetime(&naive).earliest() {
+                return Some(dt);
+            }
+        }
+    }
+    None
+}
+
+fn remove_pruned_entries(
+    dir_path: &str,
+    entries: Vec<LoadedEntry>,
+    remove_indices: &HashSet<usize>,
+) -> Vec<Value> {
+    if remove_indices.is_empty() {
+        return entries.into_iter().map(|e| e.value).collect();
+    }
+
+    let mut affected_jsonl: BTreeMap<PathBuf, Vec<Value>> = BTreeMap::new();
+    let mut kept = Vec::with_capacity(entries.len().saturating_sub(remove_indices.len()));
+
+    for (idx, item) in entries.into_iter().enumerate() {
+        if remove_indices.contains(&idx) {
+            let id = entry_id(&item.value);
+            if !id.is_empty() {
+                let _ = fs::remove_file(Path::new(dir_path).join(format!("{id}.log")));
+            }
+            match item.source {
+                EntrySource::LegacyJson(path) => {
+                    let _ = fs::remove_file(path);
+                }
+                EntrySource::Jsonl(path) => {
+                    affected_jsonl.entry(path).or_default();
+                }
+            }
+        } else {
+            if let EntrySource::Jsonl(ref path) = item.source {
+                affected_jsonl
+                    .entry(path.clone())
+                    .or_default()
+                    .push(item.value.clone());
+            }
+            kept.push(item.value);
+        }
+    }
+
+    // Rewrite only the monthly JSONL files that had entries removed.
+    for (path, mut remaining) in affected_jsonl {
+        if remaining.is_empty() {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        // Store chronologically (oldest first) inside each monthly file.
+        remaining.sort_by(|a, b| entry_id(a).cmp(entry_id(b)));
+        let mut buf = String::new();
+        for val in &remaining {
+            if let Ok(line) = to_json_compact(val) {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+        }
+        let _ = atomic_write(&path, buf.as_bytes());
+    }
+
+    kept
+}
+
+/// Prunes history entries by maximum count and/or maximum age in days, returning remaining entries.
+pub fn prune_operation_history(
+    state_dir: &str,
+    max_entries: Option<usize>,
+    max_age_days: Option<i64>,
+    now: DateTime<Local>,
+) -> Vec<Value> {
+    let dir_path = history_dir_path(state_dir);
+    let entries = load_entries_with_sources(&dir_path);
+    if entries.is_empty() {
+        return Vec::new();
+    }
+
+    let mut remove_indices = HashSet::new();
+
+    if let Some(days) = max_age_days {
+        let max_secs = days.max(0).saturating_mul(86_400);
+        for (idx, item) in entries.iter().enumerate() {
+            if let Some(dt) = parse_entry_datetime(&item.value) {
+                if (now - dt).num_seconds() > max_secs {
+                    remove_indices.insert(idx);
+                }
+            }
+        }
+    }
+
+    if let Some(limit) = max_entries {
+        // `entries` is sorted newest-first, so keep the first `limit` non-age-pruned items.
+        let mut kept_count = 0usize;
+        for (idx, _) in entries.iter().enumerate() {
+            if remove_indices.contains(&idx) {
+                continue;
+            }
+            if kept_count < limit {
+                kept_count += 1;
+            } else {
+                remove_indices.insert(idx);
+            }
+        }
+    }
+
+    remove_pruned_entries(&dir_path, entries, &remove_indices)
+}
+
 /// Parameters for recording a completed or failed operation in history.
 pub struct RecordOperationParams<'a> {
     pub state_dir: &'a str,
@@ -134,7 +335,17 @@ pub struct RecordOperationParams<'a> {
     pub secret_values: &'a [String],
 }
 
-/// Records an operation history entry (`.log` + `.json`), prunes old entries, and returns the updated list.
+fn append_entry_to_monthly_jsonl(jsonl_path: &Path, compact_json: &str) {
+    let mut existing = fs::read(jsonl_path).unwrap_or_default();
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
+        existing.push(b'\n');
+    }
+    existing.extend_from_slice(compact_json.as_bytes());
+    existing.push(b'\n');
+    let _ = atomic_write(jsonl_path, &existing);
+}
+
+/// Records an operation history entry (`.log` + monthly `.jsonl`), prunes old entries, and returns the updated list.
 pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Vec<Value>> {
     if params.description.is_empty() {
         return None;
@@ -159,7 +370,7 @@ pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Ve
     let truncated_log = truncate_log_tail(&safe_log_bytes, DEFAULT_LOG_TAIL_BYTES);
 
     let log_path = Path::new(&dir_path).join(&log_name);
-    let _ = fs::write(&log_path, &truncated_log);
+    let _ = atomic_write(&log_path, &truncated_log);
 
     let mut entry = serde_json::Map::new();
     entry.insert("id".to_string(), json!(id));
@@ -179,42 +390,21 @@ pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Ve
     }
 
     if let Ok(compact) = to_json_compact(&Value::Object(entry)) {
-        let meta_path = Path::new(&dir_path).join(format!("{id}.json"));
-        let _ = fs::write(&meta_path, compact.as_bytes());
+        let month_name = format!("{}.jsonl", now.format("%Y-%m"));
+        let jsonl_path = Path::new(&dir_path).join(month_name);
+        append_entry_to_monthly_jsonl(&jsonl_path, &compact);
     }
 
-    // Prune oldest entries beyond max_entries.
     if params.max_entries >= 0 {
-        if let Ok(read_dir) = fs::read_dir(&dir_path) {
-            let mut json_names: Vec<String> = read_dir
-                .flatten()
-                .filter_map(|e| {
-                    let p = e.path();
-                    if !p.is_file() {
-                        return None;
-                    }
-                    let name = p.file_name()?.to_str()?;
-                    if name.ends_with(".json") {
-                        Some(name.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            json_names.sort();
-            let max_entries = params.max_entries as usize;
-            if json_names.len() > max_entries {
-                let remove_count = json_names.len() - max_entries;
-                for name in json_names.into_iter().take(remove_count) {
-                    let base = name.trim_end_matches(".json");
-                    let _ = fs::remove_file(Path::new(&dir_path).join(format!("{base}.json")));
-                    let _ = fs::remove_file(Path::new(&dir_path).join(format!("{base}.log")));
-                }
-            }
-        }
+        Some(prune_operation_history(
+            params.state_dir,
+            Some(params.max_entries as usize),
+            None,
+            now,
+        ))
+    } else {
+        Some(load_operation_history(params.state_dir))
     }
-
-    Some(load_operation_history(params.state_dir))
 }
 
 /// Reads an operation log by entry ID, returning `None` when the file is unavailable.
@@ -250,7 +440,7 @@ pub fn clear_operation_history(state_dir: &str) {
     let _ = fs::remove_file(history_seen_marker_path(state_dir));
 }
 
-/// Writes `newest_id` to `<state_dir>/history-seen` if non-empty and changed.
+/// Writes `newest_id` to `<state_dir>/history-seen` atomically if non-empty and changed.
 pub fn acknowledge_operation_history(
     state_dir: &str,
     newest_id: &str,
@@ -259,7 +449,8 @@ pub fn acknowledge_operation_history(
     if newest_id.is_empty() || newest_id == current_seen_id {
         return None;
     }
-    if fs::write(history_seen_marker_path(state_dir), newest_id.as_bytes()).is_ok() {
+    let marker_path = history_seen_marker_path(state_dir);
+    if atomic_write(Path::new(&marker_path), newest_id.as_bytes()).is_ok() {
         Some(newest_id.to_string())
     } else {
         None
@@ -269,7 +460,8 @@ pub fn acknowledge_operation_history(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use chrono::Duration;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     struct TempDir {
         path: PathBuf,
@@ -397,5 +589,146 @@ mod tests {
             assert!(!log_text.contains("tok-999-secret"));
             assert!(log_text.contains("[REDACTED]"));
         }
+
+        // Verify monthly JSONL format is used and no legacy .json or .tmp files exist.
+        let hist_dir = history_dir_path(state_dir);
+        let files: Vec<String> = fs::read_dir(&hist_dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(String::from))
+            .collect();
+        assert!(files.iter().any(|f| f.ends_with(".jsonl")));
+        assert!(!files.iter().any(|f| f.ends_with(".json")));
+        assert!(!files.iter().any(|f| f.contains(".tmp")));
+    }
+
+    #[test]
+    fn corrupted_json_and_jsonl_entries_are_skipped() {
+        let dir = TempDir::new("corrupt");
+        let state_dir = dir.str_path();
+        let hist_dir = history_dir_path(state_dir);
+        fs::create_dir_all(&hist_dir).unwrap();
+
+        // Legacy corrupted .json files
+        fs::write(format!("{hist_dir}/bad.json"), b"{not valid json").unwrap();
+        fs::write(format!("{hist_dir}/no-id.json"), br#"{"status":"failed"}"#).unwrap();
+        fs::write(format!("{hist_dir}/array.json"), b"[1, 2, 3]").unwrap();
+
+        // Monthly .jsonl with mixed valid, invalid, blank, and missing-id lines
+        let jsonl = concat!(
+            "\n",
+            "{corrupt line\n",
+            "[\"not-an-object\"]\n",
+            "{\"id\":\"\",\"status\":\"failed\"}\n",
+            "{\"id\":\"20261110-100000-001\",\"description\":\"Valid 1\",\"status\":\"success\"}\n",
+            "{\"id\":\"20261111-100000-001\",\"description\":\"Valid 2\",\"status\":\"failed\"}\n",
+        );
+        fs::write(format!("{hist_dir}/2026-11.jsonl"), jsonl).unwrap();
+
+        let loaded = load_operation_history(state_dir);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0]["id"], "20261111-100000-001");
+        assert_eq!(loaded[1]["id"], "20261110-100000-001");
+    }
+
+    #[test]
+    fn prune_by_count_and_age_removes_entries_and_logs() {
+        let dir = TempDir::new("prune-age");
+        let state_dir = dir.str_path();
+        let hist_dir = history_dir_path(state_dir);
+        fs::create_dir_all(&hist_dir).unwrap();
+
+        let now = Local::now();
+        let old_dt = now - Duration::days(40);
+        let mid_dt = now - Duration::days(10);
+        let new_dt = now - Duration::days(1);
+
+        let old_id = format!("{}-001", old_dt.format("%Y%m%d-%H%M%S-%3f"));
+        let mid_id = format!("{}-002", mid_dt.format("%Y%m%d-%H%M%S-%3f"));
+        let new_id = format!("{}-003", new_dt.format("%Y%m%d-%H%M%S-%3f"));
+
+        for (id, dt) in [(&old_id, old_dt), (&mid_id, mid_dt), (&new_id, new_dt)] {
+            fs::write(format!("{hist_dir}/{id}.log"), format!("log for {id}")).unwrap();
+            let line = to_json_compact(&json!({
+                "id": id,
+                "startedAt": dt.to_rfc3339(),
+                "description": format!("Op {id}"),
+                "status": "success"
+            }))
+            .unwrap();
+            let month_file = format!("{hist_dir}/{}.jsonl", dt.format("%Y-%m"));
+            append_entry_to_monthly_jsonl(Path::new(&month_file), &line);
+        }
+
+        // Age-based pruning: drop entries older than 30 days.
+        let after_age = prune_operation_history(state_dir, None, Some(30), now);
+        assert_eq!(after_age.len(), 2);
+        assert!(read_operation_log(state_dir, &old_id, false).is_none());
+        assert!(read_operation_log(state_dir, &mid_id, false).is_some());
+        assert!(read_operation_log(state_dir, &new_id, false).is_some());
+
+        // Count-based pruning: keep at most 1 entry.
+        let after_count = prune_operation_history(state_dir, Some(1), None, now);
+        assert_eq!(after_count.len(), 1);
+        assert_eq!(after_count[0]["id"], new_id);
+        assert!(read_operation_log(state_dir, &mid_id, false).is_none());
+        assert!(read_operation_log(state_dir, &new_id, false).is_some());
+
+        // Count-based pruning to 0 clears all entries.
+        let after_zero = prune_operation_history(state_dir, Some(0), None, now);
+        assert!(after_zero.is_empty());
+        assert!(read_operation_log(state_dir, &new_id, false).is_none());
+    }
+
+    #[test]
+    fn unread_failed_history_count_filters_by_status_and_seen_id() {
+        let entries = vec![
+            json!({"id": "20261118-120000-003", "status": "failed"}),
+            json!({"id": "20261118-110000-002", "status": "warning"}),
+            json!({"id": "20261118-100000-001", "status": "failed"}),
+            json!({"id": "20261118-090000-000", "status": "success"}),
+        ];
+
+        assert_eq!(recent_failed_history_count(&entries, ""), 2);
+        assert_eq!(
+            recent_failed_history_count(&entries, "20261118-100000-001"),
+            1
+        );
+        assert_eq!(
+            recent_failed_history_count(&entries, "20261118-120000-003"),
+            0
+        );
+    }
+
+    #[test]
+    fn list_and_count_1000_entries_under_20ms() {
+        let dir = TempDir::new("perf-1000");
+        let state_dir = dir.str_path();
+        let hist_dir = history_dir_path(state_dir);
+        fs::create_dir_all(&hist_dir).unwrap();
+
+        let mut buf = String::with_capacity(1000 * 180);
+        for i in 0..1000 {
+            let status = if i % 5 == 0 { "failed" } else { "success" };
+            let id = format!("20261118-120000-{i:04}");
+            let line = format!(
+                r#"{{"id":"{id}","timestamp":"2026-11-18 12:00:00","description":"Operation {i}","envName":"box1","status":"{status}","exitCode":0,"durationMs":100,"logFile":"{id}.log"}}"#
+            );
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        atomic_write(&Path::new(&hist_dir).join("2026-11.jsonl"), buf.as_bytes()).unwrap();
+
+        let start = Instant::now();
+        let loaded = load_operation_history(state_dir);
+        let unread = recent_failed_history_count(&loaded, "20261118-120000-0500");
+        let elapsed = start.elapsed();
+
+        assert_eq!(loaded.len(), 1000);
+        assert_eq!(unread, 99);
+        assert!(
+            elapsed.as_millis() < 20,
+            "1000-entry list + count took {elapsed:?}, expected < 20 ms"
+        );
     }
 }

@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core History: Atomic Writes, Monthly JSONL Storage, In-Memory Cache & Pruning (`rust/crates/aibox-core/src/history.rs`, `engine.rs`, `aibox-app`)
+
+- **Atomic writes (`history.rs`):** Switched history log writes, monthly metadata updates, and the `history-seen` marker (`acknowledge_operation_history`) to `atomic_write` so no partial files or leftover temp files occur on crash.
+- **Monthly append-only JSONL format (`history.rs`):** Persisted new operation history metadata in monthly `<YYYY-MM>.jsonl` files while keeping backwards-compatible loading and pruning for legacy per-operation `*.json` files. Added `prune_operation_history` supporting both count-based and age-based pruning.
+- **In-memory history cache (`engine.rs`, `qt_backend*.rs`):** Added `HistoryCache` on `Engine` (`reload_history`, `set_history_cache`, `invalidate_history`, `acknowledge_history`, `clear_history`, `recent_failed_history_count`) so QML `recentFailedHistoryCount` bindings and `acknowledge_operation_history` read from memory instead of scanning disk on every evaluation.
+- **Verification tests (`history.rs`, `engine.rs`):** Added unit tests for corrupted JSON/JSONL line skipping, count and age pruning, unread failure counting, `Engine::history_cache` tracking, and a 1000-entry list + count benchmark completing in `< 20 ms`.
+
 ### Core Session: Streaming Redaction, Atomic Write, Single-Pass ANSI & `sessions.idx` (`rust/crates/aibox-core/src/session.rs`)
 
 - **Streaming atomic redaction (`util/paths.rs`, `secrets/redact.rs`, `session.rs`):** Added `atomic_write_with` in `util::paths` (shared with `atomic_write_with_mode`) and `StreamingRedactor::finish_with_status` in `secrets::redact`. `redact_session_log_file` now streams 64 KiB chunks (`BufReader`/`BufWriter`) directly into a `0600` sibling temp file and atomically commits only when secrets were redacted, keeping memory constant for large logs.

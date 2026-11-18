@@ -4,10 +4,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QString, QVariant};
 
-use aibox_core::history::{
-    acknowledge_operation_history, clear_operation_history, load_operation_history,
-    read_operation_log,
-};
+use aibox_core::history::read_operation_log;
 use aibox_core::session::{
     build_replay_command, delete_recorded_session, read_recorded_session_log, sessions_dir_path,
 };
@@ -30,7 +27,7 @@ impl qobject::Backend {
 
     pub fn clear_operation_history(mut self: Pin<&mut Self>) {
         if !self.demo_mode {
-            clear_operation_history(&self.engine.paths.state_dir);
+            self.as_mut().rust_mut().engine.clear_history();
         }
         {
             let mut rust = self.as_mut().rust_mut();
@@ -44,17 +41,8 @@ impl qobject::Backend {
         if self.demo_mode {
             return;
         }
-        let history = load_operation_history(&self.engine.paths.state_dir);
-        let newest_id = history
-            .first()
-            .and_then(|v| v.get("id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        if let Some(next_seen) = acknowledge_operation_history(
-            &self.engine.paths.state_dir,
-            newest_id,
-            &self.history_seen_id,
-        ) {
+        let next_seen = self.as_mut().rust_mut().engine.acknowledge_history();
+        if let Some(next_seen) = next_seen {
             {
                 let mut rust = self.as_mut().rust_mut();
                 rust.history_seen_id = next_seen;

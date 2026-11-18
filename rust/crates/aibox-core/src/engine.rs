@@ -2,10 +2,16 @@ use std::path::Path;
 
 use chrono::Local;
 
+use serde_json::Value;
+
 use crate::config::model::{self, Config};
 use crate::health::checks::CommandRunner;
 use crate::health::pool::{parse_incus_storage_info, StoragePoolInfo};
-use crate::history::{record_operation_history, RecordOperationParams};
+use crate::history::{
+    acknowledge_operation_history, clear_operation_history, load_history_seen_marker,
+    load_operation_history, recent_failed_history_count, record_operation_history,
+    RecordOperationParams,
+};
 use crate::incus::catalog::{build_os_catalog, OsCatalogEntry};
 use crate::incus::list::{
     parse as parse_incus_list, templates as extract_templates, CounterState, Environment,
@@ -76,6 +82,14 @@ impl ResolvedPaths {
     }
 }
 
+/// In-memory cache of operation history entries and the seen marker.
+#[derive(Debug, Clone, Default)]
+pub struct HistoryCache {
+    pub entries: Vec<Value>,
+    pub seen_id: String,
+    pub loaded: bool,
+}
+
 pub struct Engine {
     pub paths: ResolvedPaths,
     pub config: Config,
@@ -86,6 +100,7 @@ pub struct Engine {
     pub counter_state: CounterState,
     pub secrets: SecretsState,
     pub file_access: ApplyFileAccessResult,
+    pub history_cache: HistoryCache,
 }
 
 impl Engine {
@@ -122,6 +137,7 @@ impl Engine {
             counter_state: CounterState::new(),
             secrets,
             file_access: ApplyFileAccessResult::default(),
+            history_cache: HistoryCache::default(),
         }
     }
 
@@ -136,6 +152,7 @@ impl Engine {
             counter_state: CounterState::new(),
             secrets,
             file_access: ApplyFileAccessResult::default(),
+            history_cache: HistoryCache::default(),
         }
     }
 
@@ -225,7 +242,7 @@ impl Engine {
 
     /// Runs a shell script synchronously under `/bin/bash -c` and records operation history.
     pub fn run_script_blocking(
-        &self,
+        &mut self,
         runner: &dyn CommandRunner,
         description: &str,
         env_name: &str,
@@ -248,7 +265,7 @@ impl Engine {
             "failed"
         };
         let secret_vals = self.secrets.all_secret_values();
-        let _ = record_operation_history(&RecordOperationParams {
+        if let Some(entries) = record_operation_history(&RecordOperationParams {
             state_dir: &self.paths.state_dir,
             description,
             env_name,
@@ -259,9 +276,81 @@ impl Engine {
             secret_values: &secret_vals,
             reason: "",
             max_entries: 50,
-        });
+        }) {
+            self.set_history_cache(entries);
+        }
 
         out.exit_code
+    }
+
+    /// Reloads operation history and the seen marker from disk into the in-memory cache.
+    pub fn reload_history(&mut self) {
+        self.history_cache.entries = load_operation_history(&self.paths.state_dir);
+        self.history_cache.seen_id = load_history_seen_marker(&self.paths.state_dir);
+        self.history_cache.loaded = true;
+    }
+
+    /// Returns cached history entries, loading from disk only if not yet loaded.
+    pub fn operation_history(&mut self) -> &[Value] {
+        if !self.history_cache.loaded {
+            self.reload_history();
+        }
+        &self.history_cache.entries
+    }
+
+    /// Returns cached history entries without touching disk.
+    pub fn cached_operation_history(&self) -> &[Value] {
+        &self.history_cache.entries
+    }
+
+    /// Returns the cached seen marker ID without touching disk.
+    pub fn history_seen_id(&self) -> &str {
+        &self.history_cache.seen_id
+    }
+
+    /// Counts unread failed history entries from the in-memory cache without touching disk.
+    pub fn recent_failed_history_count(&self) -> i32 {
+        recent_failed_history_count(&self.history_cache.entries, &self.history_cache.seen_id)
+    }
+
+    /// Updates the in-memory history cache after a new entry is recorded.
+    pub fn set_history_cache(&mut self, entries: Vec<Value>) {
+        self.history_cache.entries = entries;
+        self.history_cache.loaded = true;
+    }
+
+    /// Marks the in-memory history cache as stale so the next access reloads from disk.
+    pub fn invalidate_history(&mut self) {
+        self.history_cache.loaded = false;
+    }
+
+    /// Acknowledges the newest cached history entry and updates the in-memory seen marker.
+    pub fn acknowledge_history(&mut self) -> Option<String> {
+        if !self.history_cache.loaded {
+            self.reload_history();
+        }
+        let newest_id = self
+            .history_cache
+            .entries
+            .first()
+            .and_then(|v| v.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let next_seen = acknowledge_operation_history(
+            &self.paths.state_dir,
+            newest_id,
+            &self.history_cache.seen_id,
+        )?;
+        self.history_cache.seen_id = next_seen.clone();
+        Some(next_seen)
+    }
+
+    /// Clears all persisted history and resets the in-memory cache.
+    pub fn clear_history(&mut self) {
+        clear_operation_history(&self.paths.state_dir);
+        self.history_cache.entries.clear();
+        self.history_cache.seen_id.clear();
+        self.history_cache.loaded = true;
     }
 
     pub fn selected_environment(&self, selected_index: i32) -> Option<&Environment> {
@@ -358,9 +447,56 @@ mod tests {
 
         let code = engine.run_script_blocking(&runner, "Test op", "dev", "echo hi");
         assert_eq!(code, 0);
+        assert_eq!(engine.cached_operation_history().len(), 1);
+        assert_eq!(
+            engine.cached_operation_history()[0]["description"],
+            "Test op"
+        );
+        assert_eq!(engine.recent_failed_history_count(), 0);
+
         let history = crate::history::load_operation_history(&engine.paths.state_dir);
         assert_eq!(history.len(), 1);
         assert_eq!(history[0]["description"], "Test op");
+
+        // Deleting files on disk does not affect cached count until invalidated/reloaded.
+        let _ = fs::remove_dir_all(crate::history::history_dir_path(&engine.paths.state_dir));
+        assert_eq!(engine.cached_operation_history().len(), 1);
+
+        engine.clear_history();
+        assert!(engine.cached_operation_history().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn engine_history_cache_tracks_unread_failures_and_acknowledges() {
+        let dir = temp_dir("hist-cache");
+        let sys_dir = dir.join("sys");
+        fs::create_dir_all(sys_dir.join(".state")).expect("mkdir");
+        let paths = ResolvedPaths::resolve(Some(&sys_dir.to_string_lossy()), false, "/tmp");
+        let cfg = Config::new_defaults(&paths.workspace_base, &paths.os_storage_path);
+        let secrets = SecretsState::new(dir.join("secrets.json").to_string_lossy().to_string());
+        let mut engine = Engine::from_parts(paths, cfg, secrets);
+
+        let entries = record_operation_history(&RecordOperationParams {
+            state_dir: &engine.paths.state_dir,
+            max_entries: 50,
+            description: "Failing op",
+            env_name: "dev",
+            status: "failed",
+            exit_code: 1,
+            started_at_iso: "",
+            log_bytes: b"boom\n",
+            reason: "",
+            secret_values: &[],
+        })
+        .unwrap();
+        engine.set_history_cache(entries);
+        assert_eq!(engine.recent_failed_history_count(), 1);
+
+        let seen = engine.acknowledge_history().unwrap();
+        assert!(!seen.is_empty());
+        assert_eq!(engine.recent_failed_history_count(), 0);
 
         let _ = fs::remove_dir_all(&dir);
     }

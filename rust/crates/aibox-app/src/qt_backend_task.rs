@@ -196,6 +196,7 @@ impl qobject::Backend {
                         let q_hist = json_array_to_qvariant_list(&arr);
                         {
                             let mut rust = self.as_mut().rust_mut();
+                            rust.engine.set_history_cache(arr);
                             rust.operation_history = q_hist;
                         }
                         self.as_mut().operation_history_changed();
@@ -274,6 +275,7 @@ impl qobject::Backend {
                 let q_hist = json_array_to_qvariant_list(&arr);
                 {
                     let mut rust = self.as_mut().rust_mut();
+                    rust.engine.set_history_cache(arr);
                     rust.operation_history = q_hist;
                 }
                 self.as_mut().operation_history_changed();
@@ -331,6 +333,7 @@ impl qobject::Backend {
                 let q_hist = json_array_to_qvariant_list(&arr);
                 {
                     let mut rust = self.as_mut().rust_mut();
+                    rust.engine.set_history_cache(arr);
                     rust.operation_history = q_hist;
                 }
                 self.as_mut().operation_history_changed();
@@ -515,6 +518,7 @@ impl qobject::Backend {
                         let q_hist = json_array_to_qvariant_list(&entries);
                         {
                             let mut rust = backend.as_mut().rust_mut();
+                            rust.engine.set_history_cache(entries);
                             rust.operation_history = q_hist;
                         }
                         backend.as_mut().operation_history_changed();

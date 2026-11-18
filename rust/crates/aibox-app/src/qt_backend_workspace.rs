@@ -705,7 +705,7 @@ impl qobject::Backend {
         let secrets = self.engine.secrets.all_secret_values();
 
         if self.demo_mode {
-            let _ = record_operation_history(&RecordOperationParams {
+            if let Some(entries) = record_operation_history(&RecordOperationParams {
                 state_dir: &state_dir,
                 max_entries: 50,
                 description: &format!("Restored file '{rel_s}' from snapshot '{snap_s}'"),
@@ -716,7 +716,15 @@ impl qobject::Backend {
                 log_bytes: b"Single-file restore (demo)\n",
                 reason: "",
                 secret_values: &secrets,
-            });
+            }) {
+                let q_hist = json_array_to_qvariant_list(&entries);
+                {
+                    let mut rust = self.as_mut().rust_mut();
+                    rust.engine.set_history_cache(entries);
+                    rust.operation_history = q_hist;
+                }
+                self.as_mut().operation_history_changed();
+            }
             self.as_mut()
                 .set_status_message(&format!("[Demo] Restored '{rel_s}' from '{snap_s}'."));
             return QString::default();
@@ -732,7 +740,7 @@ impl qobject::Backend {
             Err(err) => return QString::from(err.as_str()),
         };
 
-        let _ = record_operation_history(&RecordOperationParams {
+        if let Some(entries) = record_operation_history(&RecordOperationParams {
             state_dir: &state_dir,
             max_entries: 50,
             description: &format!("Restored file '{rel_s}' from snapshot '{snap_s}'"),
@@ -743,7 +751,15 @@ impl qobject::Backend {
             log_bytes: log_msg.as_bytes(),
             reason: "",
             secret_values: &secrets,
-        });
+        }) {
+            let q_hist = json_array_to_qvariant_list(&entries);
+            {
+                let mut rust = self.as_mut().rust_mut();
+                rust.engine.set_history_cache(entries);
+                rust.operation_history = q_hist;
+            }
+            self.as_mut().operation_history_changed();
+        }
         self.as_mut()
             .set_status_message(&format!("Restored '{rel_s}' from snapshot '{snap_s}'."));
         self.as_mut().load_workspace_diff(name, snapshot_name);
