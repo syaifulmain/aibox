@@ -243,7 +243,7 @@ ModalDialog {
                     ActionButton {
                         minWidth: 84
                         label: qsTr("Remove")
-                        danger: true
+                        variant: "danger"
                         disabled: backend.busy
                         onClicked: backend.removeExtraMount(
                             backend.selectedEnvironment.name || "", modelData.deviceName || "")

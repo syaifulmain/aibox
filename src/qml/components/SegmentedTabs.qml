@@ -7,14 +7,14 @@ Rectangle {
     id: root
     property var tabs: []
     property var currentValue
-    property int textSize: Style.font12
-    property int itemPadding: Style.space18
+    property int textSize: Style.fontBody
+    property int itemPadding: Style.padSection
     property bool mediumWhenSelected: false
     signal selected(var value)
 
     height: Style.controlHeight
-    width: tabRow.implicitWidth + Style.space8
-    radius: Math.min(Style.radius4, theme.radius)
+    width: tabRow.implicitWidth + Style.gapMd
+    radius: Math.min(Style.radiusMd, theme.radius)
     color: theme.surfaceInput
     border.width: Style.hairline
     border.color: theme.borderSubtle
@@ -22,7 +22,7 @@ Rectangle {
     RowLayout {
         id: tabRow
         anchors.centerIn: parent
-        spacing: Style.space4
+        spacing: Style.gapSm
 
         Repeater {
             model: root.tabs
@@ -30,9 +30,9 @@ Rectangle {
                 required property var modelData
                 readonly property bool active: root.currentValue === modelData.value
 
-                height: Style.controlHeightSm
+                height: Style.controlHeightCompact
                 width: itemRow.implicitWidth + root.itemPadding
-                radius: Math.min(Style.radius3, theme.radius)
+                radius: Math.min(Style.radiusSm, theme.radius)
                 color: active ? theme.surfaceSelected : (tabMouse.containsMouse ? theme.surfaceRaised : "transparent")
                 border.width: active ? Style.hairline : 0
                 border.color: theme.accentBorder
@@ -40,7 +40,7 @@ Rectangle {
                 RowLayout {
                     id: itemRow
                     anchors.centerIn: parent
-                    spacing: Style.space8
+                    spacing: Style.gapMd
 
                     Text {
                         text: modelData.label || ""
@@ -55,7 +55,7 @@ Rectangle {
                         text: modelData.key || ""
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                     }
                 }
 

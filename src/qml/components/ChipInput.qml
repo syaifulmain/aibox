@@ -15,9 +15,9 @@ Rectangle {
     signal addRequested(string value)
     signal removeRequested(int index)
 
-    implicitHeight: chipFlow.implicitHeight + Style.space8
+    implicitHeight: Math.max(Style.controlHeight, chipFlow.implicitHeight + Style.gapMd)
     Layout.preferredHeight: implicitHeight
-    radius: Math.min(Style.radius6, theme.radius)
+    radius: Math.min(Style.radiusMd, theme.radius)
     color: theme.surfaceInput
     border.width: Style.hairline
     border.color: chipInput.activeFocus ? theme.borderFocus : (chipHover.hovered ? theme.borderStrong : theme.borderSubtle)
@@ -58,8 +58,8 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Style.space4
-        spacing: Style.space6
+        anchors.margins: Style.gapSm
+        spacing: Style.gapSm
 
         Repeater {
             model: chipRoot.values
@@ -72,9 +72,9 @@ Rectangle {
                                                   ? modelData.slice(0, modelData.length - chipRoot.unit.length)
                                                   : modelData
 
-                height: Style.controlHeightXs
-                width: chipRow.implicitWidth + Style.space16
-                radius: Math.min(Style.radius4, theme.radius)
+                height: Style.controlHeightCompact
+                width: chipRow.implicitWidth + Style.padSection
+                radius: Math.min(Style.radiusSm, theme.radius)
                 color: chipMouse.containsMouse && removable ? theme.surfaceSelected : theme.surfaceCard
                 border.width: Style.hairline
                 border.color: chipMouse.containsMouse && removable ? theme.accentBorder : theme.borderSubtle
@@ -83,27 +83,27 @@ Rectangle {
                 Row {
                     id: chipRow
                     anchors.centerIn: parent
-                    spacing: Style.space5
+                    spacing: Style.gapSm
 
                     Text {
                         text: amount
                         color: theme.textPrimary
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                     }
                     Text {
                         visible: suffix.length > 0
                         text: suffix
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font9
+                        font.pixelSize: Style.fontCaption
                     }
                     Text {
                         text: "×"
-                        leftPadding: Style.space2
+                        leftPadding: Style.gapXs
                         color: chipMouse.containsMouse && removable ? theme.accentText : theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                     }
                 }
 
@@ -125,8 +125,9 @@ Rectangle {
 
         Item {
             visible: !chipRoot.atLimit
-            height: Style.controlHeightXxs
-            width: Math.min(Math.max(176, chipFlow.width - 220), Math.max(176, chipInput.implicitWidth + Style.space4))
+            height: Style.controlHeightCompact
+            width: Math.min(Math.max(Style.buttonMinWidth * 2, chipFlow.width - Style.buttonMinWidth * 2),
+                            Math.max(Style.buttonMinWidth * 2, chipInput.implicitWidth + Style.gapSm))
 
             TextInput {
                 id: chipInput
@@ -139,7 +140,7 @@ Rectangle {
                 clip: true
                 inputMethodHints: Qt.ImhDigitsOnly
                 font.family: Style.fontMono
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
                 validator: IntValidator { bottom: 1; top: chipRoot.maxValue }
                 onAccepted: chipRoot.submit()
                 Keys.onBackPressed: {
@@ -155,7 +156,7 @@ Rectangle {
                 text: chipRoot.placeholder
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
                 elide: Text.ElideRight
             }
         }
@@ -164,7 +165,7 @@ Rectangle {
             visible: chipRoot.atLimit
             text: qsTr("%1 / %2").arg(chipRoot.count).arg(chipRoot.maxChips)
             tone: "quiet"
-            badgeHeight: Style.controlHeightXxs
+            badgeHeight: Style.controlHeightCompact
         }
     }
 }

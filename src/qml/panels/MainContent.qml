@@ -71,7 +71,7 @@ Item {
 
                     ActionButton {
                         label: qsTr("+ Create First Environment")
-                        primary: true
+                        variant: "primary"
                         disabled: backend.busy
                         onClicked: mainContentRoot.app.openCreateDialog("")
                     }

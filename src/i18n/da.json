@@ -585,5 +585,7 @@
   "Environments": "Miljøer",
   "Interface": "Grænseflade",
   "Dark mode": "Mørk tilstand",
-  "Light mode": "Lys tilstand"
+  "Light mode": "Lys tilstand",
+  "ON": "TIL",
+  "OFF": "FRA"
 }

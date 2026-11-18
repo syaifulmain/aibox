@@ -162,7 +162,7 @@ Rectangle {
                 implicitHeight: Style.controlHeightSm
                 visible: backend.selectedEnvironment.hasPreSubvolBackup || false
                 label: qsTr("Delete .pre-subvol")
-                danger: true
+                variant: "danger"
                 disabled: backend.busy
                 onClicked: backend.deletePreSubvolBackup(backend.selectedEnvironment.name || "")
             }
@@ -272,7 +272,7 @@ Rectangle {
                     ActionButton {
                         implicitHeight: Style.controlHeightXxs
                         label: qsTr("Delete")
-                        danger: true
+                        variant: "danger"
                         disabled: backend.busy
                         onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
                     }
@@ -354,7 +354,7 @@ Rectangle {
                         ActionButton {
                             implicitHeight: Style.controlHeightXxs
                             label: qsTr("Delete")
-                            danger: true
+                            variant: "danger"
                             disabled: backend.busy
                             onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
                         }

@@ -23,10 +23,10 @@ Window {
         contentWidth: availableWidth
 
         ColumnLayout {
-            width: galleryWin.width - Style.space30 * 2
-            x: Style.space30
-            y: Style.space20
-            spacing: Style.space16
+            width: galleryWin.width - Style.padModal * 2
+            x: Style.padModal
+            y: Style.padSection
+            spacing: Style.padSection
 
             // Gallery header with page switcher
             RowLayout {
@@ -58,12 +58,12 @@ Window {
             ColumnLayout {
                 Layout.fillWidth: true
                 visible: galleryWin.galleryPage === "components"
-                spacing: Style.space16
+                spacing: Style.padSection
 
                 // Header row: SegmentedTabs preview
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space12
+                    spacing: Style.padCard
 
                     SegmentedTabs {
                         currentValue: "envs"
@@ -81,21 +81,34 @@ Window {
             // ActionButton states
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                spacing: Style.gap
 
                 ActionButton { label: "Default" }
                 ActionButton { label: "Primary"; variant: "primary" }
                 ActionButton { label: "Accent"; variant: "accent" }
-                ActionButton { label: "Success"; variant: "success" }
                 ActionButton { label: "Danger"; variant: "danger" }
                 ActionButton { label: "Disabled"; disabled: true }
+                ActionButton { label: "Compact"; compact: true }
                 ActionButton { label: "Config"; slidersIcon: true }
+                ActionButton { label: "?" }
+                ActionButton { slidersIcon: true }
+            }
+
+            // ToggleChip states
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Style.gap
+
+                ToggleChip { label: "Auto-snapshot"; checked: false }
+                ToggleChip { label: "Record"; checked: true }
+                ToggleChip { label: "Include Workspace"; checked: true; compact: true }
+                ToggleChip { label: "Disabled"; checked: false; disabled: true }
             }
 
             // TagBadge tones
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space8
+                spacing: Style.gapMd
 
                 TagBadge { text: "NEUTRAL"; tone: "neutral" }
                 TagBadge { text: "QUIET"; tone: "quiet" }
@@ -109,11 +122,12 @@ Window {
             // SelectChip & SelectCard
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                spacing: Style.gap
 
                 SelectChip { text: "2 vCPU"; selected: false }
                 SelectChip { text: "4 vCPU"; selected: true; mediumWhenSelected: true }
-                SelectChip { text: "8 GB"; selected: false }
+                SelectChip { text: "8 GB"; selected: false; compact: true }
+                SelectChip { text: "Offline"; selected: false; disabled: true }
 
                 SelectCard {
                     Layout.fillWidth: true
@@ -134,7 +148,7 @@ Window {
             // Inputs: FlatInput & ChipInput
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space12
+                spacing: Style.padCard
 
                 FlatInput {
                     Layout.fillWidth: true
@@ -144,6 +158,12 @@ Window {
                 FlatInput {
                     Layout.fillWidth: true
                     text: "dev-sandbox"
+                }
+
+                FlatInput {
+                    Layout.fillWidth: true
+                    text: "disabled-env"
+                    disabled: true
                 }
 
                 ChipInput {
@@ -158,12 +178,13 @@ Window {
             GridLayout {
                 Layout.fillWidth: true
                 columns: 2
-                columnSpacing: Style.space12
-                rowSpacing: Style.space8
+                columnSpacing: Style.padCard
+                rowSpacing: Style.gapMd
 
                 CheckRow { text: "Unchecked option"; checked: false }
                 CheckRow { text: "Checked option"; checked: true }
                 CheckRow { text: "Danger confirmation"; checked: true; danger: true }
+                CheckRow { text: "Disabled option"; checked: false; disabled: true }
                 MenuRow { label: "Normal action"; detail: "Secondary description" }
                 MenuRow { label: "Danger action"; detail: "Irreversible operation"; danger: true }
                 MenuRow { label: "Disabled action"; detail: "Currently unavailable"; disabled: true }
@@ -172,7 +193,7 @@ Window {
             // ResourceMeterCard & MeterBar
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space12
+                spacing: Style.padCard
 
                 ResourceMeterCard {
                     Layout.fillWidth: true
@@ -207,11 +228,48 @@ Window {
                 }
             }
 
+            // Layout primitives: SectionHeader, Card, FormRow, KeyValue, DialogFooter
+            Card {
+                title: "Card Primitive"
+                subtitle: "Standard surfaceCard container with right-aligned actions"
+                actions: [
+                    ActionButton { label: "Action"; compact: true }
+                ]
+
+                SectionHeader {
+                    title: "Section Header"
+                    subtitle: "Optional subtitle aligned to 34px control height"
+                    ActionButton { label: "Add"; variant: "accent" }
+                }
+
+                FormRow {
+                    label: "Project Name"
+                    hint: "~/aibox/workspaces/dev-sandbox"
+                    FlatInput {
+                        Layout.fillWidth: true
+                        text: "dev-sandbox"
+                    }
+                }
+
+                KeyValue {
+                    label: "Shared Workspace"
+                    value: "~/aibox/workspaces/dev-sandbox ↔ /workspace"
+                }
+
+                DialogFooter {
+                    leftActions: [
+                        ActionButton { label: "Reset"; variant: "danger" }
+                    ]
+                    ActionButton { label: "Secondary" }
+                    ActionButton { label: "Save Changes"; variant: "primary" }
+                }
+            }
+
             // ModalHeader preview inside a card
             Rectangle {
                 Layout.fillWidth: true
-                implicitHeight: headerPreview.implicitHeight + Style.space20
-                radius: Math.min(Style.radius8, theme.radius)
+                implicitHeight: headerPreview.implicitHeight + Style.gap * 2
+                radius: Math.min(Style.radiusLg, theme.radius)
                 color: theme.surfaceOverlay
                 border.width: Style.hairline
                 border.color: theme.borderSubtle
@@ -219,7 +277,7 @@ Window {
                 ModalHeader {
                     id: headerPreview
                     anchors.fill: parent
-                    anchors.margins: Style.space10
+                    anchors.margins: Style.gap
                     title: "Modal Header Preview"
                     subtitle: "Semantic surfaceOverlay + borderSubtle"
                 }

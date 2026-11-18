@@ -12,27 +12,29 @@ Rectangle {
     signal clicked()
 
     Layout.fillWidth: true
-    implicitHeight: Style.menuRowHeight
-    radius: Math.min(Style.radius4, theme.radius)
+    implicitHeight: Math.max(Style.controlHeight, rowCol.implicitHeight + Style.padCard * 2)
+    radius: Math.min(Style.radiusMd, theme.radius)
     color: root.hovered && !root.disabled
            ? (root.danger ? theme.dangerSurface : theme.surfaceRaised)
            : theme.surfaceInput
     border.width: Style.hairline
-    border.color: root.hovered && !root.disabled
+    border.color: root.activeFocus ? theme.borderFocus
+                : root.hovered && !root.disabled
                   ? (root.danger ? theme.dangerBorder : theme.borderStrong)
                   : theme.borderSubtle
     opacity: root.disabled ? Style.opacityDisabled : 1.0
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Style.space12
-        anchors.rightMargin: Style.space12
-        spacing: Style.space10
+        anchors.leftMargin: Style.padCard
+        anchors.rightMargin: Style.padCard
+        spacing: Style.gap
 
         ColumnLayout {
+            id: rowCol
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            spacing: Style.space1
+            spacing: Style.gapXs
 
             Text {
                 Layout.fillWidth: true
@@ -40,7 +42,7 @@ Rectangle {
                 text: root.label
                 color: root.disabled ? theme.textDisabled : (root.danger ? theme.dangerText : theme.textPrimary)
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
                 font.weight: Font.Medium
             }
 
@@ -51,7 +53,7 @@ Rectangle {
                 text: root.detail
                 color: root.disabled ? theme.textDisabled : theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font10
+                font.pixelSize: Style.fontSmall
             }
         }
     }

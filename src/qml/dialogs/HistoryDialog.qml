@@ -42,7 +42,7 @@ ModalDialog {
         ActionButton {
             visible: app.historyTab === 0
             label: qsTr("Clear")
-            danger: true
+            variant: "danger"
             minWidth: 80
             disabled: backend.operationHistory.length === 0
             onClicked: {

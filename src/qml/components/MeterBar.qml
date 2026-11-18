@@ -4,13 +4,16 @@ import QtQuick
 Rectangle {
     id: root
     property real value: 0 // percent, 0..100
-    property color fillColor: theme.accent
+    property real warningThreshold: 75
+    property real dangerThreshold: 90
+    property color fillColor: value >= dangerThreshold ? theme.danger
+                            : (value >= warningThreshold ? theme.warning : theme.accent)
     property color trackColor: theme.surfaceTrack
     property int minFillWidth: 0
     property bool showAtZero: false
     property int animationMs: 180
 
-    implicitHeight: 4
+    implicitHeight: Style.gapSm
     implicitWidth: 0
     radius: height / 2
     color: trackColor

@@ -2,17 +2,19 @@ import QtQuick
 import QtQuick.Layouts
 
 // Shared modal surface: dimmed backdrop, centred card and padded content
-// column. Each dialog declares its own `app` property and sets `open`,
-// `cardWidth` and `cardHeight`.
+// column. Dialogs set `open` and `size` ("sm" | "md" | "lg").
 Rectangle {
     id: root
     property bool open: false
+    property string size: "sm" // "sm" | "md" | "lg"
     property color scrimColor: theme.scrim
     property color borderColor: theme.borderSubtle
-    property real cardWidth: 520
-    property real cardHeight: contentHeight + Style.modalPadding * 2
-    property int padding: Style.modalPadding
-    property int contentSpacing: Style.space12
+    readonly property real targetWidth: size === "lg" ? Style.modalWidthLg
+                                      : (size === "md" ? Style.modalWidthMd : Style.modalWidthSm)
+    property real cardWidth: parent ? Math.min(targetWidth, parent.width - Style.modalGutter) : targetWidth
+    property real cardHeight: contentHeight + Style.padModal * 2
+    property int padding: Style.padModal
+    property int contentSpacing: Style.padCard
     property bool clipCard: false
     property int zOrder: 0
     readonly property alias content: body
@@ -35,7 +37,7 @@ Rectangle {
         anchors.centerIn: parent
         width: root.cardWidth
         height: root.cardHeight
-        radius: Math.min(Style.radius8, theme.radius)
+        radius: Math.min(Style.radiusLg, theme.radius)
         color: theme.surfaceOverlay
         border.width: Style.hairline
         border.color: root.borderColor

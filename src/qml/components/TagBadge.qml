@@ -12,11 +12,11 @@ Rectangle {
     property bool dotVisible: false
     property color dotColor: root.textColor
     property bool interactive: false
-    property int textSize: Style.font9
+    property int textSize: Style.fontCaption
     property int textWeight: Font.Normal
-    property int horizontalPadding: Style.space10
+    property int horizontalPadding: Style.gapMd
     property int badgeHeight: Style.badgeHeight
-    property int badgeRadius: Style.radius2
+    property int badgeRadius: Style.radiusSm
     signal clicked()
 
     property color fillColor: root.tone === "accent" ? theme.surfaceSelected
@@ -39,7 +39,7 @@ Rectangle {
     height: badgeHeight
     width: dotVisible ? dotRow.implicitWidth + horizontalPadding
                       : plainLabel.implicitWidth + horizontalPadding
-    radius: badgeRadius
+    radius: Math.min(badgeRadius, theme.radius)
     color: root.fillColor
     border.width: Style.hairline
     border.color: root.borderColor
@@ -61,12 +61,12 @@ Rectangle {
         id: dotRow
         visible: root.dotVisible
         anchors.centerIn: parent
-        spacing: Style.space6
+        spacing: Style.gapSm
 
         Rectangle {
-            width: 6
-            height: 6
-            radius: 3
+            width: Style.gapSm + Style.gapXs
+            height: Style.gapSm + Style.gapXs
+            radius: Style.radiusSm
             color: root.dotColor
             Layout.alignment: Qt.AlignVCenter
         }

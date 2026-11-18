@@ -290,7 +290,7 @@ ColumnLayout {
                 ActionButton {
                     implicitHeight: Style.controlHeightXs
                     label: qsTr("Remove")
-                    danger: true
+                    variant: "danger"
                     minWidth: 72
                     onClicked: app.removeOsEntry(modelData)
                 }

@@ -13,23 +13,23 @@ ColumnLayout {
     signal closed()
 
     Layout.fillWidth: true
-    spacing: Style.space12
+    spacing: Style.padCard
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space10
+        spacing: Style.gap
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            spacing: Style.space2
+            spacing: Style.gapXs
 
             Text {
                 Layout.fillWidth: true
                 text: mh.title
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font16
+                font.pixelSize: Style.fontHeading
                 font.weight: Font.Medium
                 elide: Text.ElideRight
             }
@@ -41,7 +41,7 @@ ColumnLayout {
                 text: mh.subtitle
                 color: theme.textMuted
                 font.family: mh.subtitleMono ? Style.fontMono : Style.fontSans
-                font.pixelSize: mh.subtitleMono ? Style.font10 : Style.font11
+                font.pixelSize: mh.subtitleMono ? Style.fontCaption : Style.fontSmall
                 wrapMode: mh.subtitleMono ? Text.NoWrap : Text.WordWrap
                 elide: mh.subtitleMono ? Text.ElideMiddle : Text.ElideNone
             }
@@ -49,14 +49,14 @@ ColumnLayout {
 
         RowLayout {
             id: extraRow
-            spacing: Style.space10
+            spacing: Style.gap
             Layout.alignment: Qt.AlignTop | Qt.AlignRight
         }
 
         ActionButton {
             visible: mh.showClose
             label: qsTr("Close")
-            minWidth: 88
+            minWidth: Style.buttonMinWidth
             disabled: mh.closeDisabled
             Layout.alignment: Qt.AlignTop | Qt.AlignRight
             onClicked: mh.closed()

@@ -96,7 +96,7 @@ QtObject {
     readonly property int listRowHeight: 68
     readonly property int rowHeight: 36
     readonly property int iconTile: 36 // target 34 after phase 2-6 migration
-    readonly property int badgeHeight: 18 // target 20 after phase 2-6 migration
+    readonly property int badgeHeight: 20
     readonly property int badgeHeightMd: 20 // deprecated, remove in phase 7
     readonly property int badgeHeightLg: 22 // deprecated, remove in phase 7
     readonly property int buttonMinWidth: 88

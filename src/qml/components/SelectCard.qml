@@ -7,36 +7,41 @@ Rectangle {
     property string title: ""
     property string subtitle: ""
     property bool selected: false
+    property bool disabled: false
     property bool titleMono: false
     property bool subtitleMono: false
     property bool mediumWhenSelected: false
     property color selectedTitleColor: theme.accentText
     property color titleColor: theme.textMuted
-    property int cardHeight: 50
+    property int cardHeight: 0
     signal clicked()
 
-    height: cardHeight
-    radius: Math.min(Style.radius4, theme.radius)
-    color: selected ? theme.surfaceSelected : (cardMouse.containsMouse ? theme.surfaceRaised : theme.surfaceInput)
+    readonly property bool isHovered: cardMouse.containsMouse && !root.disabled
+
+    implicitHeight: cardCol.implicitHeight + Style.padCard * 2
+    height: cardHeight > 0 ? cardHeight : implicitHeight
+    radius: Math.min(Style.radiusMd, theme.radius)
+    opacity: root.disabled ? Style.opacityDisabled : 1.0
+    color: selected ? theme.surfaceSelected : (isHovered ? theme.surfaceRaised : theme.surfaceInput)
     border.width: Style.hairline
-    border.color: selected ? theme.accentBorder : (cardMouse.containsMouse ? theme.borderStrong : theme.borderSubtle)
+    border.color: root.activeFocus ? theme.borderFocus
+                : selected ? theme.accentBorder
+                : (isHovered ? theme.borderStrong : theme.borderSubtle)
 
     ColumnLayout {
+        id: cardCol
         anchors.fill: parent
-        anchors.leftMargin: Style.space12
-        anchors.rightMargin: Style.space12
-        anchors.topMargin: Style.space7
-        anchors.bottomMargin: Style.space7
-        spacing: Style.space2
+        anchors.margins: Style.padCard
+        spacing: Style.gapXs
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: Style.space6
+            spacing: Style.gapSm
 
             Rectangle {
-                width: 6
-                height: 6
-                radius: 3
+                width: Style.gapSm + Style.gapXs
+                height: Style.gapSm + Style.gapXs
+                radius: Style.radiusSm
                 color: root.selected ? theme.accent : theme.textMuted
             }
 
@@ -44,9 +49,11 @@ Rectangle {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: root.title
-                color: root.selected ? root.selectedTitleColor : (cardMouse.containsMouse ? theme.textPrimary : root.titleColor)
+                color: root.disabled ? theme.textDisabled
+                     : root.selected ? root.selectedTitleColor
+                     : (root.isHovered ? theme.textPrimary : root.titleColor)
                 font.family: root.titleMono ? Style.fontMono : Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
                 font.weight: root.selected && root.mediumWhenSelected ? Font.Medium : Font.Normal
             }
         }
@@ -55,17 +62,18 @@ Rectangle {
             Layout.fillWidth: true
             elide: Text.ElideRight
             text: root.subtitle
-            color: theme.textMuted
+            color: root.disabled ? theme.textDisabled : theme.textMuted
             font.family: root.subtitleMono ? Style.fontMono : Style.fontSans
-            font.pixelSize: Style.font10
+            font.pixelSize: Style.fontCaption
         }
     }
 
     MouseArea {
         id: cardMouse
         anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        hoverEnabled: !root.disabled
+        enabled: !root.disabled
+        cursorShape: root.disabled ? Qt.ForbiddenCursor : Qt.PointingHandCursor
         onClicked: root.clicked()
     }
 }

@@ -19,7 +19,13 @@
         <file alias="components/MenuRow.qml">qml/components/MenuRow.qml</file>
         <file alias="components/ResourceMeterCard.qml">qml/components/ResourceMeterCard.qml</file>
         <file alias="components/ActionButton.qml">qml/components/ActionButton.qml</file>
+        <file alias="components/Card.qml">qml/components/Card.qml</file>
+        <file alias="components/DialogFooter.qml">qml/components/DialogFooter.qml</file>
+        <file alias="components/FormRow.qml">qml/components/FormRow.qml</file>
+        <file alias="components/KeyValue.qml">qml/components/KeyValue.qml</file>
         <file alias="components/ModalHeader.qml">qml/components/ModalHeader.qml</file>
+        <file alias="components/SectionHeader.qml">qml/components/SectionHeader.qml</file>
+        <file alias="components/ToggleChip.qml">qml/components/ToggleChip.qml</file>
         <file alias="dialogs/BackupsDialog.qml">qml/dialogs/BackupsDialog.qml</file>
         <file alias="dialogs/ChangeReviewDialog.qml">qml/dialogs/ChangeReviewDialog.qml</file>
         <file alias="dialogs/CloneDialog.qml">qml/dialogs/CloneDialog.qml</file>

@@ -5,29 +5,34 @@ import QtQuick.Layouts
 Rectangle {
     id: root
     property bool checked: false
+    property bool disabled: false
+    property int rowHeight: Style.rowHeight
     property string text: ""
-    property int rowHeight: 38
     property bool danger: false
     signal toggled()
 
+    readonly property bool isHovered: rowMouse.containsMouse && !root.disabled
+
     Layout.fillWidth: true
     height: rowHeight
-    radius: Math.min(Style.radius4, theme.radius)
-    color: rowMouse.containsMouse ? theme.surfaceRaised : theme.surfaceCard
+    radius: Math.min(Style.radiusMd, theme.radius)
+    opacity: root.disabled ? Style.opacityDisabled : 1.0
+    color: isHovered ? theme.surfaceRaised : theme.surfaceCard
     border.width: Style.hairline
-    border.color: checked ? (root.danger ? theme.dangerBorder : theme.accentBorder)
-                          : (rowMouse.containsMouse ? theme.borderStrong : theme.borderSubtle)
+    border.color: root.activeFocus ? theme.borderFocus
+                : checked ? (root.danger ? theme.dangerBorder : theme.accentBorder)
+                : (isHovered ? theme.borderStrong : theme.borderSubtle)
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Style.space12
-        anchors.rightMargin: Style.space12
-        spacing: Style.space10
+        anchors.leftMargin: Style.padCard
+        anchors.rightMargin: Style.padCard
+        spacing: Style.gapMd
 
         Rectangle {
-            width: 16
-            height: 16
-            radius: Style.radius3
+            width: Style.padSection
+            height: Style.padSection
+            radius: Style.radiusSm
             color: root.checked ? (root.danger ? theme.danger : theme.accent) : "transparent"
             border.width: Style.hairline
             border.color: root.checked ? (root.danger ? theme.danger : theme.accent) : theme.borderStrong
@@ -38,24 +43,25 @@ Rectangle {
                 text: "✓"
                 color: root.danger ? theme.onDanger : theme.textOnAccent
                 font.family: Style.fontMono
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
             }
         }
 
         Text {
             Layout.fillWidth: true
             text: root.text
-            color: theme.textPrimary
+            color: root.disabled ? theme.textDisabled : theme.textPrimary
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
     }
 
     MouseArea {
         id: rowMouse
         anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        hoverEnabled: !root.disabled
+        enabled: !root.disabled
+        cursorShape: root.disabled ? Qt.ForbiddenCursor : Qt.PointingHandCursor
         onClicked: root.toggled()
     }
 }

@@ -45,7 +45,7 @@ Rectangle {
                 visible: backend.busy
                 implicitHeight: Style.controlHeightXs
                 label: qsTr("Cancel")
-                danger: true
+                variant: "danger"
                 onClicked: backend.cancelTask()
             }
 
@@ -54,7 +54,7 @@ Rectangle {
                          && backend.adminFixCommand(backend.errorMessage).length > 0
                 implicitHeight: Style.controlHeightXs
                 label: qsTr("Copy Fix")
-                accent: true
+                variant: "accent"
                 onClicked: backend.copyText(backend.adminFixCommand(backend.errorMessage),
                                             qsTr("fix command"))
             }

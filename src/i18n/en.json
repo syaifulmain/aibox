@@ -91,5 +91,7 @@
   "Environments": "Environments",
   "Interface": "Interface",
   "Dark mode": "Dark mode",
-  "Light mode": "Light mode"
+  "Light mode": "Light mode",
+  "ON": "ON",
+  "OFF": "OFF"
 }

@@ -114,11 +114,11 @@ Item {
     Rectangle {
         id: badge
         visible: debugRoot.detectedHex.length > 0
-        x: Math.min(Math.max(Style.space8, debugRoot.pointerX + Style.space14), debugRoot.width - width - Style.space8)
-        y: Math.min(Math.max(Style.space8, debugRoot.pointerY + Style.space16), debugRoot.height - height - Style.space8)
-        width: badgeCol.implicitWidth + Style.space16
-        height: badgeCol.implicitHeight + Style.space10
-        radius: Math.min(Style.radius5, theme.radius)
+        x: Math.min(Math.max(Style.gapMd, debugRoot.pointerX + Style.padCard), debugRoot.width - width - Style.gapMd)
+        y: Math.min(Math.max(Style.gapMd, debugRoot.pointerY + Style.padSection), debugRoot.height - height - Style.gapMd)
+        width: badgeCol.implicitWidth + Style.padSection
+        height: badgeCol.implicitHeight + Style.gap
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceOverlay
         border.width: Style.hairline
         border.color: theme.borderFocus
@@ -126,7 +126,7 @@ Item {
         ColumnLayout {
             id: badgeCol
             anchors.centerIn: parent
-            spacing: Style.space2
+            spacing: Style.gapXs
 
             Text {
                 text: debugRoot.detectedToken.length > 0
@@ -134,7 +134,7 @@ Item {
                       : qsTr("Custom / Unmapped")
                 color: theme.accentText
                 font.family: Style.fontMono
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
                 font.weight: Font.Medium
             }
 
@@ -142,7 +142,7 @@ Item {
                 text: debugRoot.detectedHex + "  (" + theme.mode + (theme.highContrast ? ", HC" : "") + ")"
                 color: theme.textSecondary
                 font.family: Style.fontMono
-                font.pixelSize: Style.font10
+                font.pixelSize: Style.fontCaption
             }
         }
     }

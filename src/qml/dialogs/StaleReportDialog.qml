@@ -155,8 +155,7 @@ ModalDialog {
                     label: app.staleConfirmAction === "export-wipe"
                            ? qsTr("Export & Wipe")
                            : (app.staleConfirmAction === "delete-orphan" ? qsTr("Delete Orphan") : qsTr("Confirm Wipe"))
-                    variant: app.staleConfirmAction === "export-wipe" ? "primary" : ""
-                    danger: app.staleConfirmAction !== "export-wipe"
+                    variant: app.staleConfirmAction === "export-wipe" ? "primary" : "danger"
                     minWidth: 126
                     disabled: backend.busy
                     onClicked: {
@@ -311,7 +310,7 @@ ModalDialog {
 
                         ActionButton {
                             label: qsTr("Wipe")
-                            danger: true
+                            variant: "danger"
                             minWidth: 74
                             disabled: backend.busy
                             onClicked: {
@@ -422,7 +421,7 @@ ModalDialog {
 
                         ActionButton {
                             label: qsTr("Delete")
-                            danger: true
+                            variant: "danger"
                             minWidth: 80
                             disabled: backend.busy
                             onClicked: {

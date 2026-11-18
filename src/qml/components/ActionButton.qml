@@ -5,44 +5,41 @@ import QtQuick.Layouts
 Rectangle {
     id: btn
     property string label: ""
-    property string variant: "" // "primary" | "danger" | "success" | "accent" | ""
-    property bool primary: false
-    property bool danger: false
-    property bool success: false
-    property bool accent: false
+    property string variant: "default" // "default" | "primary" | "danger" | "accent"
+    property bool compact: false
     property bool disabled: false
     property bool slidersIcon: false
     property int minWidth: 0
     readonly property bool hovered: btnMouse.containsMouse
     signal clicked()
 
-    readonly property string tone: btn.primary || btn.variant === "primary" ? "primary"
-                                 : (btn.danger || btn.variant === "danger") ? "danger"
-                                 : (btn.accent || btn.variant === "accent" || btn.variant === "theme") ? "accent"
-                                 : (btn.success || btn.variant === "success") ? "success"
+    readonly property string tone: btn.variant === "primary" ? "primary"
+                                 : btn.variant === "danger" ? "danger"
+                                 : (btn.variant === "accent" || btn.variant === "theme") ? "accent"
                                  : "default"
     readonly property bool isPrimary: tone === "primary"
     readonly property bool isDefault: tone === "default"
     readonly property bool isHovered: btnMouse.containsMouse && !btn.disabled
+    readonly property bool isIconOnly: btn.label === "?" || (btn.slidersIcon && btn.label.length === 0)
     readonly property color contentColor: btn.disabled ? theme.textDisabled
                                       : btn.isPrimary ? theme.textOnAccent
                                       : btn.isDefault ? theme.textPrimary
                                       : btn.tone === "danger" ? theme.dangerText
-                                      : btn.tone === "success" ? theme.successText
                                       : theme.accentText
 
-    implicitHeight: Style.controlHeight
-    implicitWidth: minWidth > 0 ? Math.max(minWidth, btnRow.implicitWidth + Style.space24)
-                                : (label === "?" ? Style.controlHeight : btnRow.implicitWidth + Style.space24)
+    implicitHeight: btn.compact ? Style.controlHeightCompact : Style.controlHeight
+    implicitWidth: btn.isIconOnly
+                   ? implicitHeight
+                   : Math.max(btn.minWidth > 0 ? btn.minWidth : Style.buttonMinWidth,
+                              btnRow.implicitWidth + Style.padModal)
     Layout.preferredHeight: implicitHeight
     Layout.preferredWidth: implicitWidth
-    radius: Math.min(Style.radius4, theme.radius)
+    radius: Math.min(Style.radiusMd, theme.radius)
     opacity: btn.disabled ? Style.opacityDisabled : 1.0
 
     color: btn.isPrimary ? theme.accent
          : btn.isDefault ? (btn.isHovered ? theme.surfaceRaised : theme.surfaceInput)
          : btn.tone === "danger" ? theme.dangerSurface
-         : btn.tone === "success" ? theme.successSurface
          : (btn.isHovered ? theme.surfaceSelected : theme.accentSurface)
 
     border.width: btn.activeFocus || !btn.isPrimary ? Style.hairline : 0
@@ -50,13 +47,12 @@ Rectangle {
                 : btn.isPrimary ? "transparent"
                 : btn.isDefault ? (btn.isHovered ? theme.borderStrong : theme.borderSubtle)
                 : btn.tone === "danger" ? (btn.isHovered ? theme.danger : theme.dangerBorder)
-                : btn.tone === "success" ? (btn.isHovered ? theme.success : theme.successBorder)
                 : (btn.isHovered ? theme.accent : theme.accentBorder)
 
     RowLayout {
         id: btnRow
         anchors.centerIn: parent
-        spacing: Style.space8
+        spacing: Style.gapMd
 
         SlidersIcon {
             visible: btn.slidersIcon
@@ -69,10 +65,9 @@ Rectangle {
             text: btn.label
             color: btn.contentColor
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
             font.weight: btn.isPrimary ? Font.Medium : Font.Normal
         }
-
     }
 
     MouseArea {

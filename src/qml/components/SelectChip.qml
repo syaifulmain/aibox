@@ -1,12 +1,14 @@
 import QtQuick
 
-// Compact selectable chip used for quota and network choices.
+// Selectable chip used for quota and network choices.
 Rectangle {
     id: root
     property string text: ""
     property bool selected: false
+    property bool compact: false
+    property bool disabled: false
     property bool mono: true
-    property int textSize: Style.font11
+    property int textSize: Style.fontSmall
     property bool mediumWhenSelected: false
     property color selectedTextColor: theme.accentText
     property color textColor: theme.textMuted
@@ -15,27 +17,34 @@ Rectangle {
     property color borderColor: theme.borderSubtle
     property color selectedBorderColor: theme.accentBorder
     property bool interactive: true
-    property int chipHeight: 32
-    property int chipRadius: Style.radius4
-    property int horizontalPadding: Style.space16
+    property int chipHeight: compact ? Style.controlHeightCompact : Style.controlHeight
+    property int chipRadius: Style.radiusMd
+    property int horizontalPadding: Style.padSection
     property bool stretchText: false
     signal clicked()
+
+    readonly property bool isHovered: chipMouse.containsMouse && root.interactive && !root.disabled
 
     height: chipHeight
     width: label.implicitWidth + horizontalPadding
     radius: Math.min(chipRadius, theme.radius)
-    color: selected ? selectedFill : (chipMouse.containsMouse && interactive ? theme.surfaceRaised : fillColor)
+    opacity: root.disabled ? Style.opacityDisabled : 1.0
+    color: selected ? selectedFill : (isHovered ? theme.surfaceRaised : fillColor)
     border.width: Style.hairline
-    border.color: selected ? selectedBorderColor : (chipMouse.containsMouse && interactive ? theme.borderStrong : borderColor)
+    border.color: root.activeFocus ? theme.borderFocus
+                : selected ? selectedBorderColor
+                : (isHovered ? theme.borderStrong : borderColor)
 
     Text {
         id: label
         anchors.centerIn: parent
-        width: root.stretchText ? parent.width - Style.space4 : implicitWidth
+        width: root.stretchText ? parent.width - Style.gapSm : implicitWidth
         horizontalAlignment: root.stretchText ? Text.AlignHCenter : Text.AlignLeft
         elide: root.stretchText ? Text.ElideRight : Text.ElideNone
         text: root.text
-        color: root.selected ? root.selectedTextColor : (chipMouse.containsMouse && root.interactive ? theme.textPrimary : root.textColor)
+        color: root.disabled ? theme.textDisabled
+             : root.selected ? root.selectedTextColor
+             : (root.isHovered ? theme.textPrimary : root.textColor)
         font.family: root.mono ? Style.fontMono : Style.fontSans
         font.pixelSize: root.textSize
         font.weight: root.selected && root.mediumWhenSelected ? Font.Medium : Font.Normal
@@ -44,9 +53,9 @@ Rectangle {
     MouseArea {
         id: chipMouse
         anchors.fill: parent
-        hoverEnabled: root.interactive
-        enabled: root.interactive
-        cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
+        hoverEnabled: root.interactive && !root.disabled
+        enabled: root.interactive && !root.disabled
+        cursorShape: root.disabled ? Qt.ForbiddenCursor : (root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor)
         onClicked: root.clicked()
     }
 }

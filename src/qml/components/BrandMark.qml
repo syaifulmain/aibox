@@ -3,9 +3,9 @@ import QtQuick
 // The ">_" tile that identifies AIBox in headers and empty states.
 Rectangle {
     id: root
-    property int markSize: 28
-    property int markRadius: Style.radius4
-    property int textSize: Style.font12
+    property int markSize: Style.controlHeightCompact
+    property int markRadius: Style.radiusMd
+    property int textSize: Style.fontBody
     property bool quiet: false
 
     width: markSize
