@@ -980,7 +980,7 @@ pub fn execute_with(
     }
 
     if parsed.command == Command::Theme {
-        return run_theme_dump(parsed, io);
+        return run_theme(parsed, io);
     }
 
     let path_override = if parsed.project_dir.is_empty() {
@@ -1004,25 +1004,54 @@ pub fn execute_with(
     }
 }
 
-fn run_theme_dump(parsed: &ParsedArgs, io: &mut dyn CliIo) -> i32 {
-    let theme_dir = if !parsed.theme_path.is_empty() {
-        std::path::PathBuf::from(&parsed.theme_path)
-    } else if let Ok(env_dir) = std::env::var("AIBOX_THEME_DIR") {
+fn resolve_theme_dir(override_path: &str) -> std::path::PathBuf {
+    if !override_path.is_empty() {
+        return std::path::PathBuf::from(override_path);
+    }
+    if let Ok(env_dir) = std::env::var("AIBOX_THEME_DIR") {
         if !env_dir.trim().is_empty() {
-            std::path::PathBuf::from(env_dir)
-        } else {
-            crate::util::paths::home_dir().join(".config/omarchy/current")
+            return std::path::PathBuf::from(env_dir);
         }
+    }
+    let state_dir = crate::util::paths::home_dir().join(".local/state/omarchy/current");
+    if state_dir.exists() {
+        state_dir
     } else {
         crate::util::paths::home_dir().join(".config/omarchy/current")
-    };
+    }
+}
 
+fn run_theme(parsed: &ParsedArgs, io: &mut dyn CliIo) -> i32 {
+    if parsed.theme_subcommand == "render-icon" {
+        return run_theme_render_icon(parsed, io);
+    }
+    run_theme_dump(parsed, io)
+}
+
+fn run_theme_dump(parsed: &ParsedArgs, io: &mut dyn CliIo) -> i32 {
+    let theme_dir = resolve_theme_dir(&parsed.theme_path);
     let palette = crate::theme::load_palette(&theme_dir);
     if parsed.json_output {
         let out = serde_json::to_string_pretty(&palette).unwrap_or_else(|_| "{}".to_string());
         io.write_stdout(format!("{out}\n").as_bytes());
     } else {
         io.write_stdout(palette.format_dump().as_bytes());
+    }
+    0
+}
+
+fn run_theme_render_icon(parsed: &ParsedArgs, io: &mut dyn CliIo) -> i32 {
+    let theme_dir = resolve_theme_dir(&parsed.theme_path);
+    let palette = crate::theme::load_palette(&theme_dir);
+    let output_path = if parsed.output_path.is_empty() {
+        crate::theme::icon::default_icon_output_path()
+    } else {
+        std::path::PathBuf::from(&parsed.output_path)
+    };
+
+    if let Err(err) = crate::theme::icon::write_icon(&palette, &output_path) {
+        io.write_stderr(format!("Error: {err}\n").as_bytes());
+        return 1;
     }
     0
 }

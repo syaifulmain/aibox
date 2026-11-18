@@ -1,4 +1,5 @@
 pub mod color;
+pub mod icon;
 pub mod palette;
 pub mod parse;
 

@@ -60,7 +60,9 @@ pub struct ParsedArgs {
     pub env_name: String,
     pub snapshot_name: String,
     pub exec_command: Vec<String>,
+    pub theme_subcommand: String,
     pub theme_path: String,
+    pub output_path: String,
     pub json_output: bool,
     pub fix: bool,
     pub system_only: bool,
@@ -80,7 +82,9 @@ impl Default for ParsedArgs {
             env_name: String::new(),
             snapshot_name: String::new(),
             exec_command: Vec::new(),
+            theme_subcommand: String::new(),
             theme_path: String::new(),
+            output_path: String::new(),
             json_output: false,
             fix: false,
             system_only: false,
@@ -782,5 +786,49 @@ mod tests {
         let val: serde_json::Value = serde_json::from_slice(&io_json.stdout).expect("valid json");
         assert_eq!(val["isDark"], false);
         assert!(val["surfaceCard"].as_str().is_some());
+    }
+
+    #[test]
+    fn cli_theme_render_icon_writes_svg_to_output() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes")
+            .join("catppuccin-latte.toml");
+        let fixture_str = fixture.to_string_lossy().to_string();
+
+        let tmp = temp_dir("render-icon");
+        let out_svg = tmp.join("aibox.svg");
+        let out_str = out_svg.to_string_lossy().to_string();
+
+        let p = parse_args(&svec(&[
+            "theme",
+            "render-icon",
+            "--output",
+            &out_str,
+            "--theme-dir",
+            &fixture_str,
+        ]));
+        assert!(p.valid, "parse failed: {}", p.error_message);
+        assert_eq!(p.command, Command::Theme);
+        assert_eq!(p.theme_subcommand, "render-icon");
+        assert_eq!(p.output_path, out_str);
+        assert_eq!(p.theme_path, fixture_str);
+
+        let runner = StubRunner::new("[]".to_string());
+        let mut io = TestCliIo::new();
+        let rc = execute_with(&p, &mut io, &runner, "/tmp");
+        assert_eq!(rc, 0);
+
+        let content = fs::read_to_string(&out_svg).expect("svg written");
+        assert!(content.starts_with("<svg "));
+        assert!(!content.contains("{{"));
+
+        // Invalid combinations fail with usage error.
+        assert!(!parse_args(&svec(&["theme", "render-icon", "--json"])).valid);
+        assert!(!parse_args(&svec(&["theme", "dump", "--output", &out_str])).valid);
+        assert!(!parse_args(&svec(&["list", "--output", &out_str])).valid);
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

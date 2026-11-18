@@ -22,7 +22,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 - Forward container ports safely to `127.0.0.1` (**Ports**), attach read-only extra host folders under `/home/workspace/<name>` with system/sensitive path protection (**Extra Mounts**), and edit CPU/RAM/disk/I/O quotas on existing environments.
 - Inspect the last 50 background operations and tail-capped logs in the **Operation History** viewer (`H`), plus opt-in interactive **Session Recording** (`script -q -f`, `user.aibox.record`, automatic S3 secret redaction, 20-per-env / 200 MB retention, ANSI-stripped 200 KB log viewer, and `scriptreplay` terminal replay) under **History (`H`) → Sessions**. The `History (N!)` failure badge clears as soon as the viewer is opened, without deleting any entries.
 - Export environments and `/home/workspace` directories to compressed archives with pre-flight free-space checks, import backups into new isolated environments (`B`), audit unused environments (`staleDays`) alongside orphaned workspaces, snapshots, and unpaired backups with verified **Export & Wipe** (`U`); orphan cleanup falls back to **Delete as admin** (terminal `sudo`) when container-written files are root-owned, the error banner offers a **Copy Fix** button for the exact admin command, and host setup issues are diagnosed/repaired with `aibox check --fix`.
-- Follow the active Omarchy theme.
+- Follow the active Omarchy theme (live light/dark palette, window rounding, and adaptive desktop/launcher icon via `~/.config/omarchy/hooks/theme-set.d/50-aibox-icon` and `aibox theme render-icon`; remove or `chmod -x` that hook file to keep the static fallback icon).
 
 ## Requirements
 

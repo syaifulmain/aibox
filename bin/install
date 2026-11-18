@@ -51,10 +51,21 @@ check_dependencies
 
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 install -Dm755 "$ROOT/rust/target/release/aibox" "$BIN_DIR/aibox"
 install -Dm644 "$ROOT/LICENSE" "$DATA_DIR/licenses/aibox/LICENSE"
 install -Dm644 "$ROOT/pkgbuild/aibox.svg" "$DATA_DIR/icons/hicolor/scalable/apps/aibox.svg"
+"$BIN_DIR/aibox" theme render-icon >/dev/null 2>&1 || true
+
+HOOK_DIR="$CONFIG_DIR/omarchy/hooks/theme-set.d"
+mkdir -p "$HOOK_DIR"
+cat > "$HOOK_DIR/50-aibox-icon" <<EOF
+#!/bin/bash
+# Installed by AIBox: retint the launcher icon after a theme switch.
+"$BIN_DIR/aibox" theme render-icon >/dev/null 2>&1 || true
+EOF
+chmod 755 "$HOOK_DIR/50-aibox-icon"
 
 mkdir -p "$DATA_DIR/applications"
 sed "s|^Exec=aibox |Exec=$BIN_DIR/aibox |" "$ROOT/pkgbuild/aibox.desktop" > "$DATA_DIR/applications/aibox.desktop"

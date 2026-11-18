@@ -89,6 +89,46 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 i += 1;
                 continue;
             }
+            if arg == "--output" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error("--output requires a file path.", Command::Theme);
+                }
+                i += 1;
+                parsed.output_path = args[i].clone();
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--output=") {
+                if val.trim().is_empty() {
+                    return make_usage_error("--output requires a file path.", Command::Theme);
+                }
+                parsed.output_path = val.to_string();
+                i += 1;
+                continue;
+            }
+            if arg == "--theme-dir" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error(
+                        "--theme-dir requires a directory path.",
+                        Command::Theme,
+                    );
+                }
+                i += 1;
+                parsed.theme_path = args[i].clone();
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--theme-dir=") {
+                if val.trim().is_empty() {
+                    return make_usage_error(
+                        "--theme-dir requires a directory path.",
+                        Command::Theme,
+                    );
+                }
+                parsed.theme_path = val.to_string();
+                i += 1;
+                continue;
+            }
             if arg == "-h" || arg == "--help" {
                 saw_help = true;
                 i += 1;
@@ -200,6 +240,15 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
         );
     }
 
+    if (!parsed.output_path.is_empty() || !parsed.theme_path.is_empty())
+        && parsed.command != Command::Theme
+    {
+        return make_usage_error(
+            "--output and --theme-dir are only supported for 'theme'.",
+            parsed.command,
+        );
+    }
+
     parsed.json_output = saw_json;
     parsed.fix = saw_fix;
     parsed.system_only = saw_system_only;
@@ -264,14 +313,32 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 parsed.snapshot_name = positionals[1].clone();
             }
         }
-        Command::Theme => {
-            if positionals.first().map(|s| s.as_str()) != Some("dump") || positionals.len() > 2 {
-                return make_usage_error("Expected 'dump [path]'.", Command::Theme);
+        Command::Theme => match positionals.first().map(String::as_str) {
+            Some("dump") => {
+                if positionals.len() > 2 || !parsed.output_path.is_empty() {
+                    return make_usage_error("Expected 'dump [path] [--json]'.", Command::Theme);
+                }
+                parsed.theme_subcommand = "dump".to_string();
+                if positionals.len() == 2 {
+                    parsed.theme_path = positionals[1].clone();
+                }
             }
-            if positionals.len() == 2 {
-                parsed.theme_path = positionals[1].clone();
+            Some("render-icon") => {
+                if positionals.len() != 1 || saw_json {
+                    return make_usage_error(
+                        "Expected 'render-icon [--output PATH] [--theme-dir DIR]'.",
+                        Command::Theme,
+                    );
+                }
+                parsed.theme_subcommand = "render-icon".to_string();
             }
-        }
+            _ => {
+                return make_usage_error(
+                    "Expected 'dump [path]' or 'render-icon [--output PATH] [--theme-dir DIR]'.",
+                    Command::Theme,
+                );
+            }
+        },
         Command::None | Command::Help => {}
     }
 

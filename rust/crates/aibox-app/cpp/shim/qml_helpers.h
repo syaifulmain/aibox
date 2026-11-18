@@ -9,3 +9,4 @@ void aibox_set_context_property(QQmlApplicationEngine *engine, const QString &na
 void aibox_apply_locale(const QString &localeName);
 QByteArray aibox_read_qt_resource(const QString &path);
 bool aibox_is_gui_session();
+void aibox_set_window_icon(const QString &path);

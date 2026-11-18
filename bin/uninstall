@@ -9,9 +9,11 @@ set -euo pipefail
 echo "==> Removing 'aibox' desktop application..."
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 rm -f "$BIN_DIR/aibox"
 rm -f "$DATA_DIR/applications/aibox.desktop"
 rm -f "$DATA_DIR/icons/hicolor/scalable/apps/aibox.svg"
+rm -f "$CONFIG_DIR/omarchy/hooks/theme-set.d/50-aibox-icon"
 rm -rf "$DATA_DIR/licenses/aibox"
 if pacman -Qi aibox >/dev/null 2>&1; then
     sudo pacman -Rns --noconfirm aibox

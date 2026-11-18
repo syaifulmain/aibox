@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLocale>
 #include <QQmlContext>
 
@@ -26,4 +27,9 @@ QByteArray aibox_read_qt_resource(const QString &path) {
 bool aibox_is_gui_session() {
     return qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr &&
            QGuiApplication::platformName() != QLatin1String("offscreen");
+}
+
+void aibox_set_window_icon(const QString &path) {
+    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance()) != nullptr && !path.isEmpty())
+        QGuiApplication::setWindowIcon(QIcon(path));
 }

@@ -14,7 +14,10 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 pub mod qobject {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
+        include!("shim/qml_helpers.h");
         type QString = cxx_qt_lib::QString;
+
+        fn aibox_set_window_icon(path: &QString);
     }
 
     unsafe extern "RustQt" {
@@ -357,7 +360,14 @@ impl qobject::Theme {
 
         if changed {
             self.as_mut().rust_mut().apply_theme(colors, palette);
-            // Emit one changed signal per theme switch; M7 will hook window icon retinting here.
+            if crate::qt_backend::qobject::aibox_is_gui_session() {
+                let icon_path = aibox_core::theme::icon::default_icon_output_path();
+                if aibox_core::theme::icon::write_icon(&self.rust().palette, &icon_path).is_ok() {
+                    if let Some(path_str) = icon_path.to_str() {
+                        qobject::aibox_set_window_icon(&QString::from(path_str));
+                    }
+                }
+            }
             self.as_mut().changed();
         }
     }
