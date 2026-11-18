@@ -5,7 +5,6 @@ use chrono::Local;
 use serde_json::Value;
 
 use crate::config::model::{self, Config};
-use crate::health::checks::CommandRunner;
 use crate::health::pool::{parse_incus_storage_info, StoragePoolInfo};
 use crate::history::{
     acknowledge_operation_history, clear_operation_history, load_history_seen_marker,
@@ -17,6 +16,7 @@ use crate::incus::list::{
     parse as parse_incus_list, templates as extract_templates, CounterState, Environment,
     ParseDefaults,
 };
+use crate::process::CommandRunner;
 use crate::secrets::state::SecretsState;
 use crate::task::lock::{acquire_cli_task_lock, is_task_lock_active, release_cli_task_lock};
 use crate::util::paths::{
@@ -368,7 +368,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::health::checks::CommandOutput;
+    use crate::process::CommandOutput;
     use std::cell::RefCell;
     use std::fs;
     use std::path::PathBuf;
@@ -410,6 +410,10 @@ mod tests {
                     std_err: String::new(),
                 }
             }
+        }
+
+        fn socket_writable(&self, _path: &str) -> bool {
+            true
         }
     }
 

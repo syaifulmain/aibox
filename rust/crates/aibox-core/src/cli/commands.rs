@@ -12,11 +12,12 @@ use serde_json::{json, Value};
 
 use crate::cli::{help_text, CliIo, Command, ParsedArgs};
 use crate::engine::Engine;
-use crate::health::checks::{run_health_checks, CommandRunner};
+use crate::health::checks::run_health_checks;
 use crate::history::{record_operation_history, RecordOperationParams};
 use crate::incus::list::Environment;
 use crate::network::acl::build_allowlist_refresh_if_needed;
 use crate::network::allowlist::SystemResolver;
+use crate::process::CommandRunner;
 use crate::provision::lifecycle::{
     build_prepare_script, enter_incus_exec_args, exec_incus_command_args, start_environment_script,
     stop_environment_script,

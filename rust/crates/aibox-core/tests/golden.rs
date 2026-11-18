@@ -4,8 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use aibox_core::{
-    backup, cli, config, health, i18n, incus, network, provision, secrets, session, snapshot, task,
-    theme, util, workspace,
+    backup, cli, config, health, i18n, incus, network, process, provision, secrets, session,
+    snapshot, task, theme, util, workspace,
 };
 use chrono::{Local, NaiveDateTime, TimeZone};
 use serde_json::{json, Value};
@@ -1695,7 +1695,7 @@ exit 0
                 stdout: Vec::new(),
                 stderr: Vec::new(),
             };
-            let runner = health::checks::SystemRunner;
+            let runner = process::SystemRunner;
             let rc = cli::execute_with(&cli::parse_args(&cli_args), &mut io, &runner, "/tmp");
 
             if let Some(p) = old_path {
@@ -1801,12 +1801,14 @@ fn health_result_to_json_val(r: &health::checks::HealthCheckResult) -> Value {
     })
 }
 
-struct GoldenRunner<F>(F);
-impl<F: Fn(&str, &[&str]) -> health::checks::CommandOutput> health::checks::CommandRunner
-    for GoldenRunner<F>
-{
-    fn run(&self, program: &str, args: &[&str]) -> health::checks::CommandOutput {
+struct GoldenRunner<F>(F, bool);
+impl<F: Fn(&str, &[&str]) -> process::CommandOutput> process::CommandRunner for GoldenRunner<F> {
+    fn run(&self, program: &str, args: &[&str]) -> process::CommandOutput {
         (self.0)(program, args)
+    }
+
+    fn socket_writable(&self, _path: &str) -> bool {
+        self.1
     }
 }
 
@@ -1822,249 +1824,244 @@ fn dispatch_health_checks(
 
     let results = match case {
         "all_pass" => {
-            let runner = GoldenRunner(|prog: &str, a: &[&str]| {
-                match prog {
-                "id" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "testuser wheel incus-admin kvm render video\n".to_string(),
-                    std_err: String::new(),
-                },
-                "__socket_rw__" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    ..Default::default()
-                },
-                "systemctl" if a.first() == Some(&"is-active") => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "active\n".to_string(),
-                    std_err: String::new(),
-                },
-                "incus" => match (a.first().copied(), a.get(1).copied()) {
-                    (Some("list"), _) => health::checks::CommandOutput {
+            let runner = GoldenRunner(
+                |prog: &str, a: &[&str]| {
+                    match prog {
+                    "id" => process::CommandOutput {
                         exit_code: 0,
-                        std_out: "[]".to_string(),
+                        std_out: "testuser wheel incus-admin kvm render video\n".to_string(),
                         std_err: String::new(),
                     },
-                    (Some("network"), Some("show")) => health::checks::CommandOutput {
+                    "systemctl" if a.first() == Some(&"is-active") => process::CommandOutput {
                         exit_code: 0,
-                        std_out: "name: incusbr0\nmanaged: true\n".to_string(),
-                        std_err: String::new(),
-                    },
-                    (Some("profile"), Some("show")) => health::checks::CommandOutput {
-                        exit_code: 0,
-                        std_out: "config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n".to_string(),
-                        std_err: String::new(),
-                    },
-                    (Some("storage"), Some("info")) => health::checks::CommandOutput {
-                        exit_code: 0,
-                        std_out: "info:\n  driver: btrfs\n  name: default\n  space used: \"1329242112\"\n  total space: \"32212254720\"\n".to_string(),
-                        std_err: String::new(),
-                    },
-                    _ => health::checks::CommandOutput {
-                        exit_code: 1,
-                        std_out: String::new(),
-                        std_err: "unexpected command".to_string(),
-                    },
-                },
-                "findmnt" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "/home btrfs rw,relatime,user_subvol_rm_allowed\n".to_string(),
-                    std_err: String::new(),
-                },
-                _ => health::checks::CommandOutput {
-                    exit_code: 1,
-                    std_out: String::new(),
-                    std_err: "unexpected command".to_string(),
-                },
-            }
-            });
-            health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
-        }
-        "fix_dry_run" | "fix_repaired" => {
-            let cell = std::cell::RefCell::new(*fix_state);
-            let runner = GoldenRunner(|prog: &str, a: &[&str]| {
-                let mut st = cell.borrow_mut();
-                match prog {
-                    "id" => health::checks::CommandOutput {
-                        exit_code: 0,
-                        std_out: "testuser incus-admin kvm render video\n".to_string(),
-                        std_err: String::new(),
-                    },
-                    "__socket_rw__" => health::checks::CommandOutput {
-                        exit_code: 0,
-                        ..Default::default()
-                    },
-                    "systemctl" => health::checks::CommandOutput {
-                        exit_code: 3,
-                        std_out: "inactive\n".to_string(),
+                        std_out: "active\n".to_string(),
                         std_err: String::new(),
                     },
                     "incus" => match (a.first().copied(), a.get(1).copied()) {
-                        (Some("list"), _) => health::checks::CommandOutput {
+                        (Some("list"), _) => process::CommandOutput {
                             exit_code: 0,
                             std_out: "[]".to_string(),
                             std_err: String::new(),
                         },
-                        (Some("network"), Some("show")) => {
-                            if st.0 {
-                                health::checks::CommandOutput {
+                        (Some("network"), Some("show")) => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "name: incusbr0\nmanaged: true\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        (Some("profile"), Some("show")) => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        (Some("storage"), Some("info")) => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "info:\n  driver: btrfs\n  name: default\n  space used: \"1329242112\"\n  total space: \"32212254720\"\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        _ => process::CommandOutput {
+                            exit_code: 1,
+                            std_out: String::new(),
+                            std_err: "unexpected command".to_string(),
+                        },
+                    },
+                    "findmnt" => process::CommandOutput {
+                        exit_code: 0,
+                        std_out: "/home btrfs rw,relatime,user_subvol_rm_allowed\n".to_string(),
+                        std_err: String::new(),
+                    },
+                    _ => process::CommandOutput {
+                        exit_code: 1,
+                        std_out: String::new(),
+                        std_err: "unexpected command".to_string(),
+                    },
+                }
+                },
+                true,
+            );
+            health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
+        }
+        "fix_dry_run" | "fix_repaired" => {
+            let cell = std::cell::RefCell::new(*fix_state);
+            let runner = GoldenRunner(
+                |prog: &str, a: &[&str]| {
+                    let mut st = cell.borrow_mut();
+                    match prog {
+                        "id" => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "testuser incus-admin kvm render video\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        "systemctl" => process::CommandOutput {
+                            exit_code: 3,
+                            std_out: "inactive\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        "incus" => match (a.first().copied(), a.get(1).copied()) {
+                            (Some("list"), _) => process::CommandOutput {
+                                exit_code: 0,
+                                std_out: "[]".to_string(),
+                                std_err: String::new(),
+                            },
+                            (Some("network"), Some("show")) => {
+                                if st.0 {
+                                    process::CommandOutput {
+                                        exit_code: 0,
+                                        std_out: "name: incusbr0\n".to_string(),
+                                        std_err: String::new(),
+                                    }
+                                } else {
+                                    process::CommandOutput {
+                                        exit_code: 1,
+                                        std_out: String::new(),
+                                        std_err: "not found".to_string(),
+                                    }
+                                }
+                            }
+                            (Some("network"), Some("create")) if a.get(2) == Some(&"incusbr0") => {
+                                st.0 = true;
+                                process::CommandOutput {
                                     exit_code: 0,
-                                    std_out: "name: incusbr0\n".to_string(),
+                                    ..Default::default()
+                                }
+                            }
+                            (Some("profile"), Some("show")) => {
+                                let mut p_out = String::from("config:\n");
+                                if st.1 {
+                                    p_out.push_str("  security.nesting: \"true\"\n");
+                                }
+                                p_out.push_str("devices:\n");
+                                if st.2 {
+                                    p_out.push_str("  gpu:\n    type: gpu\n");
+                                }
+                                if st.3 {
+                                    p_out.push_str("  kvm:\n    path: /dev/kvm\n");
+                                }
+                                process::CommandOutput {
+                                    exit_code: 0,
+                                    std_out: p_out,
                                     std_err: String::new(),
                                 }
-                            } else {
-                                health::checks::CommandOutput {
-                                    exit_code: 1,
-                                    std_out: String::new(),
-                                    std_err: "not found".to_string(),
+                            }
+                            (Some("profile"), Some("set")) => {
+                                st.1 = true;
+                                process::CommandOutput {
+                                    exit_code: 0,
+                                    ..Default::default()
                                 }
                             }
-                        }
-                        (Some("network"), Some("create")) if a.get(2) == Some(&"incusbr0") => {
-                            st.0 = true;
-                            health::checks::CommandOutput {
-                                exit_code: 0,
-                                ..Default::default()
+                            (Some("profile"), Some("device")) if a.get(2) == Some(&"add") => {
+                                if a.get(4) == Some(&"gpu") {
+                                    st.2 = true;
+                                }
+                                if a.get(4) == Some(&"kvm") {
+                                    st.3 = true;
+                                }
+                                process::CommandOutput {
+                                    exit_code: 0,
+                                    ..Default::default()
+                                }
                             }
-                        }
-                        (Some("profile"), Some("show")) => {
-                            let mut p_out = String::from("config:\n");
-                            if st.1 {
-                                p_out.push_str("  security.nesting: \"true\"\n");
-                            }
-                            p_out.push_str("devices:\n");
-                            if st.2 {
-                                p_out.push_str("  gpu:\n    type: gpu\n");
-                            }
-                            if st.3 {
-                                p_out.push_str("  kvm:\n    path: /dev/kvm\n");
-                            }
-                            health::checks::CommandOutput {
-                                exit_code: 0,
-                                std_out: p_out,
-                                std_err: String::new(),
-                            }
-                        }
-                        (Some("profile"), Some("set")) => {
-                            st.1 = true;
-                            health::checks::CommandOutput {
-                                exit_code: 0,
-                                ..Default::default()
-                            }
-                        }
-                        (Some("profile"), Some("device")) if a.get(2) == Some(&"add") => {
-                            if a.get(4) == Some(&"gpu") {
-                                st.2 = true;
-                            }
-                            if a.get(4) == Some(&"kvm") {
-                                st.3 = true;
-                            }
-                            health::checks::CommandOutput {
-                                exit_code: 0,
-                                ..Default::default()
-                            }
-                        }
-                        _ => health::checks::CommandOutput {
+                            _ => process::CommandOutput {
+                                exit_code: 1,
+                                std_out: String::new(),
+                                std_err: "unhandled".to_string(),
+                            },
+                        },
+                        _ => process::CommandOutput {
                             exit_code: 1,
                             std_out: String::new(),
                             std_err: "unhandled".to_string(),
                         },
-                    },
-                    _ => health::checks::CommandOutput {
-                        exit_code: 1,
-                        std_out: String::new(),
-                        std_err: "unhandled".to_string(),
-                    },
-                }
-            });
+                    }
+                },
+                true,
+            );
             let res = health::checks::run_health_checks(fix, &runner, user, ufw, ws_base);
             *fix_state = *cell.borrow();
             res
         }
         "root_failures" => {
-            let runner = GoldenRunner(|prog: &str, a: &[&str]| match prog {
-                "id" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "testuser wheel\n".to_string(),
-                    std_err: String::new(),
+            let runner = GoldenRunner(
+                |prog: &str, a: &[&str]| match prog {
+                    "id" => process::CommandOutput {
+                        exit_code: 0,
+                        std_out: "testuser wheel\n".to_string(),
+                        std_err: String::new(),
+                    },
+                    "systemctl" if a.first() == Some(&"is-active") => process::CommandOutput {
+                        exit_code: 0,
+                        std_out: "active\n".to_string(),
+                        std_err: String::new(),
+                    },
+                    "findmnt" => process::CommandOutput {
+                        exit_code: 0,
+                        std_out: "/home btrfs rw,relatime\n".to_string(),
+                        std_err: String::new(),
+                    },
+                    _ => process::CommandOutput {
+                        exit_code: 1,
+                        std_out: String::new(),
+                        std_err: "daemon down".to_string(),
+                    },
                 },
-                "__socket_rw__" => health::checks::CommandOutput {
-                    exit_code: 1,
-                    std_out: String::new(),
-                    std_err: "permission denied".to_string(),
-                },
-                "systemctl" if a.first() == Some(&"is-active") => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "active\n".to_string(),
-                    std_err: String::new(),
-                },
-                "findmnt" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "/home btrfs rw,relatime\n".to_string(),
-                    std_err: String::new(),
-                },
-                _ => health::checks::CommandOutput {
-                    exit_code: 1,
-                    std_out: String::new(),
-                    std_err: "daemon down".to_string(),
-                },
-            });
+                false,
+            );
             health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
         }
         "pool_warn_90" | "pool_fail_97" => {
             let pct = if case == "pool_warn_90" { "90" } else { "97" };
-            let runner = GoldenRunner(|prog: &str, a: &[&str]| {
-                match prog {
-                "id" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "testuser incus-admin kvm render video\n".to_string(),
-                    std_err: String::new(),
-                },
-                "__socket_rw__" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    ..Default::default()
-                },
-                "systemctl" => health::checks::CommandOutput {
-                    exit_code: 3,
-                    std_out: "inactive\n".to_string(),
-                    std_err: String::new(),
-                },
-                "incus" => match a.first().copied() {
-                    Some("list") => health::checks::CommandOutput {
+            let runner = GoldenRunner(
+                |prog: &str, a: &[&str]| {
+                    match prog {
+                    "id" => process::CommandOutput {
                         exit_code: 0,
-                        std_out: "[]".to_string(),
+                        std_out: "testuser incus-admin kvm render video\n".to_string(),
                         std_err: String::new(),
                     },
-                    Some("network") => health::checks::CommandOutput {
-                        exit_code: 0,
-                        std_out: "name: incusbr0\n".to_string(),
+                    "systemctl" => process::CommandOutput {
+                        exit_code: 3,
+                        std_out: "inactive\n".to_string(),
                         std_err: String::new(),
                     },
-                    Some("profile") => health::checks::CommandOutput {
+                    "incus" => match a.first().copied() {
+                        Some("list") => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "[]".to_string(),
+                            std_err: String::new(),
+                        },
+                        Some("network") => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "name: incusbr0\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        Some("profile") => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: "config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n".to_string(),
+                            std_err: String::new(),
+                        },
+                        Some("storage") => process::CommandOutput {
+                            exit_code: 0,
+                            std_out: format!("info:\n  driver: btrfs\n  name: default\n  space used: \"{pct}\"\n  total space: \"100\"\n"),
+                            std_err: String::new(),
+                        },
+                        _ => process::CommandOutput {
+                            exit_code: 1,
+                            ..Default::default()
+                        },
+                    },
+                    "findmnt" => process::CommandOutput {
                         exit_code: 0,
-                        std_out: "config:\n  security.nesting: \"true\"\ndevices:\n  gpu:\n    type: gpu\n  kvm:\n    path: /dev/kvm\n".to_string(),
+                        std_out: "/home btrfs rw,user_subvol_rm_allowed\n".to_string(),
                         std_err: String::new(),
                     },
-                    Some("storage") => health::checks::CommandOutput {
-                        exit_code: 0,
-                        std_out: format!("info:\n  driver: btrfs\n  name: default\n  space used: \"{pct}\"\n  total space: \"100\"\n"),
-                        std_err: String::new(),
-                    },
-                    _ => health::checks::CommandOutput {
+                    _ => process::CommandOutput {
                         exit_code: 1,
                         ..Default::default()
                     },
+                }
                 },
-                "findmnt" => health::checks::CommandOutput {
-                    exit_code: 0,
-                    std_out: "/home btrfs rw,user_subvol_rm_allowed\n".to_string(),
-                    std_err: String::new(),
-                },
-                _ => health::checks::CommandOutput {
-                    exit_code: 1,
-                    ..Default::default()
-                },
-            }
-            });
+                true,
+            );
             health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
         }
         other => panic!("unknown health check case: {other}"),

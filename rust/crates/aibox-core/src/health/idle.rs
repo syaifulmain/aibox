@@ -1,5 +1,6 @@
 //! Idle detection, override parsing, and auto-stop decision helpers.
 
+use crate::incus::list::{parse as parse_incus_list, CounterState, Environment, ParseDefaults};
 use crate::util::shell::shell_quote;
 use std::collections::BTreeSet;
 
@@ -21,6 +22,50 @@ pub struct IdleStopOverride {
 pub struct IdleCpuSample {
     pub timestamp_ms: i64,
     pub cpu_percent: i32,
+}
+
+/// Per-instance CPU and network activity extracted from a single `incus list --format=json` payload.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IdleInstanceStats {
+    pub name: String,
+    pub running: bool,
+    pub cpu_percent: i32,
+    pub net_rx_bytes: i64,
+    pub net_tx_bytes: i64,
+    pub net_rx_rate: i64,
+    pub net_tx_rate: i64,
+}
+
+/// Projects already-parsed `Environment` entries into [`IdleInstanceStats`] without extra queries.
+pub fn extract_idle_stats_from_envs(envs: &[Environment]) -> Vec<IdleInstanceStats> {
+    envs.iter()
+        .map(|e| IdleInstanceStats {
+            name: e.name.clone(),
+            running: e.running,
+            cpu_percent: e.cpu_percent,
+            net_rx_bytes: e.net_rx_bytes,
+            net_tx_bytes: e.net_tx_bytes,
+            net_rx_rate: e.net_rx_rate,
+            net_tx_rate: e.net_tx_rate,
+        })
+        .collect()
+}
+
+/// Extracts CPU and network activity for all instances from one `incus list --format=json` payload.
+pub fn extract_idle_stats_from_incus_list(
+    list_json: &[u8],
+    counter_state: &mut CounterState,
+    elapsed_wall_ns: i64,
+) -> Vec<IdleInstanceStats> {
+    let envs = parse_incus_list(
+        list_json,
+        "",
+        counter_state,
+        elapsed_wall_ns,
+        ParseDefaults::default(),
+        true,
+    );
+    extract_idle_stats_from_envs(&envs)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -417,5 +462,58 @@ mod tests {
         let busy_res = evaluate_idle_decision(&busy);
         assert!(!busy_res.eligible);
         assert_eq!(busy_res.blocked_reason, "busy");
+    }
+
+    #[test]
+    fn extracts_cpu_and_net_stats_for_all_instances_from_single_incus_list() {
+        let make_payload = |cpu_ns: u64, rx_bytes: u64, tx_bytes: u64| {
+            format!(
+                r#"[
+                    {{
+                        "name": "box-a",
+                        "status": "Running",
+                        "type": "container",
+                        "config": {{"limits.cpu": "2"}},
+                        "state": {{
+                            "cpu": {{"usage": {cpu_ns}}},
+                            "network": {{
+                                "eth0": {{"type": "broadcast", "counters": {{"bytes_received": {rx_bytes}, "bytes_sent": {tx_bytes}}}}}
+                            }}
+                        }}
+                    }},
+                    {{
+                        "name": "box-b",
+                        "status": "Stopped",
+                        "type": "container",
+                        "config": {{}},
+                        "state": {{}}
+                    }}
+                ]"#
+            )
+        };
+
+        let mut counters = CounterState::default();
+        let first = extract_idle_stats_from_incus_list(
+            make_payload(1_000_000_000, 1000, 2000).as_bytes(),
+            &mut counters,
+            0,
+        );
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].name, "box-a");
+        assert!(first[0].running);
+        assert_eq!(first[0].net_rx_bytes, 1000);
+        assert_eq!(first[0].net_tx_bytes, 2000);
+        assert_eq!(first[1].name, "box-b");
+        assert!(!first[1].running);
+
+        // Second poll 2 seconds later: +1s CPU across 2 cores = 25% CPU, +4000 RX bytes = 2000 B/s.
+        let second = extract_idle_stats_from_incus_list(
+            make_payload(2_000_000_000, 5000, 6000).as_bytes(),
+            &mut counters,
+            2_000_000_000,
+        );
+        assert_eq!(second[0].cpu_percent, 25);
+        assert_eq!(second[0].net_rx_rate, 2000);
+        assert_eq!(second[0].net_tx_rate, 2000);
     }
 }

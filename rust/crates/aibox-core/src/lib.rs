@@ -7,6 +7,7 @@ pub mod history;
 pub mod i18n;
 pub mod incus;
 pub mod network;
+pub mod process;
 pub mod provision;
 pub mod secrets;
 pub mod session;

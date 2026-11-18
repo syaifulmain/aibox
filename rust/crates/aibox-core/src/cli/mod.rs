@@ -6,7 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::os::unix::process::CommandExt;
 use std::process::{Command as ProcessCommand, Stdio};
 
-use crate::health::checks::{CommandRunner, SystemRunner};
+use crate::process::{CommandRunner, SystemRunner};
 
 pub use help::help_text;
 pub use parse::{argv_without_program, is_cli_invocation, parse_args, parse_command_name};
@@ -183,7 +183,7 @@ pub fn run(args_without_program: &[String]) -> i32 {
 mod tests {
     use super::*;
     use crate::engine::Engine;
-    use crate::health::checks::CommandOutput;
+    use crate::process::CommandOutput;
     use crate::util::paths::resolve_project_aibox_dir;
     use std::cell::RefCell;
     use std::collections::VecDeque;
@@ -296,6 +296,10 @@ mod tests {
                 std_out: String::new(),
                 std_err: String::new(),
             }
+        }
+
+        fn socket_writable(&self, _path: &str) -> bool {
+            true
         }
     }
 

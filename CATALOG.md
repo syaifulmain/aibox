@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Health: `crate::process`, Explicit `socket_writable`, Check Cadence, Single-Query Idle Stats & `checks/` Split (`rust/crates/aibox-core/src/process.rs`, `health/`)
+
+- **Extracted `crate::process` (`process.rs`, `engine.rs`, `cli/`, `golden.rs`):** Moved `CommandOutput`, `CommandRunner`, and `SystemRunner` out of `health::checks` into a dedicated `aibox_core::process` module and updated all core, CLI, and golden test callers.
+- **Explicit `CommandRunner::socket_writable` (`process.rs`, `health/checks/incus.rs`):** Replaced the `__socket_rw__` pseudo-program convention in `SystemRunner` with a typed `fn socket_writable(&self, path: &str) -> bool` method on `CommandRunner` (using `libc::access` in `SystemRunner`).
+- **Modular `checks/` split (`health/checks/mod.rs`, `host.rs`, `incus.rs`, `devices.rs`):** Split `health/checks.rs` into focused submodules for host checks (`host.rs`), Incus/pool checks (`incus.rs`), and device/profile checks (`devices.rs`), preserving all `aibox_core::health::checks` exports.
+- **Per-check cadence & result caching (`health/checks/mod.rs`):** Added `CheckCadence` (`Static` vs `Dynamic`), `CheckRunMode` (`StartupOrManual` vs `Poll`), `CachedHealthCheck`, and `HealthCheckCache::run_with_cadence` so background polls re-evaluate only dynamic checks (`incus_daemon`, `pool_capacity`) while preserving cached static check results and timestamps.
+- **Single-query idle stats (`health/idle.rs`):** Added `IdleInstanceStats`, `extract_idle_stats_from_envs`, and `extract_idle_stats_from_incus_list` to extract CPU and network activity for all instances from a single `incus list --format=json` payload without per-instance queries.
+- **Verification tests (`health/checks/mod.rs`, `health/idle.rs`, `process.rs`):** Added tests for fake-runner failure combinations (daemon unreachable, socket permission denied, missing KVM/GPU), cadence caching (`Poll` skipping static checks), multi-instance CPU/net extraction from one `incus list` payload, and `SystemRunner::socket_writable`.
+
 ### Core Backup: Manifest Verification, Safe Orphan Cleanup, `mod.rs` Split, Parallel Compression, Cached Scan & Scheduled Backups (`rust/crates/aibox-core/src/backup/`, `aibox-app`)
 
 - **Modular split (`backup/mod.rs`, `export.rs`, `import.rs`, `archive_scan.rs`, `space.rs`):** Split `backup/mod.rs` into focused submodules for export/manifest/scheduled backups (`export.rs`), import/verification (`import.rs`), cached archive scanning (`archive_scan.rs`), and disk space checks (`space.rs`), preserving all `aibox_core::backup` exports.
