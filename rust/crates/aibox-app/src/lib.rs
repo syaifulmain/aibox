@@ -19,6 +19,7 @@ mod qt_backend_workspace;
 pub mod qt_convert;
 pub mod qt_theme;
 pub mod qt_translator;
+mod qt_watcher;
 
 extern "C" {
     fn aibox_gui_main(

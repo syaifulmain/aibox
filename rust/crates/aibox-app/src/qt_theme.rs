@@ -1,14 +1,14 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{mpsc, Arc};
+use std::time::Duration;
 
 use cxx_qt::{CxxQtType, Initialize, Threading};
 use cxx_qt_lib::QString;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+
+use crate::qt_watcher::{hash_files, nearest_existing_dir, SharedWatcher, WatchHandle};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -111,11 +111,6 @@ pub mod qobject {
     impl cxx_qt::Initialize for Theme {}
 }
 
-struct WatcherState {
-    watcher: RecommendedWatcher,
-    watched_paths: HashSet<PathBuf>,
-}
-
 macro_rules! define_theme_rust {
     ($($palette_field:ident),+ $(,)?) => {
         pub struct ThemeRust {
@@ -131,7 +126,9 @@ macro_rules! define_theme_rust {
             palette_options: aibox_core::theme::PaletteOptions,
             directory: String,
             hyprctl: String,
-            watcher_state: Option<Arc<Mutex<WatcherState>>>,
+            watch_handle: Option<WatchHandle>,
+            last_content_hash: Option<u64>,
+            loaded: bool,
             stop_flag: Arc<AtomicBool>,
             rounding_wake_tx: Option<mpsc::Sender<()>>,
         }
@@ -154,7 +151,9 @@ macro_rules! define_theme_rust {
                     palette_options,
                     directory: String::new(),
                     hyprctl: String::new(),
-                    watcher_state: None,
+                    watch_handle: None,
+                    last_content_hash: None,
+                    loaded: false,
                     stop_flag: Arc::new(AtomicBool::new(false)),
                     rounding_wake_tx: None,
                 }
@@ -238,7 +237,7 @@ impl Drop for ThemeRust {
 impl ThemeRust {
     fn stop_workers(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
-        self.watcher_state = None;
+        self.watch_handle = None;
         self.rounding_wake_tx = None;
     }
 }
@@ -283,42 +282,13 @@ impl qobject::Theme {
         self.as_mut().rust_mut().stop_workers();
 
         let stop_flag = Arc::new(AtomicBool::new(false));
-        let (fs_tx, fs_rx) = mpsc::channel::<()>();
-
-        let watcher_state =
-            notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                if res.is_ok() {
-                    let _ = fs_tx.send(());
-                }
-            })
-            .ok()
-            .map(|watcher| {
-                Arc::new(Mutex::new(WatcherState {
-                    watcher,
-                    watched_paths: HashSet::new(),
-                }))
-            });
-
         let qt_thread_fs = self.qt_thread();
-        let stop_fs = stop_flag.clone();
-        std::thread::spawn(move || {
-            while fs_rx.recv().is_ok() {
-                if stop_fs.load(Ordering::Relaxed) {
-                    break;
-                }
-                while fs_rx.recv_timeout(Duration::from_millis(80)).is_ok() {
-                    if stop_fs.load(Ordering::Relaxed) {
-                        return;
-                    }
-                }
-                if stop_fs.load(Ordering::Relaxed) {
-                    break;
-                }
+        let watch_handle =
+            SharedWatcher::global().subscribe(theme_watch_dirs(Path::new(&directory)), move || {
                 let _ = qt_thread_fs.queue(|theme| {
                     theme.reload();
                 });
-            }
-        });
+            });
 
         let rounding_wake_tx = if !hyprctl.is_empty() {
             let (wake_tx, wake_rx) = mpsc::channel::<()>();
@@ -354,7 +324,9 @@ impl qobject::Theme {
             let mut rust = self.as_mut().rust_mut();
             rust.directory = directory;
             rust.hyprctl = hyprctl;
-            rust.watcher_state = watcher_state;
+            rust.watch_handle = Some(watch_handle);
+            rust.last_content_hash = None;
+            rust.loaded = false;
             rust.stop_flag = stop_flag;
             rust.rounding_wake_tx = rounding_wake_tx;
         }
@@ -400,13 +372,14 @@ impl qobject::Theme {
     }
 
     fn reload(mut self: Pin<&mut Self>) {
-        let (directory, watcher_state, rounding_wake_tx, palette_options) = {
+        let (directory, rounding_wake_tx, palette_options, loaded, last_hash) = {
             let rust = self.rust();
             (
                 rust.directory.clone(),
-                rust.watcher_state.clone(),
                 rust.rounding_wake_tx.clone(),
                 rust.palette_options,
+                rust.loaded,
+                rust.last_content_hash,
             )
         };
 
@@ -414,18 +387,28 @@ impl qobject::Theme {
             let _ = tx.send(());
         }
 
-        if let Some(state_arc) = watcher_state {
-            if let Ok(mut state) = state_arc.lock() {
-                rearm_theme_watches(&mut state, Path::new(&directory));
-            }
+        let dir_path = Path::new(&directory);
+        if let Some(handle) = self.rust().watch_handle.as_ref() {
+            handle.update_dirs(theme_watch_dirs(dir_path));
         }
 
-        let (colors, palette) = load_colors_and_palette(Path::new(&directory), palette_options);
+        let content_hash = theme_content_hash(dir_path, palette_options);
+        if loaded && last_hash == Some(content_hash) {
+            return;
+        }
+
+        let (colors, palette) = load_colors_and_palette(dir_path, palette_options);
 
         let changed = {
             let rust = self.rust();
             colors != rust.colors || palette != rust.palette
         };
+
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.last_content_hash = Some(content_hash);
+            rust.loaded = true;
+        }
 
         if changed {
             self.as_mut().rust_mut().apply_theme(colors, palette);
@@ -475,50 +458,41 @@ fn find_executable(name: &str) -> Option<String> {
     None
 }
 
-fn rearm_theme_watches(state: &mut WatcherState, directory: &Path) {
-    let old_paths: Vec<PathBuf> = state.watched_paths.drain().collect();
-    for path in old_paths {
-        let _ = state.watcher.unwatch(&path);
-    }
-
-    let mut ancestor = directory.to_path_buf();
-    while !ancestor.exists() {
+fn theme_watch_dirs(directory: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(ancestor) = nearest_existing_dir(directory) {
         if let Some(parent) = ancestor.parent() {
-            if parent == ancestor {
-                break;
+            if parent.is_dir() {
+                dirs.push(parent.to_path_buf());
             }
-            ancestor = parent.to_path_buf();
-        } else {
-            break;
         }
+        dirs.push(ancestor);
     }
+    if directory.is_dir() {
+        dirs.push(directory.to_path_buf());
+    }
+    let theme_subdir = directory.join("theme");
+    if theme_subdir.is_dir() {
+        dirs.push(theme_subdir);
+    }
+    dirs
+}
 
-    let mut candidates = Vec::new();
-    candidates.push(ancestor.clone());
-    if let Some(parent) = ancestor.parent() {
-        candidates.push(parent.to_path_buf());
-    }
-    candidates.push(directory.to_path_buf());
-    candidates.push(directory.join("colors.toml"));
-    candidates.push(directory.join("theme.name"));
-    candidates.push(directory.join("theme"));
-    candidates.push(directory.join("theme").join("colors.toml"));
-
-    for path in candidates {
-        if path.exists()
-            && !state.watched_paths.contains(&path)
-            && state
-                .watcher
-                .watch(&path, RecursiveMode::NonRecursive)
-                .is_ok()
-        {
-            state.watched_paths.insert(path);
-        }
-    }
+fn theme_content_hash(directory: &Path, opts: aibox_core::theme::PaletteOptions) -> u64 {
+    let paths = if directory.is_file() {
+        vec![directory.to_path_buf()]
+    } else {
+        vec![
+            directory.join("theme").join("colors.toml"),
+            directory.join("colors.toml"),
+            directory.join("theme.name"),
+        ]
+    };
+    hash_files(&paths, &(opts.mode_override.as_str(), opts.high_contrast))
 }
 
 fn query_hyprctl_rounding(hyprctl: &str) -> Option<i32> {
-    let mut child = Command::new(hyprctl)
+    let child = Command::new(hyprctl)
         .args(["-j", "getoption", "decoration:rounding"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -526,25 +500,23 @@ fn query_hyprctl_rounding(hyprctl: &str) -> Option<i32> {
         .spawn()
         .ok()?;
 
-    let deadline = Instant::now() + Duration::from_millis(500);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let output = child.wait_with_output().ok()?;
-                return aibox_core::theme::parse_rounding(&output.stdout);
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(Duration::from_millis(500)) {
+        Ok(Ok(output)) if output.status.success() => {
+            aibox_core::theme::parse_rounding(&output.stdout)
+        }
+        Ok(_) => None,
+        Err(_) => {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
             }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(15));
-            }
-            Err(_) => return None,
+            None
         }
     }
 }

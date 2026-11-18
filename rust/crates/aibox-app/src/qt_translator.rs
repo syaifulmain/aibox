@@ -1,13 +1,10 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
 
 use cxx_qt::{CxxQtType, Initialize, Threading};
 use cxx_qt_lib::QString;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+
+use crate::qt_watcher::{hash_files, nearest_existing_dir, SharedWatcher, WatchHandle};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -57,19 +54,14 @@ pub mod qobject {
     impl cxx_qt::Initialize for TranslatorState {}
 }
 
-struct WatcherState {
-    watcher: RecommendedWatcher,
-    watched_paths: HashSet<PathBuf>,
-}
-
 pub struct TranslatorStateRust {
     language: QString,
     language_file: String,
     catalog_directory: String,
     catalog: aibox_core::i18n::Catalog,
     loaded: bool,
-    watcher_state: Option<Arc<Mutex<WatcherState>>>,
-    stop_flag: Arc<AtomicBool>,
+    last_content_hash: Option<u64>,
+    watch_handle: Option<WatchHandle>,
 }
 
 impl Default for TranslatorStateRust {
@@ -80,8 +72,8 @@ impl Default for TranslatorStateRust {
             catalog_directory: ":/i18n".to_string(),
             catalog: aibox_core::i18n::Catalog::new(),
             loaded: false,
-            watcher_state: None,
-            stop_flag: Arc::new(AtomicBool::new(false)),
+            last_content_hash: None,
+            watch_handle: None,
         }
     }
 }
@@ -94,8 +86,7 @@ impl Drop for TranslatorStateRust {
 
 impl TranslatorStateRust {
     fn stop_workers(&mut self) {
-        self.stop_flag.store(true, Ordering::Relaxed);
-        self.watcher_state = None;
+        self.watch_handle = None;
     }
 }
 
@@ -120,76 +111,50 @@ impl qobject::TranslatorState {
     fn setup(mut self: Pin<&mut Self>, language_file: String, catalog_directory: String) {
         self.as_mut().rust_mut().stop_workers();
 
-        let stop_flag = Arc::new(AtomicBool::new(false));
-        let (fs_tx, fs_rx) = mpsc::channel::<()>();
-
-        let watcher_state =
-            notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                if res.is_ok() {
-                    let _ = fs_tx.send(());
-                }
-            })
-            .ok()
-            .map(|watcher| {
-                Arc::new(Mutex::new(WatcherState {
-                    watcher,
-                    watched_paths: HashSet::new(),
-                }))
-            });
-
         let qt_thread = self.qt_thread();
-        let stop_fs = stop_flag.clone();
-        std::thread::spawn(move || {
-            while fs_rx.recv().is_ok() {
-                if stop_fs.load(Ordering::Relaxed) {
-                    break;
-                }
-                while fs_rx.recv_timeout(Duration::from_millis(80)).is_ok() {
-                    if stop_fs.load(Ordering::Relaxed) {
-                        return;
-                    }
-                }
-                if stop_fs.load(Ordering::Relaxed) {
-                    break;
-                }
+        let watch_handle = SharedWatcher::global().subscribe(
+            language_watch_dirs(Path::new(&language_file), &catalog_directory),
+            move || {
                 let _ = qt_thread.queue(|state| {
                     state.reload();
                 });
-            }
-        });
+            },
+        );
 
         {
             let mut rust = self.as_mut().rust_mut();
             rust.language_file = language_file;
             rust.catalog_directory = catalog_directory;
             rust.loaded = false;
-            rust.watcher_state = watcher_state;
-            rust.stop_flag = stop_flag;
+            rust.last_content_hash = None;
+            rust.watch_handle = Some(watch_handle);
         }
 
         self.reload();
     }
 
     fn reload(mut self: Pin<&mut Self>) {
-        let (language_file, catalog_directory, current_language, loaded, watcher_state) = {
+        let (language_file, catalog_directory, loaded, last_hash) = {
             let rust = self.rust();
             (
                 rust.language_file.clone(),
                 rust.catalog_directory.clone(),
-                rust.language.to_string(),
                 rust.loaded,
-                rust.watcher_state.clone(),
+                rust.last_content_hash,
             )
         };
 
-        if let Some(state_arc) = watcher_state {
-            if let Ok(mut state) = state_arc.lock() {
-                rearm_language_watches(&mut state, Path::new(&language_file));
-            }
+        if let Some(handle) = self.rust().watch_handle.as_ref() {
+            handle.update_dirs(language_watch_dirs(
+                Path::new(&language_file),
+                &catalog_directory,
+            ));
         }
 
         let new_language = aibox_core::i18n::read_language(&language_file);
-        if loaded && new_language == current_language {
+        let content_hash =
+            translator_content_hash(&language_file, &catalog_directory, &new_language);
+        if loaded && last_hash == Some(content_hash) {
             return;
         }
 
@@ -217,6 +182,7 @@ impl qobject::TranslatorState {
             rust.language = QString::from(&new_language);
             rust.catalog = catalog;
             rust.loaded = true;
+            rust.last_content_hash = Some(content_hash);
         }
 
         self.as_mut().changed();
@@ -254,30 +220,27 @@ fn default_language_file(override_path: &str) -> String {
     format!("{home}/.config/omarchy/language")
 }
 
-fn rearm_language_watches(state: &mut WatcherState, language_file: &Path) {
-    let old_paths: Vec<PathBuf> = state.watched_paths.drain().collect();
-    for path in old_paths {
-        let _ = state.watcher.unwatch(&path);
-    }
-
+fn language_watch_dirs(language_file: &Path, catalog_directory: &str) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
     if let Some(parent) = language_file.parent() {
-        if parent.exists()
-            && state
-                .watcher
-                .watch(parent, RecursiveMode::NonRecursive)
-                .is_ok()
-        {
-            state.watched_paths.insert(parent.to_path_buf());
+        if let Some(ancestor) = nearest_existing_dir(parent) {
+            dirs.push(ancestor);
         }
     }
-
-    if language_file.exists()
-        && !state.watched_paths.contains(language_file)
-        && state
-            .watcher
-            .watch(language_file, RecursiveMode::NonRecursive)
-            .is_ok()
-    {
-        state.watched_paths.insert(language_file.to_path_buf());
+    if !catalog_directory.starts_with(":/") {
+        if let Some(ancestor) = nearest_existing_dir(Path::new(catalog_directory)) {
+            dirs.push(ancestor);
+        }
     }
+    dirs
+}
+
+fn translator_content_hash(language_file: &str, catalog_directory: &str, language: &str) -> u64 {
+    let mut paths = vec![PathBuf::from(language_file)];
+    if !catalog_directory.starts_with(":/") {
+        for code in aibox_core::i18n::language_catalog_codes(language) {
+            paths.push(PathBuf::from(format!("{catalog_directory}/{code}.json")));
+        }
+    }
+    hash_files(&paths, &(catalog_directory, language))
 }

@@ -493,6 +493,50 @@ fn test_theme_qobject_live_switch_dark_to_light_emits_changed_once() {
     assert_ne!(theme.string_prop("borderSubtle"), prev_border);
 }
 
+fn test_theme_qobject_burst_events_coalesced_to_single_reload() {
+    let fixtures_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../aibox-core/tests/fixtures/themes");
+    let tokyo = fs::read_to_string(fixtures_dir.join("tokyo-night.toml")).unwrap();
+    let latte = fs::read_to_string(fixtures_dir.join("catppuccin-latte.toml")).unwrap();
+
+    let tmp = TempDir::new("theme-burst");
+    let theme_subdir = tmp.path().join("theme");
+    fs::create_dir_all(&theme_subdir).unwrap();
+    let colors_path = theme_subdir.join("colors.toml");
+    fs::write(&colors_path, &tokyo).unwrap();
+
+    let theme = ThemeHandle::new();
+    theme.configure(tmp.path());
+    let spy = ThemeSpyHandle::new(&theme);
+    assert_eq!(spy.count(), 0);
+
+    // Emit 10 file write events within ~40 ms (< 50 ms) to verify debouncing coalesces them into 1 reload.
+    for i in 0..10 {
+        let payload = if i == 9 {
+            latte.clone()
+        } else {
+            format!("{tokyo}\n# burst {i}\n")
+        };
+        fs::write(&colors_path, payload).unwrap();
+        std::thread::sleep(Duration::from_millis(4));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while spy.count() == 0 && Instant::now() < deadline {
+        unsafe { aibox_test_process_events(50) };
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    unsafe { aibox_test_process_events(50) };
+
+    assert_eq!(
+        spy.count(),
+        1,
+        "10 file events within 50 ms must coalesce into exactly 1 reload"
+    );
+    assert!(!theme.is_dark());
+}
+
 struct CaptureCliIo {
     stdout: Vec<u8>,
 }
@@ -713,6 +757,10 @@ fn main() {
         (
             "theme_qobject_live_switch_dark_to_light_emits_changed_once",
             test_theme_qobject_live_switch_dark_to_light_emits_changed_once,
+        ),
+        (
+            "theme_qobject_burst_events_coalesced_to_single_reload",
+            test_theme_qobject_burst_events_coalesced_to_single_reload,
         ),
         (
             "backend_and_cli_produce_identical_environment_model",

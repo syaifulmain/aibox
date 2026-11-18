@@ -38,7 +38,7 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 | [rust/crates/aibox-core/tests/golden/](rust/crates/aibox-core/tests/golden) | Golden Fixtures | Committed `.jsonl` parity fixtures replayed by `aibox-core` `golden.rs`. |
 | [rust/crates/aibox-app/src/main.rs](rust/crates/aibox-app/src/main.rs) & [lib.rs](rust/crates/aibox-app/src/lib.rs) | Source (Rust) | Process entry point dispatching `--redact-session` and headless CLI in Rust, and calling `aibox_gui_main` for the QML GUI. |
 | [rust/crates/aibox-app/src/qt_backend*.rs](rust/crates/aibox-app/src/qt_backend.rs) | Source (Rust) | `cxx-qt` `Backend` QObject wrapping `Engine` and GUI state, split by feature module (`config`, `secrets`, `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `sessions`, `task`). |
-| [rust/crates/aibox-app/src/qt_theme.rs](rust/crates/aibox-app/src/qt_theme.rs) & [qt_translator.rs](rust/crates/aibox-app/src/qt_translator.rs) | Source (Rust) | `cxx-qt` `Theme` and `TranslatorState` QObjects with live file watching (`notify`) and Hyprland rounding polling. |
+| [rust/crates/aibox-app/src/qt_theme.rs](rust/crates/aibox-app/src/qt_theme.rs), [qt_translator.rs](rust/crates/aibox-app/src/qt_translator.rs) & [qt_watcher.rs](rust/crates/aibox-app/src/qt_watcher.rs) | Source (Rust) | `cxx-qt` `Theme` and `TranslatorState` QObjects backed by a shared debounced directory watcher (`notify`) and Hyprland rounding query. |
 | [rust/crates/aibox-app/src/variant.rs](rust/crates/aibox-app/src/variant.rs) | Source (Rust) | `serde_json::Value` to `QVariant` / `QVariantList` / `QVariantMap` / `QStringList` converters. |
 | [rust/crates/aibox-app/cpp/main.cpp](rust/crates/aibox-app/cpp/main.cpp) | Source (C++) | QML GUI entry point (`aibox_gui_main`) setting up `QGuiApplication` + `QQmlApplicationEngine`. |
 | [rust/crates/aibox-app/cpp/shim/](rust/crates/aibox-app/cpp/shim) | Source (C++) | Tiny C++ shims (`translator_shim.{h,cpp}`, `clipboard_shim.{h,cpp}`, `qml_helpers.{h,cpp}`, `test_helpers.{h,cpp}`). |
@@ -62,6 +62,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ---
 
 ## 3. Changelog
+
+### App Theme & Translator: Shared Watcher, Directory Watches, Debounced Content-Hash Reloads & Event-Driven `hyprctl` (`rust/crates/aibox-app/src/qt_watcher.rs`, `qt_theme.rs`, `qt_translator.rs`, `tests/backend_qobject.rs`)
+
+- **Shared directory watcher (`qt_watcher.rs`, `qt_theme.rs`, `qt_translator.rs`):** Consolidated `Theme` and `TranslatorState` file watching onto a single process-wide `SharedWatcher` thread using `recv_timeout` (zero polling), watching parent/target directories rather than individual files so atomic write-temp+rename saves and Omarchy theme symlink switches are detected reliably.
+- **Debounced & content-hash-gated reloads (`qt_watcher.rs`, `qt_theme.rs`, `qt_translator.rs`):** Coalesced rapid filesystem event bursts in a 120 ms debounce window and compared file content hashes (`hash_files`) before parsing/reloading, skipping redundant reloads when watched directories emit unrelated events; verified with `coalesces_ten_file_events_within_50ms_into_single_reload` and `theme_qobject_burst_events_coalesced_to_single_reload` (10 writes in <50 ms → 1 reload).
+- **Removed `sleep(15ms)` polling loop (`qt_theme.rs`):** Replaced the `try_wait` + `sleep(15ms)` loop in `query_hyprctl_rounding` with `mpsc::Receiver::recv_timeout(500ms)` and `SIGKILL` on timeout.
 
 ### App Backend: Worker Parsing, Split Modules, Adaptive Poll, Single Scheduler & Hash-Gated Signals (`rust/crates/aibox-app/src/`, `Main.qml`)
 
