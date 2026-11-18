@@ -387,6 +387,64 @@ fn test_theme_qobject_loads_light_fixture_and_emits_changed_once() {
     assert_eq!(theme.string_prop("surfaceCard"), "#13141c");
 }
 
+fn test_theme_qobject_live_switch_dark_to_light_emits_changed_once() {
+    let fixtures_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../aibox-core/tests/fixtures/themes");
+    let tokyo = fs::read(fixtures_dir.join("tokyo-night.toml")).unwrap();
+    let latte = fs::read(fixtures_dir.join("catppuccin-latte.toml")).unwrap();
+
+    let tmp = TempDir::new("theme-qobject-dark-to-light");
+    let theme_subdir = tmp.path().join("theme");
+    fs::create_dir_all(&theme_subdir).unwrap();
+    let colors_path = theme_subdir.join("colors.toml");
+    fs::write(&colors_path, &tokyo).unwrap();
+
+    let prev_env = std::env::var_os("AIBOX_THEME_DIR");
+    std::env::set_var("AIBOX_THEME_DIR", tmp.path());
+    let theme = ThemeHandle::new();
+    match prev_env {
+        Some(v) => std::env::set_var("AIBOX_THEME_DIR", v),
+        None => std::env::remove_var("AIBOX_THEME_DIR"),
+    }
+
+    assert!(
+        theme.is_dark(),
+        "tokyo-night should start with isDark == true"
+    );
+    assert_eq!(theme.string_prop("mode"), "dark");
+    let prev_canvas = theme.string_prop("surfaceCanvas");
+    let prev_card = theme.string_prop("surfaceCard");
+    let prev_text = theme.string_prop("textPrimary");
+    let prev_accent = theme.string_prop("accent");
+    let prev_border = theme.string_prop("borderSubtle");
+
+    theme.configure(tmp.path());
+    let spy = ThemeSpyHandle::new(&theme);
+    assert_eq!(spy.count(), 0);
+
+    fs::write(&colors_path, &latte).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while spy.count() == 0 && Instant::now() < deadline {
+        unsafe { aibox_test_process_events(50) };
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    std::thread::sleep(Duration::from_millis(120));
+    unsafe { aibox_test_process_events(50) };
+
+    assert_eq!(
+        spy.count(),
+        1,
+        "expected exactly 1 changed() signal on dark-to-light switch"
+    );
+    assert!(!theme.is_dark(), "latte should set isDark == false");
+    assert_eq!(theme.string_prop("mode"), "light");
+    assert_ne!(theme.string_prop("surfaceCanvas"), prev_canvas);
+    assert_ne!(theme.string_prop("surfaceCard"), prev_card);
+    assert_ne!(theme.string_prop("textPrimary"), prev_text);
+    assert_ne!(theme.string_prop("accent"), prev_accent);
+    assert_ne!(theme.string_prop("borderSubtle"), prev_border);
+}
+
 fn main() {
     let _ = aibox_app::ensure_cxx_qt_linked();
     unsafe { aibox_test_init_gui_app() };
@@ -404,6 +462,10 @@ fn main() {
         (
             "theme_qobject_loads_light_fixture_and_emits_changed_once",
             test_theme_qobject_loads_light_fixture_and_emits_changed_once,
+        ),
+        (
+            "theme_qobject_live_switch_dark_to_light_emits_changed_once",
+            test_theme_qobject_live_switch_dark_to_light_emits_changed_once,
         ),
     ];
 

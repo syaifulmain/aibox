@@ -475,6 +475,16 @@ mod tests {
         Rgb::from_hex(hex).expect("valid hex")
     }
 
+    fn assert_contrast(theme: &str, pair: &str, fg: Rgb, bg: Rgb, min: f64) {
+        let ratio = contrast_ratio(fg, bg);
+        assert!(
+            ratio >= min,
+            "{theme}: {pair} contrast {ratio:.2}:1 < min {min:.2}:1 (fg={}, bg={})",
+            fg.to_hex(),
+            bg.to_hex()
+        );
+    }
+
     #[test]
     fn all_23_omarchy_fixtures_satisfy_contrast_contracts() {
         let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -496,28 +506,37 @@ mod tests {
             let card = rgb(&p.surface_card);
 
             // Borders
-            assert!(
-                contrast_ratio(rgb(&p.border_strong), card) >= 1.8,
-                "{name}: borderStrong"
+            assert_contrast(
+                &name,
+                "borderStrong vs card",
+                rgb(&p.border_strong),
+                card,
+                1.8,
             );
-            assert!(
-                contrast_ratio(rgb(&p.border_focus), card) >= 3.0,
-                "{name}: borderFocus"
+            assert_contrast(
+                &name,
+                "borderFocus vs card",
+                rgb(&p.border_focus),
+                card,
+                3.0,
             );
 
             // Text
-            assert!(
-                contrast_ratio(rgb(&p.text_primary), card) >= 7.0,
-                "{name}: textPrimary"
+            assert_contrast(
+                &name,
+                "textPrimary vs card",
+                rgb(&p.text_primary),
+                card,
+                7.0,
             );
-            assert!(
-                contrast_ratio(rgb(&p.text_secondary), card) >= 4.5,
-                "{name}: textSecondary"
+            assert_contrast(
+                &name,
+                "textSecondary vs card",
+                rgb(&p.text_secondary),
+                card,
+                4.5,
             );
-            assert!(
-                contrast_ratio(rgb(&p.text_muted), card) >= 4.5,
-                "{name}: textMuted"
-            );
+            assert_contrast(&name, "textMuted vs card", rgb(&p.text_muted), card, 4.5);
 
             // Accent & Statuses
             for (label, fill, text_tok, surf, border) in [
@@ -557,21 +576,27 @@ mod tests {
                     &p.info_border,
                 ),
             ] {
-                assert!(
-                    contrast_ratio(rgb(fill), card) >= 3.0,
-                    "{name}: {label} vs card"
+                assert_contrast(&name, &format!("{label} vs card"), rgb(fill), card, 3.0);
+                assert_contrast(
+                    &name,
+                    &format!("{label}Text vs card"),
+                    rgb(text_tok),
+                    card,
+                    4.5,
                 );
-                assert!(
-                    contrast_ratio(rgb(text_tok), card) >= 4.5,
-                    "{name}: {label}Text vs card"
+                assert_contrast(
+                    &name,
+                    &format!("{label}Text vs {label}Surface"),
+                    rgb(text_tok),
+                    rgb(surf),
+                    4.5,
                 );
-                assert!(
-                    contrast_ratio(rgb(text_tok), rgb(surf)) >= 4.5,
-                    "{name}: {label}Text vs {label}Surface"
-                );
-                assert!(
-                    contrast_ratio(rgb(border), card) >= 1.8,
-                    "{name}: {label}Border vs card"
+                assert_contrast(
+                    &name,
+                    &format!("{label}Border vs card"),
+                    rgb(border),
+                    card,
+                    1.8,
                 );
             }
         }

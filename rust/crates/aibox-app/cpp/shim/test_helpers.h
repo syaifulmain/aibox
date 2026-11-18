@@ -34,6 +34,7 @@ void aibox_test_theme_spy_free(void *spy);
 
 int aibox_test_qml_smoke(char *err_buf, int err_buf_len);
 int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int err_buf_len);
+int aibox_test_render_theme_matrix(const char *theme_dir, const char *out_dir, char *err_buf, int err_buf_len);
 
 #ifdef __cplusplus
 }

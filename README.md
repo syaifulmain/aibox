@@ -124,6 +124,7 @@ test without a display:
 ```bash
 QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox.png ./rust/target/release/aibox
 QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox-create.png AIBOX_PREVIEW_CREATE=1 ./rust/target/release/aibox
+QT_QPA_PLATFORM=offscreen cargo test --release --locked --manifest-path rust/Cargo.toml -p aibox-app --test theme_matrix -- --ignored
 ```
 
 ## Uninstall

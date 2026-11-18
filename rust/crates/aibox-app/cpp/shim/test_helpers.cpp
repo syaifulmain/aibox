@@ -2,7 +2,9 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QDir>
 #include <QGuiApplication>
+#include <QImage>
 #include <QMutex>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
@@ -280,6 +282,117 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
             rc = static_cast<int>(g_collected_warnings.size());
         }
     }
+    return rc;
+}
+
+int aibox_test_render_theme_matrix(const char *theme_dir, const char *out_dir, char *err_buf, int err_buf_len) {
+    aibox_test_init_gui_app();
+
+    const QString outPath = QString::fromUtf8(out_dir ? out_dir : "");
+    if (outPath.isEmpty() || !QDir().mkpath(outPath)) {
+        copy_to_buf(QStringLiteral("Failed to create output directory"), err_buf, err_buf_len);
+        return 1;
+    }
+
+    const QByteArray prev_demo = qgetenv("AIBOX_DEMO_MODE");
+    qputenv("AIBOX_DEMO_MODE", "1");
+
+    int rc = 0;
+    {
+        TranslatorState translatorState;
+        TranslatorShim translator(&translatorState);
+        QCoreApplication::installTranslator(&translator);
+
+        Theme theme;
+        if (theme_dir && theme_dir[0] != '\0')
+            theme.configure(QString::fromUtf8(theme_dir), QString());
+        Backend backend;
+        backend.configure(QString(), true);
+
+        auto grab_window = [&](QQuickWindow *win, const QString &filename) -> bool {
+            win->show();
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 120);
+            win->requestUpdate();
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 120);
+            const QImage img = win->grabWindow();
+            if (img.isNull()) {
+                copy_to_buf(QStringLiteral("grabWindow() returned null for ") + filename, err_buf, err_buf_len);
+                return false;
+            }
+            const QString target = outPath + QLatin1Char('/') + filename;
+            if (!img.save(target, "PNG")) {
+                copy_to_buf(QStringLiteral("Failed to save ") + target, err_buf, err_buf_len);
+                return false;
+            }
+            return true;
+        };
+
+        // 1. Main screen, Settings, CreateDialog, WipeDialog
+        {
+            QQmlApplicationEngine engine;
+            QObject::connect(&translatorState, &TranslatorState::changed, &engine, &QQmlEngine::retranslate);
+            aibox_set_context_property(&engine, QStringLiteral("translator"), &translatorState);
+            aibox_set_context_property(&engine, QStringLiteral("theme"), &theme);
+            aibox_set_context_property(&engine, QStringLiteral("backend"), &backend);
+            engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
+            if (engine.rootObjects().isEmpty()) {
+                copy_to_buf(QStringLiteral("Failed to load qrc:/Main.qml"), err_buf, err_buf_len);
+                rc = 1;
+            } else if (auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().first())) {
+                if (!grab_window(win, QStringLiteral("main.png")))
+                    rc = 1;
+                if (rc == 0) {
+                    win->setProperty("settingsVisible", true);
+                    if (!grab_window(win, QStringLiteral("settings.png")))
+                        rc = 1;
+                    win->setProperty("settingsVisible", false);
+                }
+                if (rc == 0) {
+                    win->setProperty("createVisible", true);
+                    if (!grab_window(win, QStringLiteral("create.png")))
+                        rc = 1;
+                    win->setProperty("createVisible", false);
+                }
+                if (rc == 0) {
+                    win->setProperty("wipeVisible", true);
+                    if (!grab_window(win, QStringLiteral("wipe.png")))
+                        rc = 1;
+                    win->setProperty("wipeVisible", false);
+                }
+            } else {
+                copy_to_buf(QStringLiteral("Main root object is not a QQuickWindow"), err_buf, err_buf_len);
+                rc = 1;
+            }
+        }
+
+        // 2. ComponentGallery
+        if (rc == 0) {
+            QQmlApplicationEngine galleryEngine;
+            QObject::connect(&translatorState, &TranslatorState::changed, &galleryEngine, &QQmlEngine::retranslate);
+            aibox_set_context_property(&galleryEngine, QStringLiteral("translator"), &translatorState);
+            aibox_set_context_property(&galleryEngine, QStringLiteral("theme"), &theme);
+            aibox_set_context_property(&galleryEngine, QStringLiteral("backend"), &backend);
+            galleryEngine.load(QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml")));
+            if (galleryEngine.rootObjects().isEmpty()) {
+                copy_to_buf(QStringLiteral("Failed to load qrc:/dev/ComponentGallery.qml"), err_buf, err_buf_len);
+                rc = 1;
+            } else if (auto *win = qobject_cast<QQuickWindow *>(galleryEngine.rootObjects().first())) {
+                if (!grab_window(win, QStringLiteral("gallery.png")))
+                    rc = 1;
+            } else {
+                copy_to_buf(QStringLiteral("Gallery root object is not a QQuickWindow"), err_buf, err_buf_len);
+                rc = 1;
+            }
+        }
+
+        QCoreApplication::removeTranslator(&translator);
+    }
+
+    if (prev_demo.isNull())
+        qunsetenv("AIBOX_DEMO_MODE");
+    else
+        qputenv("AIBOX_DEMO_MODE", prev_demo);
+
     return rc;
 }
 
