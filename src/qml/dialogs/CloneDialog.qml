@@ -41,7 +41,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Clone Environment")
             variant: "primary"
-            minWidth: 165
             disabled: backend.busy || app.cloneNewName.trim().length === 0
             onClicked: {
                 backend.cloneEnvironment(app.cloneSourceName, app.cloneNewName)

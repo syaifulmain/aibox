@@ -15,6 +15,11 @@ extern "C" {
         err_buf: *mut c_char,
         err_buf_len: c_int,
     ) -> c_int;
+    fn aibox_test_gallery_theme_matrix(
+        theme_dirs_newline_sep: *const c_char,
+        err_buf: *mut c_char,
+        err_buf_len: c_int,
+    ) -> c_int;
 }
 
 const MATRIX_THEMES: &[&str] = &[
@@ -156,4 +161,52 @@ fn generate_theme_screenshot_matrix() {
     write_index_html(&matrix_root, &rendered);
 
     unsafe { aibox_test_shutdown_gui_app() };
+}
+
+#[test]
+fn gallery_renders_all_23_themes_light_dark_high_contrast_without_warnings() {
+    let _ = aibox_app::ensure_cxx_qt_linked();
+    unsafe { aibox_test_init_gui_app() };
+
+    let fixtures_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../aibox-core/tests/fixtures/themes");
+    let mut toml_files: Vec<_> = fs::read_dir(&fixtures_dir)
+        .expect("read theme fixtures dir")
+        .map(|e| e.expect("dir entry").path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("toml"))
+        .collect();
+    toml_files.sort();
+    assert_eq!(
+        toml_files.len(),
+        23,
+        "expected 23 Omarchy theme fixtures in {}",
+        fixtures_dir.display()
+    );
+
+    let tmp_root = TempDir::new("gallery-23");
+    let mut theme_dirs = Vec::with_capacity(toml_files.len());
+    for (idx, path) in toml_files.iter().enumerate() {
+        let dir = tmp_root.0.join(format!("t{idx:02}"));
+        let theme_subdir = dir.join("theme");
+        fs::create_dir_all(&theme_subdir).expect("create theme subdir");
+        fs::copy(path, theme_subdir.join("colors.toml")).expect("copy colors.toml");
+        theme_dirs.push(dir.to_string_lossy().into_owned());
+    }
+
+    let joined = CString::new(theme_dirs.join("\n")).expect("dirs CString");
+    let mut buf = vec![0u8; 16384];
+    let rc = unsafe {
+        aibox_test_gallery_theme_matrix(
+            joined.as_ptr(),
+            buf.as_mut_ptr() as *mut c_char,
+            buf.len() as c_int,
+        )
+    };
+    unsafe { aibox_test_shutdown_gui_app() };
+
+    if rc != 0 {
+        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        let msg = String::from_utf8_lossy(&buf[..end]);
+        panic!("gallery theme matrix failed ({rc} warnings/errors):\n{msg}");
+    }
 }

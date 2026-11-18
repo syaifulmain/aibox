@@ -19,7 +19,6 @@ ModalDialog {
 
         ActionButton {
             label: qsTr("Refresh Log")
-            minWidth: 104
             onClicked: backend.refreshEgressLog(backend.egressLogsEnvName)
         }
     }
@@ -148,7 +147,6 @@ ModalDialog {
                     }
                     ActionButton {
                         compact: true
-                        minWidth: 92
                         label: qsTr("+ Allow")
                         disabled: backend.busy
                         onClicked: backend.addEgressDestinationToAllowlist(

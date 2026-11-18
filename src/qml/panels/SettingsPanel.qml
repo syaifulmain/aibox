@@ -166,7 +166,7 @@ ModalDialog {
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Style.radiusSm
                                 height: Style.badgeHeight
-                                radius: Style.radiusSm
+                                radius: Math.min(Style.radiusSm, theme.radius)
                                 color: theme.accent
                             }
 

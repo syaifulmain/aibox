@@ -119,7 +119,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Restore Snapshot")
             variant: "primary"
-            minWidth: 155
             onClicked: {
                 backend.restoreSnapshot(backend.selectedEnvironment.name || "", app.restoreSnapName, app.restoreMode)
                 app.restoreDialogVisible = false

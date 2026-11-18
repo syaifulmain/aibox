@@ -9,6 +9,7 @@
 #include <QMouseEvent>
 #include <QMutex>
 #include <QQmlApplicationEngine>
+#include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QString>
@@ -16,6 +17,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <memory>
 
@@ -54,6 +56,48 @@ int copy_to_buf(const QString &text, char *buf, int buf_len) {
         buf[n] = '\0';
     }
     return static_cast<int>(utf8.size());
+}
+
+bool verify_control_heights(QQuickItem *item, const QString &ctx, QString &err_out) {
+    if (!item || !item->isVisible())
+        return true;
+
+    const char *cls = item->metaObject()->className();
+    if (cls && (std::strncmp(cls, "ActionButton_QMLTYPE", 20) == 0
+                || std::strncmp(cls, "FlatInput_QMLTYPE", 17) == 0
+                || std::strncmp(cls, "ToggleChip_QMLTYPE", 18) == 0)) {
+        if (item->width() > 0 && item->height() > 0) {
+            const bool compact = item->property("compact").toBool();
+            const double expected = compact ? 28.0 : 34.0;
+            if (std::abs(item->height() - expected) > 0.5) {
+                err_out = QStringLiteral("Control height mismatch in %1 (%2, label='%3'): got %4, expected %5")
+                              .arg(ctx, QString::fromLatin1(cls), item->property("label").toString())
+                              .arg(item->height())
+                              .arg(expected);
+                return false;
+            }
+        }
+    }
+
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        if (!verify_control_heights(child, ctx, err_out))
+            return false;
+    }
+    return true;
+}
+
+QQuickItem *find_visible_close_button(QQuickItem *item) {
+    if (!item || !item->isVisible())
+        return nullptr;
+    if (item->objectName() == QStringLiteral("modalCloseButton") && item->width() > 0 && item->height() > 0)
+        return item;
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        if (QQuickItem *found = find_visible_close_button(child))
+            return found;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -265,7 +309,15 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
                 }
 
-                // Verify Esc and scrim click close every modal dialog.
+                // Verify interactive control heights on the main inspector view.
+                QString heightErr;
+                if (!verify_control_heights(win->contentItem(), QStringLiteral("inspector"), heightErr)) {
+                    copy_to_buf(heightErr, err_buf, err_buf_len);
+                    rc = 1;
+                }
+
+                // Verify Close button, Esc, and scrim click close every modal dialog,
+                // and verify all interactive control heights inside each modal.
                 const char *modals[] = {
                     "helpVisible",
                     "toolsVisible",
@@ -285,6 +337,35 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
                     "secretsVisible",
                 };
                 for (const char *prop : modals) {
+                    if (rc != 0)
+                        break;
+
+                    win->setProperty(prop, true);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+
+                    if (!verify_control_heights(win->contentItem(), QString::fromLatin1(prop), heightErr)) {
+                        copy_to_buf(heightErr, err_buf, err_buf_len);
+                        rc = 1;
+                        win->setProperty(prop, false);
+                        break;
+                    }
+
+                    QQuickItem *closeBtn = find_visible_close_button(win->contentItem());
+                    if (!closeBtn || !closeBtn->isEnabled()) {
+                        copy_to_buf(QStringLiteral("Missing visible enabled Close button in modal: %1").arg(QString::fromLatin1(prop)), err_buf, err_buf_len);
+                        rc = 1;
+                        win->setProperty(prop, false);
+                        break;
+                    }
+                    QMetaObject::invokeMethod(closeBtn, "clicked");
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    if (win->property(prop).toBool()) {
+                        copy_to_buf(QStringLiteral("Close button did not close modal: %1").arg(QString::fromLatin1(prop)), err_buf, err_buf_len);
+                        rc = 1;
+                        win->setProperty(prop, false);
+                        break;
+                    }
+
                     win->setProperty(prop, true);
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     QKeyEvent escPress(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
@@ -445,6 +526,75 @@ int aibox_test_render_theme_matrix(const char *theme_dir, const char *out_dir, c
     else
         qputenv("AIBOX_DEMO_MODE", prev_demo);
 
+    return rc;
+}
+
+int aibox_test_gallery_theme_matrix(const char *theme_dirs_newline_sep, char *err_buf, int err_buf_len) {
+    aibox_test_init_gui_app();
+
+    {
+        QMutexLocker locker(&g_msg_mutex);
+        g_collected_warnings.clear();
+    }
+    qInstallMessageHandler(test_message_handler);
+
+    const QByteArray prev_demo = qgetenv("AIBOX_DEMO_MODE");
+    qputenv("AIBOX_DEMO_MODE", "1");
+
+    int rc = 0;
+    {
+        TranslatorState translatorState;
+        TranslatorShim translator(&translatorState);
+        QCoreApplication::installTranslator(&translator);
+
+        Theme theme;
+        Backend backend;
+        backend.configure(QString(), true);
+
+        QQmlApplicationEngine engine;
+        QObject::connect(&translatorState, &TranslatorState::changed, &engine, &QQmlEngine::retranslate);
+        aibox_set_context_property(&engine, QStringLiteral("translator"), &translatorState);
+        aibox_set_context_property(&engine, QStringLiteral("theme"), &theme);
+        aibox_set_context_property(&engine, QStringLiteral("backend"), &backend);
+        engine.load(QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml")));
+
+        if (engine.rootObjects().isEmpty()) {
+            copy_to_buf(QStringLiteral("Failed to load qrc:/dev/ComponentGallery.qml"), err_buf, err_buf_len);
+            rc = 1;
+        } else {
+            const QStringList dirs = QString::fromUtf8(theme_dirs_newline_sep ? theme_dirs_newline_sep : "")
+                                         .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+            const QString modes[] = {QStringLiteral("light"), QStringLiteral("dark")};
+            const bool contrasts[] = {false, true};
+
+            for (const QString &dir : dirs) {
+                theme.configure(dir, QString());
+                for (const QString &mode : modes) {
+                    for (bool hc : contrasts) {
+                        theme.setPreferences(mode, hc, true);
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+                    }
+                }
+            }
+        }
+
+        QCoreApplication::removeTranslator(&translator);
+    }
+
+    if (prev_demo.isNull())
+        qunsetenv("AIBOX_DEMO_MODE");
+    else
+        qputenv("AIBOX_DEMO_MODE", prev_demo);
+
+    qInstallMessageHandler(nullptr);
+
+    if (rc == 0) {
+        QMutexLocker locker(&g_msg_mutex);
+        if (!g_collected_warnings.isEmpty()) {
+            copy_to_buf(g_collected_warnings.join(QStringLiteral("\n")), err_buf, err_buf_len);
+            rc = static_cast<int>(g_collected_warnings.size());
+        }
+    }
     return rc;
 }
 

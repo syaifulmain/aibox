@@ -98,13 +98,11 @@ ModalDialog {
 
                 ActionButton {
                     label: qsTr("Browse...")
-                    minWidth: 94
                     onClicked: createSharedFolderDialog.open()
                 }
 
                 ActionButton {
                     label: qsTr("Default")
-                    minWidth: 84
                     onClicked: {
                         app.newEnvSharedPath = ""
                         createSharedPathField.text = ""
@@ -472,7 +470,6 @@ ModalDialog {
         ActionButton {
             label: app.createFromTemplate ? qsTr("Create from Template") : qsTr("Create Environment")
             variant: "primary"
-            minWidth: 165
             disabled: backend.busy || app.newEnvName.trim().length === 0 || (app.createFromTemplate && app.newEnvTemplateName.length === 0)
             onClicked: {
                 if (app.createFromTemplate) {
@@ -572,7 +569,6 @@ ModalDialog {
             ActionButton {
                 label: qsTr("Cancel Creation")
                 variant: "danger"
-                minWidth: 140
                 onClicked: backend.cancelTask()
             }
         }

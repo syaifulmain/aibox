@@ -172,7 +172,6 @@ ModalDialog {
 
                     ActionButton {
                         label: qsTr("Select")
-                        minWidth: 74
                         onClicked: {
                             app.importBackupFile = modelData.filePath || ""
                             app.importWsFile = modelData.workspaceArchivePath || ""
@@ -184,7 +183,6 @@ ModalDialog {
                     ActionButton {
                         label: qsTr("Delete")
                         variant: "danger"
-                        minWidth: 74
                         disabled: backend.busy
                         onClicked: backend.deleteBackup(modelData.filePath || "", modelData.workspaceArchivePath || "")
                     }
@@ -234,7 +232,6 @@ ModalDialog {
 
                 ActionButton {
                     label: qsTr("Browse...")
-                    minWidth: 132
                     onClicked: backupBrowseDialog.open()
                 }
             }
@@ -263,7 +260,6 @@ ModalDialog {
 
                 ActionButton {
                     label: qsTr("Import Backup")
-                    minWidth: 132
                     disabled: backend.busy || app.importBackupFile.trim().length === 0 || app.importNewName.trim().length === 0
                     onClicked: {
                         const err = backend.importEnvironment(app.importBackupFile, app.importNewName, app.importWsFile)
@@ -288,7 +284,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Export Backup")
             variant: "primary"
-            minWidth: 130
             disabled: backend.busy || !(backend.selectedEnvironment && backend.selectedEnvironment.name) || !exportCard.spaceInfo.ok
             onClicked: {
                 const err = backend.exportEnvironment(backend.selectedEnvironment.name, app.backupIncludeWorkspace)

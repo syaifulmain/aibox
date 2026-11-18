@@ -115,7 +115,6 @@ ModalDialog {
                     }
 
                     ActionButton {
-                        minWidth: 84
                         label: qsTr("Remove")
                         variant: "danger"
                         disabled: backend.busy
@@ -139,7 +138,6 @@ ModalDialog {
 
         ActionButton {
             label: qsTr("Browse...")
-            minWidth: 94
             onClicked: extraMountFolderDialog.open()
         }
 
@@ -191,7 +189,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Add Mount")
             variant: "primary"
-            minWidth: 112
             disabled: backend.busy
             onClicked: mountsOverlay.submitMount()
         }

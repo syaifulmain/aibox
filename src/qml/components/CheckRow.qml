@@ -32,7 +32,7 @@ Rectangle {
         Rectangle {
             width: Style.padSection
             height: Style.padSection
-            radius: Style.radiusSm
+            radius: Math.min(Style.radiusSm, theme.radius)
             color: root.checked ? (root.danger ? theme.danger : theme.accent) : "transparent"
             border.width: Style.hairline
             border.color: root.checked ? (root.danger ? theme.danger : theme.accent) : theme.borderStrong

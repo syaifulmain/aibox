@@ -41,7 +41,7 @@ Rectangle {
             Rectangle {
                 width: Style.gapSm + Style.gapXs
                 height: Style.gapSm + Style.gapXs
-                radius: Style.radiusSm
+                radius: width / 2
                 color: root.selected ? theme.accent : theme.textMuted
             }
 

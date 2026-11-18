@@ -270,7 +270,7 @@ ModalDialog {
                             Rectangle {
                                 height: Style.badgeHeight
                                 width: Style.badgeHeight
-                                radius: Style.radiusSm
+                                radius: Math.min(Style.radiusSm, theme.radius)
                                 color: delSessMouse.containsMouse ? theme.dangerSurface : theme.surfaceInput
                                 border.width: Style.hairline
                                 border.color: delSessMouse.containsMouse ? theme.dangerBorder : theme.borderSubtle
@@ -369,7 +369,6 @@ ModalDialog {
             visible: app.historyTab === 0
             label: qsTr("Clear")
             variant: "danger"
-            minWidth: 80
             disabled: backend.operationHistory.length === 0
             onClicked: {
                 backend.clearOperationHistory()
@@ -382,7 +381,6 @@ ModalDialog {
             visible: app.historyTab === 1
             label: qsTr("Replay")
             variant: "primary"
-            minWidth: 88
             disabled: !app.selectedSessionHasTiming
             onClicked: backend.replayRecordedSession(app.selectedSessionLogPath, app.selectedSessionTimingPath)
         }

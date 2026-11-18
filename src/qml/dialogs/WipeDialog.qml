@@ -48,7 +48,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Wipe Environment Now")
             variant: "danger"
-            minWidth: 185
             onClicked: {
                 backend.wipeEnvironment(backend.selectedEnvironment.name || "", app.deleteWorkspaceOnWipe)
                 app.wipeVisible = false

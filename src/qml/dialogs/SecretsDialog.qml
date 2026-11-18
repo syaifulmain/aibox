@@ -181,7 +181,7 @@ ModalDialog {
                     Rectangle {
                         Layout.preferredWidth: Style.padSection
                         Layout.preferredHeight: Style.padSection
-                        radius: Style.radiusSm
+                        radius: Math.min(Style.radiusSm, theme.radius)
                         color: assigned ? theme.accent : "transparent"
                         border.width: Style.hairline
                         border.color: assigned ? theme.accent : theme.borderSubtle
@@ -233,13 +233,11 @@ ModalDialog {
 
                     ActionButton {
                         label: revealed ? qsTr("Hide") : qsTr("Show")
-                        minWidth: 64
                         onClicked: app.toggleSecretReveal(modelData.name)
                     }
 
                     ActionButton {
                         label: qsTr("Copy")
-                        minWidth: 62
                         onClicked: secretsDialogRoot.copyRow(modelData)
                     }
 
@@ -247,7 +245,6 @@ ModalDialog {
                         visible: canDelete
                         label: qsTr("Delete")
                         variant: "danger"
-                        minWidth: 68
                         onClicked: secretsDialogRoot.deleteRow(modelData)
                     }
                 }
@@ -304,7 +301,6 @@ ModalDialog {
 
             ActionButton {
                 label: app.secretDraftShow ? qsTr("Hide") : qsTr("Show")
-                minWidth: 64
                 onClicked: app.secretDraftShow = !app.secretDraftShow
             }
         }
@@ -314,7 +310,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Save")
             variant: "primary"
-            minWidth: 116
             disabled: app.secretNameDraft.trim().length === 0
             onClicked: secretsDialogRoot.saveDraft()
         }

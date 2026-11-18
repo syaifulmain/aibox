@@ -15,7 +15,7 @@ Rectangle {
 
     readonly property string tone: btn.variant === "primary" ? "primary"
                                  : btn.variant === "danger" ? "danger"
-                                 : (btn.variant === "accent" || btn.variant === "theme") ? "accent"
+                                 : btn.variant === "accent" ? "accent"
                                  : "default"
     readonly property bool isPrimary: tone === "primary"
     readonly property bool isDefault: tone === "default"

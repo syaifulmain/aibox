@@ -129,6 +129,11 @@ QT_QPA_PLATFORM=offscreen AIBOX_GRAB_PATH=/tmp/aibox-create.png AIBOX_PREVIEW_CR
 QT_QPA_PLATFORM=offscreen cargo test --release --locked --manifest-path rust/Cargo.toml -p aibox-app --test theme_matrix -- --ignored
 ```
 
+## Design
+
+- **Tokens (`Style.qml` & `theme`)**: All QML metrics come from `Style.qml` — typography (`fontCaption` 10, `fontSmall` 11, `fontBody` 12, `fontTitle` 14, `fontHeading` 16, `fontDisplay` 18), spacing (`gapXs` 2, `gapSm` 4, `gapMd` 8, `gap` 10, `padCard` 12, `padSection` 16, `padModal` 24), control heights (`controlHeight` 34, `controlHeightCompact` 28), and corner radii (`radiusSm` 3, `radiusMd` 4, `radiusLg` 8, always capped by `Math.min(..., theme.radius)`). All colours come from the live Omarchy `theme` QObject. Enforced by `qml_token_lint` and `qml_color_lint`.
+- **Modals (`ModalDialog` & `ModalHeader`)**: Modals with an active `ModalHeader` Close button omit redundant `Cancel` buttons; `Close`, `Esc`, and clicking the scrim all dismiss the dialog. Each `DialogFooter` has at most one `primary` action button, placed on the right.
+
 ## Uninstall
 
 Remove the application while keeping Incus and environments:

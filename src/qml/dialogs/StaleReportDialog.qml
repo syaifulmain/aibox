@@ -31,7 +31,6 @@ ModalDialog {
 
         ActionButton {
             label: qsTr("Rescan")
-            minWidth: 88
             disabled: backend.busy
             onClicked: {
                 app.staleActionError = ""
@@ -112,7 +111,6 @@ ModalDialog {
                 ActionButton {
                     visible: app.staleConfirmAction === "delete-orphan"
                     label: qsTr("Delete as admin")
-                    minWidth: 132
                     disabled: backend.busy
                     onClicked: {
                         app.staleActionError = ""
@@ -130,7 +128,6 @@ ModalDialog {
                            ? qsTr("Export & Wipe")
                            : (app.staleConfirmAction === "delete-orphan" ? qsTr("Delete Orphan") : qsTr("Confirm Wipe"))
                     variant: app.staleConfirmAction === "export-wipe" ? "primary" : "danger"
-                    minWidth: 126
                     disabled: backend.busy
                     onClicked: {
                         app.staleActionError = ""
@@ -267,7 +264,6 @@ ModalDialog {
                         ActionButton {
                             label: qsTr("Export & Wipe")
                             variant: "primary"
-                            minWidth: 118
                             disabled: backend.busy
                             onClicked: {
                                 app.staleActionError = ""
@@ -285,7 +281,6 @@ ModalDialog {
                         ActionButton {
                             label: qsTr("Wipe")
                             variant: "danger"
-                            minWidth: 74
                             disabled: backend.busy
                             onClicked: {
                                 app.staleActionError = ""
@@ -389,14 +384,12 @@ ModalDialog {
 
                         ActionButton {
                             label: qsTr("Open folder")
-                            minWidth: 104
                             onClicked: backend.openOrphanFolder(modelData.openPath || modelData.path || "")
                         }
 
                         ActionButton {
                             label: qsTr("Delete")
                             variant: "danger"
-                            minWidth: 80
                             disabled: backend.busy
                             onClicked: {
                                 app.staleActionError = ""

@@ -54,6 +54,7 @@ ColumnLayout {
         }
 
         ActionButton {
+            objectName: "modalCloseButton"
             visible: mh.showClose
             label: qsTr("Close")
             minWidth: Style.buttonMinWidth

@@ -71,12 +71,23 @@ const METRIC_PROPERTIES: &[&str] = &[
     "bottomPadding",
     "leftPadding",
     "rightPadding",
+    "minWidth",
+];
+
+/// Explicit allowlist for numeric metric literals:
+/// - `components/Style.qml`: defines the design tokens themselves.
+/// - `components/SlidersIcon.qml` & `components/BrandMark.qml`: fixed icon geometry.
+/// - `dev/ComponentGallery.qml`: standalone developer preview window.
+const NUMERIC_LITERAL_ALLOWLIST: &[&str] = &[
+    "components/Style.qml",
+    "components/SlidersIcon.qml",
+    "components/BrandMark.qml",
+    "dev/ComponentGallery.qml",
 ];
 
 #[derive(Default)]
-struct FileReport {
-    deprecated_tokens: Vec<(usize, String)>,
-    numeric_literals: Vec<(usize, String)>,
+struct FileViolations {
+    items: Vec<(usize, String)>,
 }
 
 fn is_ident_char(b: u8) -> bool {
@@ -154,7 +165,7 @@ fn find_numeric_literals(line: &str) -> Vec<String> {
                             b.is_ascii_whitespace() || b == b';' || b == b'}' || b == b','
                         });
                         let num_str = &rhs[..num_len];
-                        if end_ok && num_str != "0" {
+                        if end_ok && num_str != "0" && num_str != "1" {
                             found.push(format!("{prop}: {num_str}"));
                         }
                     }
@@ -164,6 +175,93 @@ fn find_numeric_literals(line: &str) -> Vec<String> {
         }
     }
     found
+}
+
+fn find_uncapped_style_radius(line: &str) -> bool {
+    let Some(idx) = line.find("radius:") else {
+        return false;
+    };
+    let prev_ok =
+        idx == 0 || (!is_ident_char(line.as_bytes()[idx - 1]) && line.as_bytes()[idx - 1] != b'.');
+    if !prev_ok {
+        return false;
+    }
+    let rhs = line[idx + "radius:".len()..].trim();
+    rhs.contains("Style.radius") && !rhs.contains("theme.radius")
+}
+
+fn find_numeric_card_width(line: &str) -> bool {
+    let Some(idx) = line.find("cardWidth:") else {
+        return false;
+    };
+    let rhs = line[idx + "cardWidth:".len()..].trim();
+    rhs.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '.')
+        .any(|tok| !tok.is_empty() && tok.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn check_footer_primary_limit(content: &str) -> Vec<(usize, String)> {
+    let mut violations = Vec::new();
+    let mut in_footer = false;
+    let mut brace_depth = 0i32;
+    let mut footer_start_line = 0usize;
+    let mut primary_count = 0usize;
+
+    for (idx, raw_line) in content.lines().enumerate() {
+        let line = strip_line_comment(raw_line);
+        if !in_footer {
+            if let Some(pos) = line.find("DialogFooter") {
+                let after = line[pos + "DialogFooter".len()..].trim_start();
+                if after.starts_with('{') {
+                    in_footer = true;
+                    footer_start_line = idx + 1;
+                    primary_count = 0;
+                    brace_depth = 0;
+                }
+            }
+        }
+        if in_footer {
+            for b in line.bytes() {
+                if b == b'{' {
+                    brace_depth += 1;
+                } else if b == b'}' {
+                    brace_depth -= 1;
+                }
+            }
+            if line.contains("variant:") && line.contains("\"primary\"") {
+                primary_count += 1;
+            }
+            if brace_depth <= 0 {
+                if primary_count > 1 {
+                    violations.push((
+                        footer_start_line,
+                        format!("DialogFooter has {primary_count} primary buttons (max 1)"),
+                    ));
+                }
+                in_footer = false;
+            }
+        }
+    }
+    violations
+}
+
+fn check_modal_cancel_button(content: &str) -> Vec<(usize, String)> {
+    let has_modal_header = content.contains("ModalHeader");
+    let close_disabled = content.contains("showClose: false");
+    if !has_modal_header || close_disabled {
+        return Vec::new();
+    }
+    let mut violations = Vec::new();
+    for (idx, raw_line) in content.lines().enumerate() {
+        let line = strip_line_comment(raw_line);
+        if line.contains("qsTr(\"Cancel\")") {
+            violations.push((
+                idx + 1,
+                "Cancel button is disallowed alongside an active ModalHeader Close button"
+                    .to_string(),
+            ));
+        }
+    }
+    violations
 }
 
 fn collect_qml_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -182,7 +280,7 @@ fn collect_qml_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-fn report_qml_token_usage_and_numeric_literals() {
+fn enforce_qml_token_and_layout_standards() {
     let qml_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../src/qml");
     let mut files = Vec::new();
     collect_qml_files(&qml_root, &mut files);
@@ -192,54 +290,63 @@ fn report_qml_token_usage_and_numeric_literals() {
         qml_root.display()
     );
 
-    let mut reports: BTreeMap<String, FileReport> = BTreeMap::new();
-    let mut total_deprecated = 0usize;
-    let mut total_literals = 0usize;
+    let mut violations: BTreeMap<String, FileViolations> = BTreeMap::new();
 
     for path in &files {
         let rel = path.strip_prefix(&qml_root).unwrap_or(path);
         let rel_str = rel.to_string_lossy().to_string();
-        if rel_str == "components/Style.qml" {
-            continue;
-        }
         let content = fs::read_to_string(path).expect("read qml file");
-        let mut report = FileReport::default();
+        let mut file_v = FileViolations::default();
+
+        let allow_numeric = NUMERIC_LITERAL_ALLOWLIST.contains(&rel_str.as_str());
 
         for (idx, raw_line) in content.lines().enumerate() {
             let line = strip_line_comment(raw_line);
             for tok in find_deprecated_tokens(line) {
-                total_deprecated += 1;
-                report.deprecated_tokens.push((idx + 1, tok));
+                file_v
+                    .items
+                    .push((idx + 1, format!("deprecated token `{tok}`")));
             }
-            for lit in find_numeric_literals(line) {
-                total_literals += 1;
-                report.numeric_literals.push((idx + 1, lit));
+            if !allow_numeric {
+                for lit in find_numeric_literals(line) {
+                    file_v
+                        .items
+                        .push((idx + 1, format!("numeric literal `{lit}`")));
+                }
+            }
+            if rel_str != "components/Style.qml" && find_uncapped_style_radius(line) {
+                file_v.items.push((
+                    idx + 1,
+                    "Style.radius* must be capped with Math.min(..., theme.radius)".to_string(),
+                ));
+            }
+            if find_numeric_card_width(line) {
+                file_v.items.push((
+                    idx + 1,
+                    "cardWidth must not use numeric literals".to_string(),
+                ));
             }
         }
 
-        if !report.deprecated_tokens.is_empty() || !report.numeric_literals.is_empty() {
-            reports.insert(rel_str, report);
+        if rel_str != "dev/ComponentGallery.qml" {
+            file_v.items.extend(check_footer_primary_limit(&content));
+            file_v.items.extend(check_modal_cancel_button(&content));
+        }
+
+        if !file_v.items.is_empty() {
+            violations.insert(rel_str, file_v);
         }
     }
 
-    eprintln!(
-        "QML token lint (report mode): {} file(s) with findings, {} deprecated token(s), {} numeric literal(s)",
-        reports.len(),
-        total_deprecated,
-        total_literals
-    );
-    for (file, report) in &reports {
-        eprintln!(
-            "  {file}: {} deprecated, {} numeric literal(s)",
-            report.deprecated_tokens.len(),
-            report.numeric_literals.len()
-        );
-        for (line, tok) in &report.deprecated_tokens {
-            eprintln!("    L{line}: deprecated `{tok}`");
+    if !violations.is_empty() {
+        let mut msg = String::from("QML token/layout lint failed:\n");
+        for (file, file_v) in &violations {
+            msg.push_str(&format!("  {file}:\n"));
+            for (line, reason) in &file_v.items {
+                msg.push_str(&format!("    L{line}: {reason}\n"));
+            }
         }
-        for (line, lit) in &report.numeric_literals {
-            eprintln!("    L{line}: numeric literal `{lit}`");
-        }
+        panic!("{msg}");
     }
 }
 
@@ -254,8 +361,29 @@ fn token_lint_detectors_match_expected_patterns() {
     );
 
     assert_eq!(
-        find_numeric_literals("font.pixelSize: 13; radius: 6; width: 0"),
-        vec!["font.pixelSize: 13", "radius: 6"]
+        find_numeric_literals("font.pixelSize: 13; radius: 6; width: 0; height: 1; minWidth: 132"),
+        vec!["font.pixelSize: 13", "radius: 6", "minWidth: 132"]
     );
     assert!(find_numeric_literals("spacing: Style.gap; radius: Style.radiusMd").is_empty());
+
+    assert!(find_uncapped_style_radius("radius: Style.radiusMd"));
+    assert!(!find_uncapped_style_radius(
+        "radius: Math.min(Style.radiusMd, theme.radius)"
+    ));
+    assert!(!find_uncapped_style_radius("radius: width / 2"));
+
+    assert!(find_numeric_card_width(
+        "cardWidth: Math.min(parent.width, 780)"
+    ));
+    assert!(!find_numeric_card_width(
+        "cardWidth: Math.min(targetWidth, parent.width - Style.modalGutter)"
+    ));
+
+    let bad_footer = "DialogFooter {\n ActionButton { variant: \"primary\" }\n ActionButton { variant: \"primary\" }\n}";
+    assert_eq!(check_footer_primary_limit(bad_footer).len(), 1);
+    let ok_footer = "DialogFooter {\n ActionButton { variant: \"default\" }\n ActionButton { variant: \"primary\" }\n}";
+    assert!(check_footer_primary_limit(ok_footer).is_empty());
+
+    let bad_modal = "ModalHeader { title: qsTr(\"X\") }\nActionButton { label: qsTr(\"Cancel\") }";
+    assert_eq!(check_modal_cancel_button(bad_modal).len(), 1);
 }

@@ -103,13 +103,11 @@ ModalDialog {
                     }
 
                     ActionButton {
-                        minWidth: 78
                         label: qsTr("Open")
                         onClicked: backend.openForwardedPort(modelData.hostPort)
                     }
 
                     ActionButton {
-                        minWidth: 78
                         label: qsTr("Copy")
                         onClicked: backend.copyText(
                             "http://127.0.0.1:" + modelData.hostPort,
@@ -117,7 +115,6 @@ ModalDialog {
                     }
 
                     ActionButton {
-                        minWidth: 84
                         label: qsTr("Remove")
                         variant: "danger"
                         disabled: backend.busy
@@ -159,7 +156,6 @@ ModalDialog {
         ActionButton {
             label: qsTr("Add Port")
             variant: "primary"
-            minWidth: 132
             disabled: backend.busy
             onClicked: portsOverlay.submitPort()
         }

@@ -77,7 +77,7 @@ Rectangle {
                             Rectangle {
                                 width: Style.gapMd
                                 height: Style.gapMd
-                                radius: Style.radiusMd
+                                radius: width / 2
                                 color: modelData.running ? theme.success : theme.textMuted
                             }
 

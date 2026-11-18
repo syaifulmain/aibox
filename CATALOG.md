@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### UI Standardization Phase 7 — QA & Lint (`qml_token_lint.rs`, `qml_smoke.rs`, `theme_matrix.rs`, `Style.qml`, `src/i18n/`)
+
+- **UI standardisation complete; token lint enforced.**
+- **Token & layout lint (`rust/crates/aibox-app/tests/qml_token_lint.rs`):** Upgraded from report mode to strict error enforcement across `src/qml/`, rejecting numeric metric literals (outside explicit allowlists for `Style.qml`, `SlidersIcon.qml`, `BrandMark.qml`, and `dev/ComponentGallery.qml`), deprecated tokens, uncapped `Style.radius*` bindings, numeric `cardWidth` expressions, `Cancel` buttons alongside an active `ModalHeader` Close button, and multiple `primary` buttons in a `DialogFooter`.
+- **Cleanup (`Style.qml`, `ActionButton.qml`, `src/i18n/`):** Removed all deprecated numeric/alias tokens from `Style.qml`, removed the legacy `"theme"` variant alias from `ActionButton.qml`, wrapped remaining `Style.radius*` bindings in `Math.min(..., theme.radius)` (or `width / 2` for status dots), removed hardcoded `minWidth` literals from dialog buttons, and pruned unused translation keys from `src/i18n/en.json` and `src/i18n/da.json`.
+- **Automated QA (`qml_smoke.rs`, `theme_matrix.rs`, `test_helpers.cpp`):** Extended `qml_smoke` to verify Close button click, Esc, and scrim click on every modal dialog as well as `Style.controlHeight` / `Style.controlHeightCompact` on all visible interactive controls; added a 23-theme × light/dark × high-contrast `ComponentGallery` zero-warning check in `theme_matrix.rs`.
+
 ### UI Standardization Phase 6 — Settings: standardized panel, sections, and tiered Esc (`SettingsPanel.qml`, `panels/settings/`, `Main.qml`, `HelpOverlay.qml`, `FlatInput.qml`, `src/i18n/`)
 * **Settings Panel (`src/qml/panels/SettingsPanel.qml`)**: Switched to `ModalDialog` `size: "lg"` with `Style.modalGutter` height margin, replaced deprecated spacing/font/radius tokens and numeric literals with semantic `Style.qml` tokens, and standardized the left navigation sidebar (`surfaceSidebar`, `surfaceSelected` + `accent` indicator, `fontCaption` uppercase group headers).
 * **Settings Subpages (`src/qml/panels/settings/`)**: Rebuilt all six sections (`LocationsSection`, `StoragePoolSection`, `OsCatalogSection`, `CreateOptionsSection`, `SafetySection`, `AppearanceSection`) on `Card`, `SectionHeader`, `FormRow`, `ToggleChip`, `SelectChip`, and `MeterBar`; added `mono` support to `FlatInput.qml`; standardized `OsCatalogSection` rows to `listRowHeight` with 34 px icon tiles and `compact` `Edit`/`Remove` buttons; aligned `CreateOptionsSection` quota rows via `FormRow`. Zero `qml_token_lint` findings across `SettingsPanel.qml` and `panels/settings/`.
