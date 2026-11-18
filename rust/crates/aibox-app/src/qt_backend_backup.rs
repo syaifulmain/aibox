@@ -8,11 +8,12 @@ use aibox_core::backup::orphans::{
     delete_orphan_script, prepare_delete_orphan_as_admin, validate_orphan_request,
 };
 use aibox_core::backup::scripts::{
-    export_and_wipe_environment_script, export_environment_script, import_environment_script,
+    export_and_wipe_environment_script_with_options, export_environment_script_with_options,
+    import_environment_script_with_options,
 };
 use aibox_core::backup::{
     backups_dir_path, check_export_space, delete_backup_files, validate_export_request,
-    validate_import_request,
+    validate_import_request, verify_backup_archive, CompressionCodec,
 };
 use aibox_core::incus::list::environment_by_name;
 use aibox_core::secrets::store::environment_secrets_store_path;
@@ -113,16 +114,25 @@ impl qobject::Backend {
         }
 
         let _ = std::fs::create_dir_all(&bdir);
+        let codec = CompressionCodec::detect();
+        let ext = codec.extension();
         let stamp = now_compact_stamp();
-        let backup_file = format!("{bdir}/{clean}-{stamp}.tar.gz");
+        let backup_file = format!("{bdir}/{clean}-{stamp}.{ext}");
         let ws_archive_file =
             if include_workspace && !ws_path.is_empty() && Path::new(&ws_path).exists() {
-                format!("{bdir}/{clean}-{stamp}-workspace.tar.gz")
+                format!("{bdir}/{clean}-{stamp}-workspace.{ext}")
             } else {
                 String::new()
             };
 
-        let script = export_environment_script(&clean, &backup_file, &ws_path, &ws_archive_file);
+        let script = export_environment_script_with_options(
+            &clean,
+            &backup_file,
+            &ws_path,
+            &ws_archive_file,
+            codec,
+            true,
+        );
         self.as_mut().run_shell_task(
             &format!("Exporting backup of '{clean}'"),
             &script,
@@ -196,11 +206,13 @@ impl qobject::Backend {
         }
 
         let _ = std::fs::create_dir_all(&bdir);
+        let codec = CompressionCodec::detect();
+        let ext = codec.extension();
         let stamp = now_compact_stamp();
-        let backup_file = format!("{bdir}/{clean}-{stamp}.tar.gz");
+        let backup_file = format!("{bdir}/{clean}-{stamp}.{ext}");
         let ws_archive_file =
             if include_workspace && !ws_path.is_empty() && Path::new(&ws_path).exists() {
-                format!("{bdir}/{clean}-{stamp}-workspace.tar.gz")
+                format!("{bdir}/{clean}-{stamp}-workspace.{ext}")
             } else {
                 String::new()
             };
@@ -211,7 +223,7 @@ impl qobject::Backend {
             environment_secrets_store_path(&self.engine.secrets.secrets_path, &clean);
         stop_file_access_process(&state_dir, &clean);
 
-        let script = export_and_wipe_environment_script(
+        let script = export_and_wipe_environment_script_with_options(
             &clean,
             &backup_file,
             &ws_path,
@@ -219,6 +231,8 @@ impl qobject::Backend {
             delete_workspace_files,
             &env_sessions_dir,
             &env_secrets_path,
+            codec,
+            true,
         );
         self.as_mut().run_shell_task(
             &format!("Exporting & wiping '{clean}'"),
@@ -257,8 +271,17 @@ impl qobject::Backend {
             return QString::default();
         }
 
-        let script =
-            import_environment_script(&clean_backup, &target_name, &ws_path, &clean_ws_archive);
+        if let Err(err) = verify_backup_archive(&clean_backup, &clean_ws_archive) {
+            return QString::from(err.to_string().as_str());
+        }
+
+        let script = import_environment_script_with_options(
+            &clean_backup,
+            &target_name,
+            &ws_path,
+            &clean_ws_archive,
+            true,
+        );
         self.as_mut().run_shell_task(
             &format!("Importing backup as '{target_name}'"),
             &script,

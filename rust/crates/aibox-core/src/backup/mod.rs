@@ -1,40 +1,51 @@
 //! Backup export/import, disk space checks, archive scanning, stale reports, and orphan cleanup.
 
+pub mod archive_scan;
+pub mod export;
+pub mod import;
 pub mod orphans;
 pub mod scripts;
+pub mod space;
 pub mod stale;
 
-use std::collections::BTreeMap;
-use std::ffi::CString;
-use std::fs;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
 
-use chrono::{Local, TimeZone};
-use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::util::format::format_bytes;
 use crate::util::json::to_json_compact;
-use crate::util::names::sanitize_name;
-use crate::util::paths::{clean_path, home_dir};
-use crate::util::size::parse_size_bytes;
 
+pub use archive_scan::{
+    scan_backup_archives, scan_backup_archives_json, scan_backup_archives_with_stats,
+    ArchiveScanEntry, ScanCacheStats,
+};
+pub use export::{
+    decide_scheduled_backup, manifest_path_for, scheduled_backups_to_prune, sha256_bytes,
+    sha256_file, should_create_scheduled_backup, validate_export_request, write_backup_manifest,
+    BackupError, BackupManifest, CompressionCodec, ScheduledBackupPlan, ScheduledBackupPolicy,
+};
+pub use import::{
+    delete_backup_files, read_backup_manifest, validate_import_request, verify_backup_archive,
+    ArchiveVerification,
+};
 pub use orphans::{
-    admin_delete_script_text, delete_orphan_script, detect_orphans, prepare_delete_orphan_as_admin,
-    validate_orphan_path, validate_orphan_request,
+    admin_delete_script_text, delete_orphan_script, detect_orphans, execute_orphan_cleanup,
+    plan_orphan_cleanup, prepare_delete_orphan_as_admin, validate_orphan_path,
+    validate_orphan_request, OrphanCleanupMode, OrphanCleanupPlan, OrphanCleanupReport,
+    OrphanPlanItem,
 };
 pub use scripts::{
-    build_export_steps, export_and_wipe_environment_script, export_environment_script,
-    import_environment_script,
+    build_export_steps, build_export_steps_with_options, export_and_wipe_environment_script,
+    export_and_wipe_environment_script_with_options, export_environment_script,
+    export_environment_script_with_options, import_environment_script,
+    import_environment_script_with_options,
+};
+pub use space::{
+    available_disk_bytes, check_export_space, check_export_space_json, directory_size_bytes,
+    has_sufficient_disk_space,
 };
 pub use stale::{
     build_stale_report, classify_environment_staleness, StalenessClass, StalenessResult,
 };
-
-const SAFETY_MARGIN_BYTES: i64 = 100 * 1024 * 1024;
-const DEMO_AVAILABLE_BYTES: i64 = 40 * 1024 * 1024 * 1024;
-const FALLBACK_INSTANCE_BYTES: i64 = 512 * 1024 * 1024;
 
 pub(crate) fn expand_tilde(path: &str, home: &Path) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
@@ -49,328 +60,11 @@ pub fn backups_dir_path(os_storage_path: &str) -> String {
     format!("{os_storage_path}/backups")
 }
 
-/// Checks whether `available_bytes` covers `required_bytes` plus a 100 MiB safety margin.
-pub fn has_sufficient_disk_space(required_bytes: i64, available_bytes: i64) -> bool {
-    if available_bytes < 0 || required_bytes < 0 {
-        return false;
-    }
-    match required_bytes.checked_add(SAFETY_MARGIN_BYTES) {
-        Some(needed) => available_bytes >= needed,
-        None => false,
-    }
-}
-
-fn dir_size_recursive(dir: &Path, total: &mut i64) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
-            continue;
-        };
-        let ft = meta.file_type();
-        if ft.is_symlink() {
-            continue;
-        }
-        if ft.is_file() {
-            *total = total.saturating_add(meta.len() as i64);
-        } else if ft.is_dir() {
-            dir_size_recursive(&entry.path(), total);
-        }
-    }
-}
-
-/// Walks `dir_path` without following symlinks and returns total regular-file bytes.
-pub fn directory_size_bytes(dir_path: &str) -> i64 {
-    if dir_path.is_empty() {
-        return 0;
-    }
-    let root = Path::new(dir_path);
-    let Ok(meta) = fs::metadata(root) else {
-        return 0;
-    };
-    if meta.is_file() {
-        return meta.len() as i64;
-    }
-    if !meta.is_dir() {
-        return 0;
-    }
-    let mut total = 0i64;
-    dir_size_recursive(root, &mut total);
-    total
-}
-
-/// Returns available disk bytes for the filesystem containing `path` (walking up until an existing
-/// ancestor is found), or `-1` on failure.
-pub fn available_disk_bytes(path: &str) -> i64 {
-    let mut probe = path.to_string();
-    while !probe.is_empty() && !Path::new(&probe).exists() {
-        let parent = Path::new(&probe)
-            .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if parent.is_empty() || parent == probe {
-            break;
-        }
-        probe = parent;
-    }
-    if probe.is_empty() {
-        return -1;
-    }
-    let Ok(c_path) = CString::new(probe) else {
-        return -1;
-    };
-    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) };
-    if rc != 0 {
-        return -1;
-    }
-    (stat.f_bavail as i64).saturating_mul(stat.f_frsize as i64)
-}
-
-#[derive(Clone)]
-struct ArchiveFile {
-    file_name: String,
-    abs_path: String,
-    size_bytes: i64,
-    mtime_secs: i64,
-}
-
-fn format_archive_mtime(epoch_secs: i64) -> String {
-    Local
-        .timestamp_opt(epoch_secs, 0)
-        .single()
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_default()
-}
-
-/// Scans `backups_dir` for `*.tar.gz` archives and pairs `*-workspace.tar.gz` companions.
-pub fn scan_backup_archives(backups_dir: &str) -> Vec<Value> {
-    let dir = Path::new(backups_dir);
-    if !dir.is_dir() {
-        return Vec::new();
-    }
-    let Ok(read_dir) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-
-    let mut entries: Vec<ArchiveFile> = Vec::new();
-    for entry in read_dir.flatten() {
-        let Ok(meta) = fs::metadata(entry.path()) else {
-            continue;
-        };
-        if !meta.is_file() {
-            continue;
-        }
-        let file_name = entry.file_name().to_string_lossy().into_owned();
-        if !file_name.ends_with(".tar.gz") {
-            continue;
-        }
-        let mtime_secs = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let abs_path = clean_path(&entry.path().to_string_lossy());
-        entries.push(ArchiveFile {
-            file_name,
-            abs_path,
-            size_bytes: meta.len() as i64,
-            mtime_secs,
-        });
-    }
-
-    // Match QDir::Time (most recent first); tie-break by filename for stability.
-    entries.sort_by(|a, b| {
-        b.mtime_secs
-            .cmp(&a.mtime_secs)
-            .then_with(|| a.file_name.cmp(&b.file_name))
-    });
-
-    let mut workspace_map: BTreeMap<String, ArchiveFile> = BTreeMap::new();
-    for fi in &entries {
-        if let Some(key) = fi.file_name.strip_suffix("-workspace.tar.gz") {
-            workspace_map.insert(key.to_string(), fi.clone());
-        }
-    }
-
-    let ts_suffix_re = Regex::new(r"-\d{8}-\d{6}$").expect("valid regex");
-    let mut result = Vec::new();
-    for fi in &entries {
-        if fi.file_name.ends_with("-workspace.tar.gz") {
-            continue;
-        }
-        let base_name = fi
-            .file_name
-            .strip_suffix(".tar.gz")
-            .unwrap_or(&fi.file_name);
-        let env_name = ts_suffix_re.replace(base_name, "").into_owned();
-        let ws_info = workspace_map.get(base_name);
-        let has_ws = ws_info.is_some();
-        let ws_path = ws_info.map(|w| w.abs_path.clone()).unwrap_or_default();
-        let ws_size = ws_info
-            .map(|w| format_bytes(w.size_bytes))
-            .unwrap_or_default();
-
-        result.push(json!({
-            "fileName": fi.file_name,
-            "filePath": fi.abs_path,
-            "envName": env_name,
-            "sizeBytes": fi.size_bytes,
-            "sizeDisplay": format_bytes(fi.size_bytes),
-            "createdAt": format_archive_mtime(fi.mtime_secs),
-            "hasWorkspaceArchive": has_ws,
-            "workspaceArchivePath": ws_path,
-            "workspaceArchiveSizeDisplay": ws_size,
-        }));
-    }
-
-    result
-}
-
-/// Checks whether `backups_dir` has enough free space to export `env` (plus optional workspace).
-pub fn check_export_space(
-    disk_usage_bytes: i64,
-    disk_usage_str: &str,
-    workspace_path: &str,
-    include_workspace: bool,
-    demo_mode: bool,
-    backups_dir: &str,
-) -> Value {
-    let mut instance_bytes = disk_usage_bytes;
-    if instance_bytes <= 0 {
-        instance_bytes = parse_size_bytes(disk_usage_str);
-    }
-    if instance_bytes <= 0 {
-        instance_bytes = FALLBACK_INSTANCE_BYTES;
-    }
-
-    let mut workspace_bytes = 0i64;
-    if include_workspace {
-        let ws = expand_tilde(workspace_path.trim(), &home_dir());
-        workspace_bytes = directory_size_bytes(&ws);
-    }
-
-    let estimated_bytes = instance_bytes + workspace_bytes;
-    let available_bytes = if demo_mode {
-        DEMO_AVAILABLE_BYTES
-    } else {
-        available_disk_bytes(backups_dir)
-    };
-    let ok = has_sufficient_disk_space(estimated_bytes, available_bytes);
-
-    let available_display = if available_bytes >= 0 {
-        format_bytes(available_bytes)
-    } else {
-        "Unknown".to_string()
-    };
-    let message = if !ok {
-        let free_str = if available_bytes >= 0 {
-            format_bytes(available_bytes)
-        } else {
-            "0 MB".to_string()
-        };
-        format!(
-            "Insufficient disk space in {backups_dir} (needs {} + 100 MB margin, only {free_str} free).",
-            format_bytes(estimated_bytes)
-        )
-    } else {
-        String::new()
-    };
-
-    json!({
-        "ok": ok,
-        "estimatedBytes": estimated_bytes,
-        "estimatedDisplay": format_bytes(estimated_bytes),
-        "availableBytes": available_bytes,
-        "availableDisplay": available_display,
-        "message": message,
-    })
-}
-
-/// Validates preconditions for exporting an environment. Returns the sanitized name on success.
-pub fn validate_export_request(busy: bool, name: &str, env_exists: bool) -> Result<String, String> {
-    if busy {
-        return Err("Another operation is already running.".to_string());
-    }
-    let clean = sanitize_name(name);
-    if clean.is_empty() || !env_exists {
-        return Err(format!("Environment '{name}' was not found."));
-    }
-    Ok(clean)
-}
-
-/// Validates preconditions for importing a backup archive. Returns `(target_name, clean_backup, clean_ws_archive)`.
-pub fn validate_import_request(
-    busy: bool,
-    new_name: &str,
-    target_exists: bool,
-    backup_file: &str,
-    workspace_archive_file: &str,
-    demo_mode: bool,
-) -> Result<(String, String, String), String> {
-    if busy {
-        return Err("Another operation is already running.".to_string());
-    }
-    let target_name = sanitize_name(new_name);
-    if target_name.is_empty() {
-        return Err("New environment name is invalid.".to_string());
-    }
-    if target_exists {
-        return Err(format!("Environment '{target_name}' already exists."));
-    }
-    let clean_backup = backup_file.trim().to_string();
-    if clean_backup.is_empty() {
-        return Err("Backup archive path is required.".to_string());
-    }
-    if !demo_mode && !Path::new(&clean_backup).exists() {
-        return Err(format!("Backup archive not found: {clean_backup}"));
-    }
-    let clean_ws_archive = workspace_archive_file.trim().to_string();
-    Ok((target_name, clean_backup, clean_ws_archive))
-}
-
-/// Deletes a backup archive and its optional workspace archive from disk.
-pub fn delete_backup_files(backup_file: &str, workspace_archive_file: &str) {
-    let b = backup_file.trim();
-    if !b.is_empty() {
-        let _ = fs::remove_file(b);
-    }
-    let w = workspace_archive_file.trim();
-    if !w.is_empty() {
-        let _ = fs::remove_file(w);
-    }
-}
-
 fn parse_env_array(environments_json: &str) -> Vec<Value> {
     match serde_json::from_str::<Value>(environments_json) {
         Ok(Value::Array(arr)) => arr,
         _ => Vec::new(),
     }
-}
-
-pub fn scan_backup_archives_json(backups_dir: &str) -> String {
-    to_json_compact(&Value::Array(scan_backup_archives(backups_dir))).unwrap_or_default()
-}
-
-pub fn check_export_space_json(
-    disk_usage_bytes: i64,
-    disk_usage_str: &str,
-    workspace_path: &str,
-    include_workspace: bool,
-    demo_mode: bool,
-    backups_dir: &str,
-) -> String {
-    to_json_compact(&check_export_space(
-        disk_usage_bytes,
-        disk_usage_str,
-        workspace_path,
-        include_workspace,
-        demo_mode,
-        backups_dir,
-    ))
-    .unwrap_or_default()
 }
 
 pub fn detect_orphans_json(
@@ -408,8 +102,11 @@ pub fn build_stale_report_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::process::Command;
+    use std::time::UNIX_EPOCH;
 
     struct TempDir(std::path::PathBuf);
     impl TempDir {
@@ -843,5 +540,366 @@ mod tests {
             "/tmp/backups"
         )
         .is_err());
+    }
+
+    #[test]
+    fn sha256_matches_nist_test_vectors() {
+        assert_eq!(
+            sha256_bytes(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_bytes(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_bytes(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+    }
+
+    #[test]
+    fn export_import_manifest_round_trip_and_checksum_verification() {
+        let dir = TempDir::new("manifest-roundtrip");
+        let ws_src = dir.path().join("ws-src");
+        let ws_dst = dir.path().join("ws-dst");
+        fs::create_dir_all(&ws_src).unwrap();
+        fs::write(ws_src.join("code.rs"), b"fn main() { println!(\"ok\"); }\n").unwrap();
+
+        let stub_dir = dir.path().join("bin");
+        fs::create_dir_all(&stub_dir).unwrap();
+        let incus_bin = stub_dir.join("incus");
+        fs::write(
+            &incus_bin,
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"export\" ]; then\n  \
+               printf '\\x1f\\x8bfake-gzip-payload' > \"$3\"\n\
+             fi\n\
+             exit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&incus_bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let backup_file = dir.path().join("backups/myenv-20261118-120000.tar.gz");
+        let ws_archive = dir
+            .path()
+            .join("backups/myenv-20261118-120000-workspace.tar.gz");
+
+        let export_script = export_environment_script_with_options(
+            "myenv",
+            &backup_file.to_string_lossy(),
+            &ws_src.to_string_lossy(),
+            &ws_archive.to_string_lossy(),
+            CompressionCodec::Gzip,
+            true,
+        );
+        let import_script = import_environment_script_with_options(
+            &backup_file.to_string_lossy(),
+            "myenv-restored",
+            &ws_dst.to_string_lossy(),
+            &ws_archive.to_string_lossy(),
+            true,
+        );
+
+        let orig_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{orig_path}", stub_dir.display());
+        let out_exp = Command::new("/bin/bash")
+            .args(["-c", &export_script])
+            .env("PATH", &new_path)
+            .output()
+            .unwrap();
+        assert!(
+            out_exp.status.success(),
+            "export stderr: {}",
+            String::from_utf8_lossy(&out_exp.stderr)
+        );
+
+        let manifest_path = manifest_path_for(&backup_file.to_string_lossy());
+        assert!(manifest_path.exists());
+
+        let verified = verify_backup_archive(
+            &backup_file.to_string_lossy(),
+            &ws_archive.to_string_lossy(),
+        )
+        .expect("verified archive");
+        assert!(verified.manifest_present);
+        assert_eq!(verified.archive_sha256, sha256_file(&backup_file).unwrap());
+        assert_eq!(
+            verified.workspace_sha256.unwrap(),
+            sha256_file(&ws_archive).unwrap()
+        );
+
+        let out_imp = Command::new("/bin/bash")
+            .args(["-c", &import_script])
+            .env("PATH", &new_path)
+            .output()
+            .unwrap();
+        assert!(
+            out_imp.status.success(),
+            "import stderr: {}",
+            String::from_utf8_lossy(&out_imp.stderr)
+        );
+        assert_eq!(
+            fs::read(ws_dst.join("code.rs")).unwrap(),
+            b"fn main() { println!(\"ok\"); }\n"
+        );
+    }
+
+    #[test]
+    fn corrupt_and_truncated_archives_return_structured_errors() {
+        let dir = TempDir::new("corrupt-archive");
+        let backup_file = dir.path().join("env.tar.gz");
+        let ws_archive = dir.path().join("env-workspace.tar.gz");
+        fs::write(&backup_file, b"\x1f\x8bvalid-archive-bytes").unwrap();
+        fs::write(&ws_archive, b"\x1f\x8bvalid-workspace-bytes").unwrap();
+
+        write_backup_manifest(
+            "env",
+            &backup_file.to_string_lossy(),
+            Some(&ws_archive.to_string_lossy()),
+            CompressionCodec::Gzip,
+            1_794_500_000,
+        )
+        .unwrap();
+
+        // 1. Corrupt bytes (same length -> ChecksumMismatch)
+        fs::write(&backup_file, b"\x1f\x8bXXXXX-archive-bytes").unwrap();
+        let err = verify_backup_archive(
+            &backup_file.to_string_lossy(),
+            &ws_archive.to_string_lossy(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, BackupError::ChecksumMismatch { .. }));
+
+        // 2. Truncated archive (SizeMismatch)
+        fs::write(&backup_file, b"\x1f\x8b").unwrap();
+        let err = verify_backup_archive(
+            &backup_file.to_string_lossy(),
+            &ws_archive.to_string_lossy(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, BackupError::SizeMismatch { .. }));
+
+        // 3. Corrupt manifest JSON -> ManifestCorrupt
+        fs::write(
+            manifest_path_for(&backup_file.to_string_lossy()),
+            b"{bad-json",
+        )
+        .unwrap();
+        let err = verify_backup_archive(&backup_file.to_string_lossy(), "").unwrap_err();
+        assert!(matches!(err, BackupError::ManifestCorrupt { .. }));
+
+        // 4. Legacy archive without manifest with invalid gzip magic -> ArchiveCorrupt
+        let legacy = dir.path().join("legacy.tar.gz");
+        fs::write(&legacy, b"not-gzip").unwrap();
+        let err = verify_backup_archive(&legacy.to_string_lossy(), "").unwrap_err();
+        assert!(matches!(err, BackupError::ArchiveCorrupt { .. }));
+
+        // 5. Missing archive -> NotFound
+        let missing = dir.path().join("missing.tar.gz");
+        let err = verify_backup_archive(&missing.to_string_lossy(), "").unwrap_err();
+        assert!(matches!(err, BackupError::NotFound(_)));
+    }
+
+    #[test]
+    fn safe_orphan_cleanup_dry_run_and_active_env_protection() {
+        let dir = TempDir::new("safe-orphan-cleanup");
+        let ws_base = dir.path().join("ws");
+        let snap_base = ws_base.join(".snapshots");
+        let backups_dir = dir.path().join("backups");
+        fs::create_dir_all(ws_base.join("active-env")).unwrap();
+        fs::create_dir_all(ws_base.join("active-env.pre-subvol")).unwrap();
+        fs::create_dir_all(ws_base.join("orphan-ws")).unwrap();
+        fs::create_dir_all(snap_base.join("active-env/s1")).unwrap();
+        fs::create_dir_all(&backups_dir).unwrap();
+
+        fs::write(ws_base.join("active-env/important.txt"), b"keep me").unwrap();
+        fs::write(ws_base.join("orphan-ws/junk.bin"), vec![b'x'; 256]).unwrap();
+        let orphan_arc = backups_dir.join("dead-20261101-010203-workspace.tar.zst");
+        fs::write(&orphan_arc, vec![b'z'; 128]).unwrap();
+
+        let envs = vec![json!({
+            "name": "active-env",
+            "workspacePath": ws_base.join("active-env").to_string_lossy(),
+        })];
+
+        // Active env workspace, .pre-subvol, and snapshots must NEVER be detected as orphans.
+        let detected = detect_orphans(
+            &envs,
+            &ws_base.to_string_lossy(),
+            &backups_dir.to_string_lossy(),
+        );
+        assert_eq!(detected.len(), 2);
+        assert!(!detected
+            .iter()
+            .any(|o| o["name"] == "active-env" || o["name"] == "active-env.pre-subvol"));
+
+        let plan = plan_orphan_cleanup(
+            &envs,
+            &ws_base.to_string_lossy(),
+            &backups_dir.to_string_lossy(),
+            None,
+        );
+        assert!(plan.dry_run);
+        assert!(plan.requires_confirmation);
+        assert_eq!(plan.confirmation_list.len(), 2);
+
+        // Default DryRun mode must not delete anything.
+        let dry_report = execute_orphan_cleanup(
+            &plan,
+            OrphanCleanupMode::default(),
+            &envs,
+            &ws_base.to_string_lossy(),
+            &backups_dir.to_string_lossy(),
+        )
+        .unwrap();
+        assert!(dry_report.dry_run);
+        assert_eq!(dry_report.would_delete.len(), 2);
+        assert!(orphan_arc.exists());
+        assert!(ws_base.join("active-env/important.txt").exists());
+
+        // Execute mode deletes confirmed backup-workspace orphan but never touches active env.
+        let exec_report = execute_orphan_cleanup(
+            &plan,
+            OrphanCleanupMode::Execute,
+            &envs,
+            &ws_base.to_string_lossy(),
+            &backups_dir.to_string_lossy(),
+        )
+        .unwrap();
+        assert!(!exec_report.dry_run);
+        assert!(!orphan_arc.exists());
+        assert!(ws_base.join("active-env/important.txt").exists());
+    }
+
+    #[test]
+    fn archive_scan_cache_hits_and_zstd_support() {
+        let dir = TempDir::new("scan-cache");
+        fs::write(
+            dir.path().join("dev-20261118-100000.tar.zst"),
+            b"zstd-instance",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("dev-20261118-100000-workspace.tar.zst"),
+            b"zstd-ws",
+        )
+        .unwrap();
+
+        let (first, stats1) = scan_backup_archives_with_stats(&dir.path().to_string_lossy());
+        assert_eq!(first.len(), 1);
+        assert!(first[0].has_workspace_archive);
+        assert_eq!(stats1.cache_misses, 1);
+        assert_eq!(stats1.cache_hits, 0);
+        assert!(dir.path().join(".archive-index.json").exists());
+
+        let (second, stats2) = scan_backup_archives_with_stats(&dir.path().to_string_lossy());
+        assert_eq!(second.len(), 1);
+        assert_eq!(stats2.cache_hits, 1);
+        assert_eq!(stats2.cache_misses, 0);
+
+        let zstd_script = build_export_steps_with_options(
+            "dev",
+            "/tmp/b/dev.tar.zst",
+            "/tmp/ws/dev",
+            "/tmp/b/dev-workspace.tar.zst",
+            CompressionCodec::Zstd,
+            true,
+        );
+        assert!(zstd_script.contains("--compression zstd"));
+        assert!(zstd_script.contains("zstd -T0"));
+        assert!(zstd_script.contains("sha256sum"));
+    }
+
+    #[test]
+    fn scheduled_backup_integrates_with_auto_snapshot_and_prunes_old() {
+        let dir = TempDir::new("scheduled-backup");
+        let backups_dir = dir.path().join("backups");
+        let ws_dir = dir.path().join("ws/dev");
+        fs::create_dir_all(&backups_dir).unwrap();
+        fs::create_dir_all(&ws_dir).unwrap();
+
+        let now = 1_794_500_000_i64;
+        let policy = ScheduledBackupPolicy {
+            enabled: true,
+            interval_secs: 7 * 86_400,
+            include_workspace: true,
+            keep_count: 2,
+        };
+
+        // Disabled auto_snapshot -> None
+        assert!(decide_scheduled_backup(
+            "dev",
+            false,
+            false,
+            &policy,
+            &backups_dir.to_string_lossy(),
+            &ws_dir.to_string_lossy(),
+            now,
+        )
+        .is_none());
+
+        // Enabled auto_snapshot & no prior backups -> Some(plan)
+        let plan = decide_scheduled_backup(
+            "dev",
+            false,
+            true,
+            &policy,
+            &backups_dir.to_string_lossy(),
+            &ws_dir.to_string_lossy(),
+            now,
+        )
+        .expect("scheduled backup plan");
+        assert_eq!(plan.env_name, "dev");
+        assert!(plan.script.contains("incus export"));
+
+        // Recent backup exists -> should_create_scheduled_backup is false
+        let entries = vec![
+            ArchiveScanEntry {
+                file_name: "dev-20261118-000000.tar.gz".to_string(),
+                file_path: "/b/dev-3.tar.gz".to_string(),
+                env_name: "dev".to_string(),
+                size_bytes: 10,
+                size_display: "10 B".to_string(),
+                created_at: "2026-11-18 00:00".to_string(),
+                mtime_secs: now - 3600,
+                has_workspace_archive: false,
+                workspace_archive_path: String::new(),
+                workspace_archive_size_display: String::new(),
+            },
+            ArchiveScanEntry {
+                file_name: "dev-20261110-000000.tar.gz".to_string(),
+                file_path: "/b/dev-2.tar.gz".to_string(),
+                env_name: "dev".to_string(),
+                size_bytes: 10,
+                size_display: "10 B".to_string(),
+                created_at: "2026-11-10 00:00".to_string(),
+                mtime_secs: now - 8 * 86_400,
+                has_workspace_archive: false,
+                workspace_archive_path: String::new(),
+                workspace_archive_size_display: String::new(),
+            },
+            ArchiveScanEntry {
+                file_name: "dev-20261101-000000.tar.gz".to_string(),
+                file_path: "/b/dev-1.tar.gz".to_string(),
+                env_name: "dev".to_string(),
+                size_bytes: 10,
+                size_display: "10 B".to_string(),
+                created_at: "2026-11-01 00:00".to_string(),
+                mtime_secs: now - 17 * 86_400,
+                has_workspace_archive: false,
+                workspace_archive_path: String::new(),
+                workspace_archive_size_display: String::new(),
+            },
+        ];
+        assert!(!should_create_scheduled_backup(
+            &entries,
+            "dev",
+            now,
+            policy.interval_secs
+        ));
+        let prune = scheduled_backups_to_prune(&entries, "dev", 2);
+        assert_eq!(prune.len(), 1);
+        assert_eq!(prune[0].0, "/b/dev-1.tar.gz");
     }
 }

@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Backup: Manifest Verification, Safe Orphan Cleanup, `mod.rs` Split, Parallel Compression, Cached Scan & Scheduled Backups (`rust/crates/aibox-core/src/backup/`, `aibox-app`)
+
+- **Modular split (`backup/mod.rs`, `export.rs`, `import.rs`, `archive_scan.rs`, `space.rs`):** Split `backup/mod.rs` into focused submodules for export/manifest/scheduled backups (`export.rs`), import/verification (`import.rs`), cached archive scanning (`archive_scan.rs`), and disk space checks (`space.rs`), preserving all `aibox_core::backup` exports.
+- **Archive manifest & SHA-256 verification (`backup/export.rs`, `backup/import.rs`, `backup/scripts.rs`, `qt_backend_backup.rs`):** Added `BackupManifest`, streaming pure-Rust `sha256_file`, `write_backup_manifest`, and `verify_backup_archive` returning structured `BackupError` variants (`NotFound`, `ManifestCorrupt`, `SizeMismatch`, `ChecksumMismatch`, `ArchiveCorrupt`). Export scripts now write `<archive>.manifest.json` sidecars and `Backend::import_environment` verifies checksums and legacy archive headers before importing.
+- **Safe orphan cleanup (`backup/orphans.rs`):** Added `OrphanCleanupMode` (default `DryRun`), `plan_orphan_cleanup` with an explicit `confirmation_list`, and `execute_orphan_cleanup` which re-verifies against live environments so active workspaces and snapshots are never deleted.
+- **Parallel `zstd -T0` compression & cached archive scanning (`backup/export.rs`, `backup/scripts.rs`, `backup/archive_scan.rs`, `qt_backend_backup.rs`):** Added `CompressionCodec::detect()` (`zstd -T0` with `gzip` fallback) for exports and `.archive-index.json` metadata caching in `scan_backup_archives_with_stats` supporting both `.tar.gz` and `.tar.zst` archives.
+- **Scheduled backups (`backup/export.rs`):** Added `ScheduledBackupPolicy`, `should_create_scheduled_backup`, `scheduled_backups_to_prune`, and `decide_scheduled_backup` for opt-in periodic exports integrated with `auto_snapshot_enabled`.
+- **Verification tests (`backup/mod.rs`):** Added unit tests for NIST SHA-256 vectors, export-manifest-verify-import round-trips, corrupt/truncated/missing archive structured errors, dry-run and active-environment-protected orphan cleanup, `.archive-index.json` cache hits and `zstd` scripts, and scheduled backup decisions/pruning.
+
 ### Core Network: Incremental Egress Tailing, IPv6 Allowlist/Egress, ACL Diff & Safe IP Parsing (`rust/crates/aibox-core/src/network/`)
 
 - **Safe IP parsing (`network/allowlist.rs`):** Removed `.unwrap()` calls on IP parsing and ensured invalid CIDRs, malformed hostnames, and garbage DNS responses are skipped with warnings without panicking.

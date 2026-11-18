@@ -141,7 +141,7 @@ pub fn detect_orphans(
                     continue;
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if !name.ends_with(".tar.gz") {
+                if !name.ends_with(".tar.gz") && !name.ends_with(".tar.zst") {
                     continue;
                 }
                 let abs = clean_path(&entry.path().to_string_lossy());
@@ -151,16 +151,24 @@ pub fn detect_orphans(
 
             let mut instance_bases = BTreeSet::new();
             for (fn_name, _, _) in &tar_files {
+                let is_ws = fn_name.ends_with("-workspace.tar.gz")
+                    || fn_name.ends_with("-workspace.tar.zst");
+                if is_ws {
+                    continue;
+                }
                 if let Some(base) = fn_name
                     .strip_suffix(".tar.gz")
-                    .filter(|_| !fn_name.ends_with("-workspace.tar.gz"))
+                    .or_else(|| fn_name.strip_suffix(".tar.zst"))
                 {
                     instance_bases.insert(base.to_string());
                 }
             }
 
             for (fn_name, abs_path, bytes) in tar_files {
-                let Some(base) = fn_name.strip_suffix("-workspace.tar.gz") else {
+                let Some(base) = fn_name
+                    .strip_suffix("-workspace.tar.gz")
+                    .or_else(|| fn_name.strip_suffix("-workspace.tar.zst"))
+                else {
                     continue;
                 };
                 if !instance_bases.contains(base) {
@@ -225,7 +233,9 @@ pub fn validate_orphan_path(
         ));
     }
     if kind == "backup-workspace"
-        && (parent_dir != clean_backups || !file_name.ends_with("-workspace.tar.gz"))
+        && (parent_dir != clean_backups
+            || (!file_name.ends_with("-workspace.tar.gz")
+                && !file_name.ends_with("-workspace.tar.zst")))
     {
         return Err(format!(
             "Refusing to delete non-orphan archive outside backups directory: {clean}"
@@ -377,4 +387,179 @@ pub fn prepare_delete_orphan_as_admin(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     Ok((cmd, file_name))
+}
+
+/// Execution mode for orphan cleanup. Defaults to `DryRun` for safety.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OrphanCleanupMode {
+    #[default]
+    DryRun,
+    Execute,
+}
+
+/// A single validated orphan item scheduled for confirmation or deletion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanPlanItem {
+    pub kind: String,
+    pub name: String,
+    pub path: String,
+    pub size_bytes: i64,
+    pub size_display: String,
+}
+
+/// Explicit orphan cleanup plan with default dry-run mode and confirmation list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanCleanupPlan {
+    pub dry_run: bool,
+    pub items: Vec<OrphanPlanItem>,
+    pub total_bytes: i64,
+    pub total_display: String,
+    pub confirmation_list: Vec<String>,
+    pub requires_confirmation: bool,
+}
+
+/// Result of running `execute_orphan_cleanup` in `DryRun` or `Execute` mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanCleanupReport {
+    pub dry_run: bool,
+    pub would_delete: Vec<String>,
+    pub deleted: Vec<String>,
+    pub skipped_active: Vec<String>,
+    pub delete_scripts: Vec<(String, String)>,
+    pub reclaimed_bytes: i64,
+}
+
+/// Builds a dry-run-by-default orphan cleanup plan with an explicit confirmation list.
+/// When `selected_paths` is `Some`, only orphans matching those cleaned paths are included.
+pub fn plan_orphan_cleanup(
+    environments: &[Value],
+    workspace_base: &str,
+    backups_dir: &str,
+    selected_paths: Option<&[String]>,
+) -> OrphanCleanupPlan {
+    let detected = detect_orphans(environments, workspace_base, backups_dir);
+    let selected_set: Option<BTreeSet<String>> =
+        selected_paths.map(|paths| paths.iter().map(|p| clean_path(p.trim())).collect());
+
+    let mut items = Vec::new();
+    let mut confirmation_list = Vec::new();
+    let mut total_bytes = 0i64;
+
+    for v in detected {
+        let Some(kind) = v.get("kind").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(path) = v.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let clean = clean_path(path);
+        if let Some(ref filter) = selected_set {
+            if !filter.contains(&clean) {
+                continue;
+            }
+        }
+        if validate_orphan_request(kind, &clean, workspace_base, backups_dir).is_err() {
+            continue;
+        }
+        let name = v
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(&clean)
+            .to_string();
+        let size_bytes = v.get("sizeBytes").and_then(Value::as_i64).unwrap_or(0);
+        let size_display = v
+            .get("sizeDisplay")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format_bytes(size_bytes));
+        total_bytes = total_bytes.saturating_add(size_bytes);
+        confirmation_list.push(format!("[{kind}] {clean} ({size_display})"));
+        items.push(OrphanPlanItem {
+            kind: kind.to_string(),
+            name,
+            path: clean,
+            size_bytes,
+            size_display,
+        });
+    }
+
+    OrphanCleanupPlan {
+        dry_run: true,
+        requires_confirmation: !items.is_empty(),
+        items,
+        total_bytes,
+        total_display: format_bytes(total_bytes),
+        confirmation_list,
+    }
+}
+
+/// Executes (or dry-runs) an `OrphanCleanupPlan`, re-verifying against `environments` so an
+/// active environment's workspace or snapshots can never be deleted.
+pub fn execute_orphan_cleanup(
+    plan: &OrphanCleanupPlan,
+    mode: OrphanCleanupMode,
+    environments: &[Value],
+    workspace_base: &str,
+    backups_dir: &str,
+) -> Result<OrphanCleanupReport, String> {
+    if mode == OrphanCleanupMode::DryRun {
+        return Ok(OrphanCleanupReport {
+            dry_run: true,
+            would_delete: plan.confirmation_list.clone(),
+            deleted: Vec::new(),
+            skipped_active: Vec::new(),
+            delete_scripts: Vec::new(),
+            reclaimed_bytes: 0,
+        });
+    }
+
+    if plan.items.is_empty() || plan.confirmation_list.is_empty() {
+        return Err("Orphan cleanup requires a non-empty explicit confirmation list.".to_string());
+    }
+
+    // Re-scan live orphans so any newly-active environment is protected.
+    let current_orphans: BTreeSet<String> =
+        detect_orphans(environments, workspace_base, backups_dir)
+            .into_iter()
+            .filter_map(|v| {
+                v.get("path")
+                    .and_then(Value::as_str)
+                    .map(|p| clean_path(p.trim()))
+            })
+            .collect();
+
+    let mut deleted = Vec::new();
+    let mut skipped_active = Vec::new();
+    let mut delete_scripts = Vec::new();
+    let mut reclaimed_bytes = 0i64;
+
+    for item in &plan.items {
+        let clean = validate_orphan_request(&item.kind, &item.path, workspace_base, backups_dir)?;
+        if !current_orphans.contains(&clean) {
+            skipped_active.push(clean);
+            continue;
+        }
+        if item.kind == "backup-workspace" {
+            if Path::new(&clean).exists() {
+                fs::remove_file(&clean)
+                    .map_err(|e| format!("Could not delete orphan archive '{clean}': {e}"))?;
+            }
+            deleted.push(clean);
+            reclaimed_bytes = reclaimed_bytes.saturating_add(item.size_bytes);
+        } else {
+            let script = delete_orphan_script(&item.kind, &clean);
+            delete_scripts.push((clean.clone(), script));
+            deleted.push(clean);
+            reclaimed_bytes = reclaimed_bytes.saturating_add(item.size_bytes);
+        }
+    }
+
+    Ok(OrphanCleanupReport {
+        dry_run: false,
+        would_delete: Vec::new(),
+        deleted,
+        skipped_active,
+        delete_scripts,
+        reclaimed_bytes,
+    })
 }
