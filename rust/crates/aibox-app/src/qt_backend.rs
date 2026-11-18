@@ -34,7 +34,7 @@ use aibox_core::util::paths::{
     clean_path, default_os_storage_path, default_system_path, default_workspace_path,
     CONTAINER_WORKSPACE_PATH,
 };
-use aibox_core::workspace::diff::default_diff_excludes;
+use aibox_core::workspace::diff::{default_diff_excludes, WorkspaceDiffCache};
 use aibox_core::workspace::file_access::{apply_file_access_state, FileAccessEnvInput};
 
 use crate::variant::{
@@ -966,6 +966,7 @@ pub struct BackendRust {
     poll_started: bool,
     pub(crate) task_watch_active: Arc<AtomicBool>,
     pub(crate) diff_generation: Arc<AtomicU64>,
+    pub(crate) diff_cache: WorkspaceDiffCache,
     pub(crate) log_offset: i64,
     pub(crate) has_exit_code: bool,
     pub(crate) last_exit_code: i32,
@@ -1084,6 +1085,7 @@ impl Default for BackendRust {
             poll_started: false,
             task_watch_active: Arc::new(AtomicBool::new(false)),
             diff_generation: Arc::new(AtomicU64::new(0)),
+            diff_cache: WorkspaceDiffCache::default(),
             log_offset: 0,
             has_exit_code: false,
             last_exit_code: -1,

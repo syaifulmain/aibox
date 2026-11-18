@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Workspace: Symlink-Safe Restore, Streaming Diff, Diff Cache & `diff/` Split (`rust/crates/aibox-core/src/workspace/diff/`, `aibox-app`)
+
+- **Modular split (`workspace/diff/mod.rs`, `rsync.rs`, `file.rs`, `restore.rs`):** Split `workspace/diff.rs` into focused submodules for rsync arg building/parsing/caching (`rsync.rs`), per-file diff preparation and binary/line checks (`file.rs`), and symlink-safe single-file restore (`restore.rs`), preserving all `aibox_core::workspace::diff` exports.
+- **Symlink-safe single-file restore (`workspace/diff/restore.rs`):** Replaced path-based `create_dir_all` / `remove_file` / `copy` in `restore_single_file` with `openat` + `O_NOFOLLOW` directory traversal, `fstatat(AT_SYMLINK_NOFOLLOW)` + `readlinkat` root-escape checks, and `openat(O_EXCL | O_NOFOLLOW)` + `renameat` atomic replacement.
+- **Streaming incremental diff & diff cache (`workspace/diff/rsync.rs`, `qt_backend.rs`, `qt_backend_workspace.rs`):** Added `StreamingRsyncParser` and `WorkspaceDiffCache` (keyed by `(env, snapshot, workspace root mtime, excludes)`). `Backend::load_workspace_diff` now streams `rsync` stdout line-by-line with batched UI updates while `diffLoading` is active, caches completed results, and invalidates on `restore_single_file`.
+- **Verification tests (`workspace/diff/`):** Added tests for target/parent symlink escape rejection, concurrent symlink-swap race safety, incremental streaming parity, diff cache hit/invalidation, and a 10,000-file workspace diff benchmark completing in `< 3 s` with default excludes.
+
 ### Core Snapshot: Centralized Quoting, Async Size Cache, Smart Auto-Snapshot & Tiered Retention (`rust/crates/aibox-core/src/snapshot/`, `aibox-app`)
 
 - **Centralized shell quoting (`snapshot/workspace.rs`, `snapshot/scripts.rs`, `golden/snapshot.jsonl`, `golden/backup.jsonl`):** Routed all error/warning `echo` messages in `workspace_delete_snapshot_snippet`, `workspace_restore_snippet`, and `convert_workspace_to_subvolume_script` through `util::shell::shell_quote` so `$` and `"` inside hostile names/paths are never expanded or broken. Updated reviewed golden fixtures and added hostile-name (` `, `'`, `$`, `\n`) unit and golden tests.

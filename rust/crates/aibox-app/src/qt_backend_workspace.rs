@@ -1,8 +1,10 @@
 use std::collections::HashSet;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use cxx_qt::{CxxQtType, Threading};
@@ -14,8 +16,9 @@ use aibox_core::snapshot::workspace::workspace_snapshot_dir;
 use aibox_core::util::paths::home_dir;
 use aibox_core::util::time::now_utc_iso;
 use aibox_core::workspace::diff::{
-    build_workspace_diff_args, is_safe_relative_path, prepare_file_diff,
-    process_workspace_diff_output, restore_single_file, shape_file_diff_output, FileDiffPrep,
+    build_workspace_diff_args, is_safe_relative_path, prepare_file_diff, restore_single_file,
+    shape_file_diff_output, workspace_root_mtime_nanos, FileDiffPrep, StreamingRsyncParser,
+    DEFAULT_MAX_DIFF_ENTRIES,
 };
 use aibox_core::workspace::file_access::{
     build_file_access_mount_script, choose_file_access_port, collect_reserved_file_access_ports,
@@ -436,9 +439,27 @@ impl qobject::Backend {
             return;
         }
 
+        let excludes = self.engine.config.diff_excludes.clone();
+        let ws_mtime = workspace_root_mtime_nanos(&ws_path);
+        if let Some(cached) = self
+            .diff_cache
+            .get(&name_s, &snap_s, ws_mtime, &excludes)
+            .cloned()
+        {
+            let q_entries = serialize_to_qvariant_list(&cached.entries);
+            let q_summary = serialize_to_qvariant_map(&cached.summary);
+            {
+                let mut rust = self.as_mut().rust_mut();
+                rust.diff_loading = false;
+                rust.diff_entries = q_entries;
+                rust.diff_summary = q_summary;
+            }
+            self.as_mut().workspace_diff_changed();
+            return;
+        }
+
         let gen = self.diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let gen_ref = self.diff_generation.clone();
-        let excludes = self.engine.config.diff_excludes.clone();
         let args = build_workspace_diff_args(&snap_path, &ws_path, &excludes);
 
         let initial_summary = serde_json::json!({
@@ -461,77 +482,21 @@ impl qobject::Backend {
 
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
-            let mut child = match Command::new("rsync")
-                .args(&args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    let err_msg = format!("Failed to start rsync: {e}");
-                    let _ = qt_thread.queue(move |mut qobject| {
-                        if gen_ref.load(Ordering::SeqCst) != gen {
-                            return;
-                        }
-                        let summary = serde_json::json!({
-                            "snapshotName": snap_s,
-                            "addedCount": 0,
-                            "modifiedCount": 0,
-                            "deletedCount": 0,
-                            "totalCount": 0,
-                            "truncated": false,
-                            "error": err_msg
-                        });
-                        let q_summary = serialize_to_qvariant_map(&summary);
-                        {
-                            let mut rust = qobject.as_mut().rust_mut();
-                            rust.diff_loading = false;
-                            rust.diff_entries = QListQVariant::default();
-                            rust.diff_summary = q_summary;
-                        }
-                        qobject.as_mut().workspace_diff_changed();
-                    });
-                    return;
-                }
-            };
-
-            let deadline = Instant::now() + Duration::from_secs(30);
-            let mut timed_out = false;
-            loop {
-                match child.try_wait() {
-                    Ok(Some(_)) => break,
-                    Ok(None) => {
-                        if gen_ref.load(Ordering::SeqCst) != gen {
-                            let _ = child.kill();
-                            let _ = child.wait();
-                            return;
-                        }
-                        if Instant::now() >= deadline {
-                            timed_out = true;
-                            let _ = child.kill();
-                            break;
-                        }
-                        std::thread::sleep(Duration::from_millis(50));
+            let push_error = |err_msg: String| {
+                let snap_err = snap_s.clone();
+                let gen_err = gen_ref.clone();
+                let _ = qt_thread.queue(move |mut qobject| {
+                    if gen_err.load(Ordering::SeqCst) != gen {
+                        return;
                     }
-                    Err(_) => break,
-                }
-            }
-
-            let out = child.wait_with_output();
-            let _ = qt_thread.queue(move |mut qobject| {
-                if gen_ref.load(Ordering::SeqCst) != gen {
-                    return;
-                }
-                if timed_out {
                     let summary = serde_json::json!({
-                        "snapshotName": snap_s,
+                        "snapshotName": snap_err,
                         "addedCount": 0,
                         "modifiedCount": 0,
                         "deletedCount": 0,
                         "totalCount": 0,
                         "truncated": false,
-                        "error": "Diff scan timed out after 30 seconds."
+                        "error": err_msg
                     });
                     let q_summary = serialize_to_qvariant_map(&summary);
                     {
@@ -541,72 +506,162 @@ impl qobject::Backend {
                         rust.diff_summary = q_summary;
                     }
                     qobject.as_mut().workspace_diff_changed();
+                });
+            };
+
+            let mut child = match Command::new("rsync")
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    push_error(format!("Failed to start rsync: {e}"));
                     return;
                 }
+            };
 
-                match out {
-                    Ok(output) => {
-                        let code = output.status.code().unwrap_or(-1);
-                        if code != 0 && code != 24 {
-                            let err_txt =
-                                String::from_utf8_lossy(&output.stderr).trim().to_string();
-                            let msg = if err_txt.is_empty() {
-                                "Failed to compare workspace with snapshot.".to_string()
-                            } else {
-                                err_txt
-                            };
-                            let summary = serde_json::json!({
-                                "snapshotName": snap_s,
-                                "addedCount": 0,
-                                "modifiedCount": 0,
-                                "deletedCount": 0,
-                                "totalCount": 0,
-                                "truncated": false,
-                                "error": msg
-                            });
-                            let q_summary = serialize_to_qvariant_map(&summary);
-                            {
-                                let mut rust = qobject.as_mut().rust_mut();
-                                rust.diff_loading = false;
-                                rust.diff_entries = QListQVariant::default();
-                                rust.diff_summary = q_summary;
+            let stdout_pipe = child.stdout.take();
+            let stderr_pipe = child.stderr.take();
+
+            let stderr_handle = std::thread::spawn(move || {
+                let mut buf = String::new();
+                if let Some(mut err) = stderr_pipe {
+                    let _ = err.read_to_string(&mut buf);
+                }
+                buf
+            });
+
+            let (tx, rx) = mpsc::channel::<String>();
+            let stdout_handle = std::thread::spawn(move || {
+                if let Some(out) = stdout_pipe {
+                    let mut reader = BufReader::new(out);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match reader.read_line(&mut line) {
+                            Ok(0) | Err(_) => break,
+                            Ok(_) => {
+                                if tx.send(line.clone()).is_err() {
+                                    break;
+                                }
                             }
-                            qobject.as_mut().workspace_diff_changed();
+                        }
+                    }
+                }
+            });
+
+            let mut parser = StreamingRsyncParser::new(&ws_path, DEFAULT_MAX_DIFF_ENTRIES);
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut timed_out = false;
+            let mut pending_entries = 0_usize;
+            let mut last_emit = Instant::now();
+
+            loop {
+                if gen_ref.load(Ordering::SeqCst) != gen {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    timed_out = true;
+                    let _ = child.kill();
+                    break;
+                }
+
+                let mut disconnected = false;
+                match rx.recv_timeout(Duration::from_millis(50)) {
+                    Ok(line) => {
+                        if parser.push_line(&line) {
+                            pending_entries += 1;
+                        }
+                        while let Ok(more) = rx.try_recv() {
+                            if parser.push_line(&more) {
+                                pending_entries += 1;
+                            }
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        disconnected = true;
+                    }
+                }
+
+                if pending_entries >= 50
+                    || (pending_entries > 0 && last_emit.elapsed() >= Duration::from_millis(120))
+                {
+                    pending_entries = 0;
+                    last_emit = Instant::now();
+                    let partial = parser.snapshot_result(&snap_s);
+                    let gen_partial = gen_ref.clone();
+                    let _ = qt_thread.queue(move |mut qobject| {
+                        if gen_partial.load(Ordering::SeqCst) != gen {
                             return;
                         }
-
-                        let stdout_s = String::from_utf8_lossy(&output.stdout);
-                        let res = process_workspace_diff_output(&snap_s, &ws_path, &stdout_s);
-                        let q_entries = serialize_to_qvariant_list(&res.entries);
-                        let q_summary = serialize_to_qvariant_map(&res.summary);
+                        let q_entries = serialize_to_qvariant_list(&partial.entries);
+                        let q_summary = serialize_to_qvariant_map(&partial.summary);
                         {
                             let mut rust = qobject.as_mut().rust_mut();
-                            rust.diff_loading = false;
+                            rust.diff_loading = true;
                             rust.diff_entries = q_entries;
                             rust.diff_summary = q_summary;
                         }
                         qobject.as_mut().workspace_diff_changed();
-                    }
-                    Err(e) => {
-                        let summary = serde_json::json!({
-                            "snapshotName": snap_s,
-                            "addedCount": 0,
-                            "modifiedCount": 0,
-                            "deletedCount": 0,
-                            "totalCount": 0,
-                            "truncated": false,
-                            "error": format!("Failed to read rsync output: {e}")
-                        });
-                        let q_summary = serialize_to_qvariant_map(&summary);
-                        {
-                            let mut rust = qobject.as_mut().rust_mut();
-                            rust.diff_loading = false;
-                            rust.diff_entries = QListQVariant::default();
-                            rust.diff_summary = q_summary;
-                        }
-                        qobject.as_mut().workspace_diff_changed();
-                    }
+                    });
                 }
+
+                if disconnected {
+                    break;
+                }
+            }
+
+            let status = child.wait();
+            let _ = stdout_handle.join();
+            let stderr_text = stderr_handle.join().unwrap_or_default();
+
+            if gen_ref.load(Ordering::SeqCst) != gen {
+                return;
+            }
+            if timed_out {
+                push_error("Diff scan timed out after 30 seconds.".to_string());
+                return;
+            }
+
+            let code = match status {
+                Ok(s) => s.code().unwrap_or(-1),
+                Err(e) => {
+                    push_error(format!("Failed to read rsync output: {e}"));
+                    return;
+                }
+            };
+            if code != 0 && code != 24 {
+                let err_txt = stderr_text.trim().to_string();
+                let msg = if err_txt.is_empty() {
+                    "Failed to compare workspace with snapshot.".to_string()
+                } else {
+                    err_txt
+                };
+                push_error(msg);
+                return;
+            }
+
+            let res = parser.snapshot_result(&snap_s);
+            let _ = qt_thread.queue(move |mut qobject| {
+                if gen_ref.load(Ordering::SeqCst) != gen {
+                    return;
+                }
+                let q_entries = serialize_to_qvariant_list(&res.entries);
+                let q_summary = serialize_to_qvariant_map(&res.summary);
+                {
+                    let mut rust = qobject.as_mut().rust_mut();
+                    rust.diff_cache
+                        .insert(&name_s, &snap_s, ws_mtime, excludes, res);
+                    rust.diff_loading = false;
+                    rust.diff_entries = q_entries;
+                    rust.diff_summary = q_summary;
+                }
+                qobject.as_mut().workspace_diff_changed();
             });
         });
     }
@@ -762,6 +817,7 @@ impl qobject::Backend {
         }
         self.as_mut()
             .set_status_message(&format!("Restored '{rel_s}' from snapshot '{snap_s}'."));
+        self.as_mut().rust_mut().diff_cache.invalidate_env(&name_s);
         self.as_mut().load_workspace_diff(name, snapshot_name);
         QString::default()
     }
