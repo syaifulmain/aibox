@@ -23,9 +23,9 @@ ModalDialog {
         Layout.fillWidth: true
         height: Style.controlHeight
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurface
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             anchors.fill: parent
             anchors.leftMargin: Style.space12
@@ -33,7 +33,7 @@ ModalDialog {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             text: app.portForwardError
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
@@ -51,7 +51,7 @@ ModalDialog {
 
         Text {
             text: "→"
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontMono
             font.pixelSize: Style.font13
         }
@@ -91,15 +91,15 @@ ModalDialog {
         Layout.fillWidth: true
         Layout.fillHeight: true
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         Text {
             anchors.centerIn: parent
             visible: !backend.selectedEnvironment.portForwards || backend.selectedEnvironment.portForwards.length === 0
             text: qsTr("No forwarded ports configured for this environment.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -116,9 +116,9 @@ ModalDialog {
                 width: portsListView.width
                 height: 48
                 radius: Math.min(Style.radius3, theme.radius)
-                color: Style.surfaceCard
+                color: theme.surfaceCard
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -129,7 +129,7 @@ ModalDialog {
                     Text {
                         Layout.fillWidth: true
                         text: "127.0.0.1:" + modelData.hostPort + "  →  " + modelData.guestPort
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }

@@ -8,7 +8,7 @@ ModalDialog {
     open: app.wipeVisible
     cardWidth: Math.min(parent.width - Style.modalGutter, 500)
     contentSpacing: Style.space14
-    borderColor: theme.red
+    borderColor: theme.dangerBorder
     onDismissed: app.wipeVisible = false
 
     ModalHeader {
@@ -21,7 +21,7 @@ ModalDialog {
         wrapMode: Text.WordWrap
         lineHeight: 1.35
         text: qsTr("This will permanently destroy the entire Linux OS container, installed packages, databases, and snapshots inside '%1' in 1 second. Your host OS remains untouched.").arg(backend.selectedEnvironment.name || "")
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font12
     }
@@ -31,9 +31,9 @@ ModalDialog {
         Layout.fillWidth: true
         height: 38
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: app.deleteWorkspaceOnWipe ? theme.dangerSurface : theme.surfaceInput
         border.width: Style.hairline
-        border.color: app.deleteWorkspaceOnWipe ? theme.red : Style.borderSubtle
+        border.color: app.deleteWorkspaceOnWipe ? theme.dangerBorder : theme.borderSubtle
 
         RowLayout {
             anchors.fill: parent
@@ -45,14 +45,14 @@ ModalDialog {
                 width: 16
                 height: 16
                 radius: Style.radius3
-                color: app.deleteWorkspaceOnWipe ? theme.red : "transparent"
+                color: app.deleteWorkspaceOnWipe ? theme.danger : "transparent"
                 border.width: Style.hairline
-                border.color: app.deleteWorkspaceOnWipe ? theme.red : theme.muted
+                border.color: app.deleteWorkspaceOnWipe ? theme.danger : theme.textMuted
                 Text {
                     anchors.centerIn: parent
                     visible: app.deleteWorkspaceOnWipe
                     text: "✓"
-                    color: "black"
+                    color: theme.onDanger
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                 }
@@ -62,7 +62,7 @@ ModalDialog {
                 Layout.fillWidth: true
                 elide: Text.ElideMiddle
                 text: qsTr("Also delete shared project files and workspace snapshots in %1").arg(backend.selectedEnvironment.workspacePath || "")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }

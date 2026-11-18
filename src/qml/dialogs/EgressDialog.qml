@@ -34,35 +34,35 @@ ModalDialog {
         Text {
             Layout.fillWidth: true
             text: qsTr("Destination IP")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
         Text {
             Layout.preferredWidth: 72
             text: qsTr("Proto")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
         Text {
             Layout.preferredWidth: 72
             text: qsTr("Port")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
         Text {
             Layout.preferredWidth: 64
             text: qsTr("Hits")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
         Text {
             Layout.preferredWidth: 88
             text: qsTr("Last Seen")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
@@ -73,15 +73,15 @@ ModalDialog {
         Layout.fillWidth: true
         Layout.fillHeight: true
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         Text {
             anchors.centerIn: parent
             visible: backend.egressLogs.length === 0
             text: qsTr("No egress entries captured yet. Enable 'Record: ON' on the environment and generate traffic.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
             horizontalAlignment: Text.AlignHCenter
@@ -101,9 +101,9 @@ ModalDialog {
                 width: egressListView.width
                 height: 36
                 radius: Math.min(Style.radius3, theme.radius)
-                color: Style.surfaceCard
+                color: theme.surfaceCard
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -114,35 +114,35 @@ ModalDialog {
                     Text {
                         Layout.fillWidth: true
                         text: modelData.dstIp || ""
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }
                     Text {
                         Layout.preferredWidth: 72
                         text: modelData.proto || ""
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }
                     Text {
                         Layout.preferredWidth: 72
                         text: modelData.port || "—"
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }
                     Text {
                         Layout.preferredWidth: 64
                         text: String(modelData.count || 0)
-                        color: theme.accent
+                        color: theme.accentText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }
                     Text {
                         Layout.preferredWidth: 88
                         text: modelData.lastSeen || "—"
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }

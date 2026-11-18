@@ -74,15 +74,15 @@ ModalDialog {
             Layout.preferredWidth: 360
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             Text {
                 anchors.centerIn: parent
                 visible: backend.operationHistory.length === 0
                 text: qsTr("No recorded operations yet.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -101,9 +101,9 @@ ModalDialog {
                     width: historyListView.width
                     height: histItemCol.implicitHeight + Style.space16
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: selected ? Style.surfaceSelected : Style.surfaceCard
+                    color: selected ? theme.surfaceSelected : theme.surfaceCard
                     border.width: Style.hairline
-                    border.color: selected ? theme.accent : Style.borderSubtle
+                    border.color: selected ? theme.accentBorder : theme.borderSubtle
 
                     ColumnLayout {
                         id: histItemCol
@@ -123,8 +123,8 @@ ModalDialog {
                                       ? "danger"
                                       : (modelData.status === "cancelled" ? "warning" : "success")
                                 borderColor: modelData.status === "failed"
-                                             ? theme.red
-                                             : (modelData.status === "cancelled" ? Style.warning : theme.green)
+                                             ? theme.dangerBorder
+                                             : (modelData.status === "cancelled" ? theme.warningBorder : theme.successBorder)
                                 textWeight: Font.Medium
                             }
 
@@ -139,7 +139,7 @@ ModalDialog {
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 text: modelData.envName || ""
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                             }
@@ -150,7 +150,7 @@ ModalDialog {
                                          ? (Math.round(modelData.durationMs / 100) / 10) + "s"
                                          : modelData.durationMs + "ms")
                                       : ""
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                             }
@@ -160,7 +160,7 @@ ModalDialog {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             text: modelData.description || ""
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontSans
                             font.pixelSize: Style.font12
                         }
@@ -169,7 +169,7 @@ ModalDialog {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
                             text: modelData.timestamp || (modelData.startedAt || "").replace("T", " ")
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -192,9 +192,9 @@ ModalDialog {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             ScrollView {
                 anchors.fill: parent
@@ -208,7 +208,7 @@ ModalDialog {
                     text: app.selectedHistoryLog.length > 0
                           ? app.selectedHistoryLog
                           : qsTr("Select an operation to inspect its log output.")
-                    color: app.selectedHistoryLog.length > 0 ? theme.foreground : theme.muted
+                    color: app.selectedHistoryLog.length > 0 ? theme.textPrimary : theme.textMuted
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                     background: null
@@ -228,9 +228,9 @@ ModalDialog {
             Layout.preferredWidth: 340
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             Text {
                 anchors.centerIn: parent
@@ -239,7 +239,7 @@ ModalDialog {
                 wrapMode: Text.WordWrap
                 visible: backend.recordedSessions.length === 0
                 text: qsTr("No recorded interactive sessions yet. Enable Session Recording in Settings -> Safety or per environment.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -258,9 +258,9 @@ ModalDialog {
                     width: sessionsListView.width
                     height: sessItemCol.implicitHeight + Style.space16
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: selected ? Style.surfaceSelected : Style.surfaceCard
+                    color: selected ? theme.surfaceSelected : theme.surfaceCard
                     border.width: Style.hairline
-                    border.color: selected ? theme.accent : Style.borderSubtle
+                    border.color: selected ? theme.accentBorder : theme.borderSubtle
 
                     ColumnLayout {
                         id: sessItemCol
@@ -274,7 +274,7 @@ ModalDialog {
 
                             Text {
                                 text: modelData.envName || ""
-                                color: theme.foreground
+                                color: theme.textPrimary
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font12
                                 font.weight: Font.Medium
@@ -284,7 +284,7 @@ ModalDialog {
 
                             Text {
                                 text: modelData.sizeDisplay || ""
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                             }
@@ -293,14 +293,14 @@ ModalDialog {
                                 height: Style.badgeHeightMd
                                 width: 22
                                 radius: Style.radius3
-                                color: delSessMouse.containsMouse ? Style.dangerTint : Style.surfaceInput
+                                color: delSessMouse.containsMouse ? theme.dangerSurface : theme.surfaceInput
                                 border.width: Style.hairline
-                                border.color: delSessMouse.containsMouse ? theme.red : Style.borderSubtle
+                                border.color: delSessMouse.containsMouse ? theme.dangerBorder : theme.borderSubtle
 
                                 Text {
                                     anchors.centerIn: parent
                                     text: "x"
-                                    color: delSessMouse.containsMouse ? theme.red : theme.muted
+                                    color: delSessMouse.containsMouse ? theme.dangerText : theme.textMuted
                                     font.family: Style.fontMono
                                     font.pixelSize: Style.font10
                                 }
@@ -332,7 +332,7 @@ ModalDialog {
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 text: modelData.timestamp || ""
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                             }
@@ -340,7 +340,7 @@ ModalDialog {
                             Text {
                                 visible: modelData.hasTiming || false
                                 text: qsTr("TIMED")
-                                color: theme.accent
+                                color: theme.accentText
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font9
                             }
@@ -361,9 +361,9 @@ ModalDialog {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             ScrollView {
                 anchors.fill: parent
@@ -377,7 +377,7 @@ ModalDialog {
                     text: app.selectedSessionText.length > 0
                           ? app.selectedSessionText
                           : qsTr("Select a recorded session to view ANSI-stripped terminal output (200 KB cap).")
-                    color: app.selectedSessionText.length > 0 ? theme.foreground : theme.muted
+                    color: app.selectedSessionText.length > 0 ? theme.textPrimary : theme.textMuted
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                     background: null

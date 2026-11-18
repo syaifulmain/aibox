@@ -34,9 +34,9 @@ ModalDialog {
         Layout.fillWidth: true
         height: 36
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurface
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             anchors.fill: parent
             anchors.leftMargin: Style.space12
@@ -44,7 +44,7 @@ ModalDialog {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             text: app.editQuotaError
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
@@ -56,15 +56,15 @@ ModalDialog {
         columnSpacing: Style.space12
         rowSpacing: Style.space10
 
-        Text { text: qsTr("CPU Cores"); color: theme.foreground; font.family: Style.fontSans; font.pixelSize: Style.font12 }
+        Text { text: qsTr("CPU Cores"); color: theme.textPrimary; font.family: Style.fontSans; font.pixelSize: Style.font12 }
         FlatInput { id: quotaCpuField; Layout.fillWidth: true; placeholder: "4" }
 
-        Text { text: qsTr("RAM Limit"); color: theme.foreground; font.family: Style.fontSans; font.pixelSize: Style.font12 }
+        Text { text: qsTr("RAM Limit"); color: theme.textPrimary; font.family: Style.fontSans; font.pixelSize: Style.font12 }
         FlatInput { id: quotaRamField; Layout.fillWidth: true; placeholder: "8GiB" }
 
         Text {
             text: qsTr("Disk Quota (Used: %1)").arg(backend.selectedEnvironment.diskUsage || "0 MB")
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -73,7 +73,7 @@ ModalDialog {
         Text {
             visible: !app.editQuotaIsVm
             text: qsTr("Process Limit (pids)")
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -84,7 +84,7 @@ ModalDialog {
             placeholder: "4096 or Unlimited"
         }
 
-        Text { text: qsTr("Disk I/O Limit"); color: theme.foreground; font.family: Style.fontSans; font.pixelSize: Style.font12 }
+        Text { text: qsTr("Disk I/O Limit"); color: theme.textPrimary; font.family: Style.fontSans; font.pixelSize: Style.font12 }
         FlatInput { id: quotaIoField; Layout.fillWidth: true; placeholder: "200MB or Unlimited" }
     }
 
@@ -96,9 +96,9 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: editPoolWarnTxt.implicitHeight + Style.space16
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.warningSurface
+        color: theme.warningSurface
         border.width: Style.hairline
-        border.color: Style.warning
+        border.color: theme.warningBorder
         Text {
             id: editPoolWarnTxt
             anchors.fill: parent
@@ -107,7 +107,7 @@ ModalDialog {
             anchors.rightMargin: Style.space12
             wrapMode: Text.WordWrap
             text: parent.poolWarn
-            color: Style.warning
+            color: theme.warningText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }

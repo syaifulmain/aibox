@@ -49,13 +49,13 @@ ModalDialog {
                 width: 104
                 height: Style.controlHeightXxs
                 radius: Style.radius3
-                color: Style.surfaceInput
+                color: theme.surfaceInput
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
                 Text {
                     anchors.centerIn: parent
                     text: modelData.k
-                    color: theme.accent
+                    color: theme.accentText
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                 }
@@ -64,7 +64,7 @@ ModalDialog {
             Text {
                 Layout.fillWidth: true
                 text: modelData.d
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }

@@ -28,9 +28,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: safetyCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: safetyCardCol
@@ -40,7 +40,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Automatic Btrfs Snapshots")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -49,7 +49,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Creates an auto-<timestamp> snapshot before Enter OS Terminal and Start OS (at most once every 5 minutes). Manual snapshots are never pruned.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
                 wrapMode: Text.WordWrap
@@ -69,7 +69,7 @@ ColumnLayout {
                 Text {
                     Layout.preferredWidth: 180
                     text: qsTr("Keep last auto-snapshots")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -81,7 +81,7 @@ ColumnLayout {
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("1 to 50 snapshots per environment")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font10
                 }
@@ -94,9 +94,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: watchdogCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: watchdogCardCol
@@ -106,7 +106,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Disk & Resource Watchdog")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -127,7 +127,7 @@ ColumnLayout {
                 Text {
                     Layout.preferredWidth: 180
                     text: qsTr("Disk warn / critical (%)")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -144,7 +144,7 @@ ColumnLayout {
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("50-98 warn, > warn critical (5% hysteresis)")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font10
                 }
@@ -166,9 +166,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: idleStopCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: idleStopCardCol
@@ -178,7 +178,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Idle Auto-Stop (Opt-in)")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -188,7 +188,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: qsTr("Automatically stops running non-template containers after sustained <3% CPU with no active incus exec session or port forwards (1 min warning notification beforehand). Works only while the AIBox GUI is running — no background daemon is used.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -204,7 +204,7 @@ ColumnLayout {
                         text: modelData === 0 ? qsTr("Off") : qsTr("%1 min").arg(modelData)
                         selected: app.idleStopMinutesDraft === modelData
                         textSize: Style.font11
-                        fillColor: Style.surfaceCard
+                        fillColor: theme.surfaceCard
                         chipHeight: Style.controlHeight
                         horizontalPadding: Style.space20
                         onClicked: app.idleStopMinutesDraft = modelData
@@ -220,9 +220,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: staleCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: staleCardCol
@@ -235,7 +235,7 @@ ColumnLayout {
 
                 Text {
                     text: qsTr("Stale Environment Report (U)")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -255,7 +255,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: qsTr("Flags non-template environments unused for at least staleDays days (plus unknown-age environments without a usage timestamp) and scans orphaned workspaces, snapshot dirs, and unpaired backup archives.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -271,7 +271,7 @@ ColumnLayout {
                         text: qsTr("%1 d").arg(modelData)
                         selected: app.staleDaysDraft === modelData
                         textSize: Style.font11
-                        fillColor: Style.surfaceCard
+                        fillColor: theme.surfaceCard
                         chipHeight: Style.controlHeight
                         horizontalPadding: Style.space20
                         onClicked: app.staleDaysDraft = modelData
@@ -287,9 +287,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: recCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: recCardCol
@@ -303,7 +303,7 @@ ColumnLayout {
 
                 Text {
                     text: qsTr("Session Recording (Opt-in)")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -314,7 +314,7 @@ ColumnLayout {
                     text: app.recordSessionsDraft ? qsTr("Enabled") : qsTr("Disabled")
                     selected: app.recordSessionsDraft
                     textSize: Style.font11
-                    fillColor: Style.surfaceCard
+                    fillColor: theme.surfaceCard
                     chipHeight: Style.controlHeightSm
                     horizontalPadding: Style.space22
                     onClicked: app.recordSessionsDraft = !app.recordSessionsDraft
@@ -325,7 +325,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: qsTr("Records interactive Enter shells using script -q -f with timing files, automatically scrubs S3 secrets after exit, and retains the last 20 sessions per environment (200 MB total cap). View or replay sessions under History (H) -> Sessions.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }

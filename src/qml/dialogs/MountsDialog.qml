@@ -24,9 +24,9 @@ ModalDialog {
         Layout.fillWidth: true
         height: 36
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurface
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             anchors.fill: parent
             anchors.leftMargin: Style.space12
@@ -34,7 +34,7 @@ ModalDialog {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             text: app.extraMountError
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
@@ -95,14 +95,14 @@ ModalDialog {
             height: Style.controlHeightSm
             width: roModeTxt.implicitWidth + Style.space24
             radius: Math.min(Style.radius4, theme.radius)
-            color: app.mountReadOnlyDraft ? Style.surfaceSelected : Style.surfaceInput
+            color: app.mountReadOnlyDraft ? theme.surfaceSelected : theme.surfaceInput
             border.width: Style.hairline
-            border.color: app.mountReadOnlyDraft ? theme.accent : Style.borderSubtle
+            border.color: app.mountReadOnlyDraft ? theme.accentBorder : theme.borderSubtle
             Text {
                 id: roModeTxt
                 anchors.centerIn: parent
                 text: qsTr("Read-Only (Safe)")
-                color: app.mountReadOnlyDraft ? theme.foreground : theme.muted
+                color: app.mountReadOnlyDraft ? theme.textPrimary : theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -120,14 +120,14 @@ ModalDialog {
             height: Style.controlHeightSm
             width: rwModeTxt.implicitWidth + Style.space24
             radius: Math.min(Style.radius4, theme.radius)
-            color: !app.mountReadOnlyDraft ? Style.dangerTintMuted : Style.surfaceInput
+            color: !app.mountReadOnlyDraft ? theme.dangerSurface : theme.surfaceInput
             border.width: Style.hairline
-            border.color: !app.mountReadOnlyDraft ? theme.red : Style.borderSubtle
+            border.color: !app.mountReadOnlyDraft ? theme.dangerBorder : theme.borderSubtle
             Text {
                 id: rwModeTxt
                 anchors.centerIn: parent
                 text: qsTr("Read-Write")
-                color: !app.mountReadOnlyDraft ? theme.red : theme.muted
+                color: !app.mountReadOnlyDraft ? theme.dangerText : theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -143,9 +143,9 @@ ModalDialog {
             Layout.fillWidth: true
             height: Style.controlHeightSm
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: app.mountConfirmRwDraft ? theme.red : Style.borderSubtle
+            border.color: app.mountConfirmRwDraft ? theme.dangerBorder : theme.borderSubtle
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: Style.space10
@@ -155,14 +155,14 @@ ModalDialog {
                     width: 14
                     height: 14
                     radius: Style.radius3
-                    color: app.mountConfirmRwDraft ? theme.red : "transparent"
+                    color: app.mountConfirmRwDraft ? theme.danger : "transparent"
                     border.width: Style.hairline
-                    border.color: app.mountConfirmRwDraft ? theme.red : theme.muted
+                    border.color: app.mountConfirmRwDraft ? theme.danger : theme.textMuted
                     Text {
                         anchors.centerIn: parent
                         visible: app.mountConfirmRwDraft
                         text: "✓"
-                        color: theme.accentForeground
+                        color: theme.onDanger
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                     }
@@ -171,7 +171,7 @@ ModalDialog {
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                     text: qsTr("Confirm: allow the container to modify files inside this host folder")
-                    color: app.mountConfirmRwDraft ? theme.red : theme.muted
+                    color: app.mountConfirmRwDraft ? theme.dangerText : theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -188,15 +188,15 @@ ModalDialog {
         Layout.fillWidth: true
         Layout.fillHeight: true
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         Text {
             anchors.centerIn: parent
             visible: !backend.selectedEnvironment.extraMounts || backend.selectedEnvironment.extraMounts.length === 0
             text: qsTr("No extra host mounts attached.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -213,9 +213,9 @@ ModalDialog {
                 width: mountsListView.width
                 height: 48
                 radius: Math.min(Style.radius3, theme.radius)
-                color: Style.surfaceCard
+                color: theme.surfaceCard
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -226,7 +226,7 @@ ModalDialog {
                     TagBadge {
                         text: modelData.readonly ? "RO" : "RW"
                         tone: modelData.readonly ? "success" : "danger"
-                        borderColor: modelData.readonly ? theme.green : theme.red
+                        borderColor: modelData.readonly ? theme.successBorder : theme.dangerBorder
                         textWeight: Font.Medium
                     }
 
@@ -235,7 +235,7 @@ ModalDialog {
                         Layout.minimumWidth: 0
                         elide: Text.ElideMiddle
                         text: (modelData.source || "") + "  →  " + (modelData.path || "")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }

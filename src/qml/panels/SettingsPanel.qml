@@ -11,7 +11,7 @@ ModalDialog {
     zOrder: 80
     padding: 0
     contentSpacing: 0
-    borderColor: Style.borderSubtle
+    borderColor: theme.borderSubtle
     clipCard: true
     cardWidth: Math.min(parent.width - Style.modalGutter, 980)
     cardHeight: Math.min(parent.height - Style.modalEdge, 650)
@@ -61,7 +61,7 @@ ModalDialog {
         Rectangle {
             Layout.preferredWidth: 232
             Layout.fillHeight: true
-            color: Style.surfaceSidebar
+            color: theme.surfaceSidebar
 
             ColumnLayout {
                 anchors.fill: parent
@@ -76,21 +76,21 @@ ModalDialog {
                         width: Style.iconTile
                         height: Style.iconTile
                         radius: Math.min(Style.radius5, theme.radius)
-                        color: Style.surfaceSelected
+                        color: theme.accentSurface
                         border.width: Style.hairline
-                        border.color: theme.accent
+                        border.color: theme.accentBorder
 
                         SlidersIcon {
                             anchors.centerIn: parent
                             width: 18
                             height: 18
-                            color: theme.accent
+                            color: theme.accentText
                         }
                     }
 
                     Text {
                         text: qsTr("Settings")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font14
                         font.weight: Font.Medium
@@ -102,7 +102,7 @@ ModalDialog {
                     Layout.topMargin: Style.space8
                     Layout.bottomMargin: Style.space6
                     height: Style.hairline
-                    color: Style.borderSubtle
+                    color: theme.borderSubtle
                 }
 
                 Repeater {
@@ -120,9 +120,9 @@ ModalDialog {
                         Layout.fillWidth: true
                         height: Style.menuRowHeight
                         radius: Math.min(Style.radius5, theme.radius)
-                        color: app.settingsSection === index ? Style.surfaceSelected : "transparent"
+                        color: app.settingsSection === index ? theme.surfaceSelected : "transparent"
                         border.width: app.settingsSection === index ? Style.hairline : 0
-                        border.color: theme.accent
+                        border.color: theme.accentBorder
 
                         ColumnLayout {
                             anchors.left: parent.left
@@ -134,14 +134,14 @@ ModalDialog {
 
                             Text {
                                 text: modelData.title
-                                color: app.settingsSection === index ? theme.foreground : theme.muted
+                                color: app.settingsSection === index ? theme.textPrimary : theme.textSecondary
                                 font.family: Style.fontSans
                                 font.pixelSize: Style.font12
                                 font.weight: app.settingsSection === index ? Font.Medium : Font.Normal
                             }
                             Text {
                                 text: modelData.detail
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontSans
                                 font.pixelSize: Style.font10
                             }
@@ -162,7 +162,7 @@ ModalDialog {
         Rectangle {
             width: Style.hairline
             Layout.fillHeight: true
-            color: Style.borderSubtle
+            color: theme.borderSubtle
         }
 
         // ------------------------------------------------------
@@ -200,9 +200,9 @@ ModalDialog {
                 Layout.fillWidth: true
                 height: visible ? Style.controlHeight : 0
                 radius: Math.min(Style.radius4, theme.radius)
-                color: app.configNoticeError ? Style.dangerSurface : Style.successSurfaceTint
+                color: app.configNoticeError ? theme.dangerSurface : theme.successSurface
                 border.width: Style.hairline
-                border.color: app.configNoticeError ? theme.red : theme.green
+                border.color: app.configNoticeError ? theme.dangerBorder : theme.successBorder
 
                 Text {
                     anchors.fill: parent
@@ -211,7 +211,7 @@ ModalDialog {
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
                     text: app.configNotice
-                    color: app.configNoticeError ? theme.red : theme.green
+                    color: app.configNoticeError ? theme.dangerText : theme.successText
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                 }

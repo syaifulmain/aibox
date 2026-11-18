@@ -37,9 +37,9 @@ ModalDialog {
         Layout.fillWidth: true
         height: 36
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurface
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
 
         Text {
             anchors.fill: parent
@@ -48,7 +48,7 @@ ModalDialog {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
             text: backend.errorMessage
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -83,7 +83,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("Project / Environment Name")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -96,7 +96,7 @@ ModalDialog {
                         text: qsTr("Shared at: %1/%2")
                               .arg(app.newEnvSharedPath.trim().length > 0 ? app.newEnvSharedPath.trim() : backend.workspaceBase)
                               .arg(app.newEnvName.length > 0 ? app.newEnvName : "<name>")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                         elide: Text.ElideMiddle
@@ -119,7 +119,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("Shared Folder Location (optional)")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -174,7 +174,7 @@ ModalDialog {
                         mono: false
                         textSize: Style.font12
                         mediumWhenSelected: true
-                        selectedTextColor: theme.foreground
+                        selectedTextColor: theme.textPrimary
                         chipHeight: Style.controlHeight
                         onClicked: {
                             app.createFromTemplate = modelData.fromTpl
@@ -193,7 +193,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("Select Template")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -228,7 +228,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("Environment Capability Preset")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -262,7 +262,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("Linux Distribution")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -282,9 +282,9 @@ ModalDialog {
                             Layout.fillWidth: true
                             height: 46
                             radius: Math.min(Style.radius4, theme.radius)
-                            color: selected ? Style.surfaceSelected : Style.surfaceInput
+                            color: selected ? theme.surfaceSelected : theme.surfaceInput
                             border.width: Style.hairline
-                            border.color: selected ? theme.accent : Style.borderSubtle
+                            border.color: selected ? theme.accentBorder : theme.borderSubtle
 
                             ColumnLayout {
                                 anchors.centerIn: parent
@@ -293,14 +293,14 @@ ModalDialog {
                                 Text {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: modelData.id
-                                    color: selected ? theme.foreground : theme.muted
+                                    color: selected ? theme.textPrimary : theme.textSecondary
                                     font.family: Style.fontMono
                                     font.pixelSize: Style.font12
                                 }
                                 Text {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: modelData.downloaded ? qsTr("✓ Cached") : modelData.badge
-                                    color: modelData.downloaded ? theme.green : theme.muted
+                                    color: modelData.downloaded ? theme.successText : theme.textMuted
                                     font.family: Style.fontSans
                                     font.pixelSize: Style.font10
                                 }
@@ -327,7 +327,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("Disk Quota")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -357,7 +357,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("RAM Limit")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -386,7 +386,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("CPU Cores")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -422,7 +422,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("Process Limit (Container)")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -453,7 +453,7 @@ ModalDialog {
 
                     Text {
                         text: qsTr("Disk I/O Limit (Read / Write)")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -486,9 +486,9 @@ ModalDialog {
                 Layout.fillWidth: true
                 implicitHeight: createPoolWarnTxt.implicitHeight + Style.space16
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.warningSurface
+                color: theme.warningSurface
                 border.width: Style.hairline
-                border.color: Style.warning
+                border.color: theme.warningBorder
 
                 Text {
                     id: createPoolWarnTxt
@@ -498,7 +498,7 @@ ModalDialog {
                     anchors.rightMargin: Style.space12
                     wrapMode: Text.WordWrap
                     text: parent.warnMsg
-                    color: Style.warning
+                    color: theme.warningText
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -550,14 +550,14 @@ ModalDialog {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
                 text: backend.taskStage
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font13
             }
 
             Text {
                 text: backend.taskProgress + "%"
-                color: theme.accent
+                color: theme.accentText
                 font.family: Style.fontMono
                 font.pixelSize: Style.font13
             }
@@ -567,7 +567,7 @@ ModalDialog {
             Layout.fillWidth: true
             implicitHeight: 8
             value: backend.taskProgress
-            trackColor: Style.surfaceInput
+            trackColor: theme.surfaceTrack
             minFillWidth: Style.space4
             showAtZero: true
             animationMs: 150
@@ -578,9 +578,9 @@ ModalDialog {
             Layout.fillWidth: true
             height: 44
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
@@ -590,7 +590,7 @@ ModalDialog {
 
                 Text {
                     text: "$"
-                    color: theme.accent
+                    color: theme.accentText
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                 }
@@ -599,7 +599,7 @@ ModalDialog {
                     Layout.fillWidth: true
                     elide: Text.ElideLeft
                     text: backend.taskLog
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontMono
                     font.pixelSize: Style.font11
                 }
@@ -611,7 +611,7 @@ ModalDialog {
 
             Text {
                 text: qsTr("Creation is locked while an operation is running.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }

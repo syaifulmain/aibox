@@ -29,9 +29,9 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: sysRootInfoCol.implicitHeight + Style.cardPaddingSm * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: sysRootInfoCol
@@ -41,7 +41,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("System root location")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -49,7 +49,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Root: %1  ·  Config: %2").arg(backend.systemPath).arg(backend.configFilePath)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontMono
                 font.pixelSize: Style.font10
                 elide: Text.ElideMiddle
@@ -62,9 +62,9 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: wsLocCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: wsLocCardCol
@@ -74,7 +74,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Workspace location")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -82,7 +82,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("New environments share this host folder at %1. Existing environments keep their current shared folder.").arg(backend.containerWorkspacePath)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
                 wrapMode: Text.WordWrap
@@ -114,7 +114,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Default: %1").arg(backend.defaultWorkspaceBase)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontMono
                 font.pixelSize: Style.font9
                 elide: Text.ElideMiddle
@@ -127,9 +127,9 @@ ColumnLayout {
         Layout.fillWidth: true
         implicitHeight: osLocCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: osLocCardCol
@@ -139,7 +139,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("OS image storage")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -147,7 +147,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Downloaded OS images are also exported here. If the local Incus image is gone, AIBox imports the copy from this folder instead of downloading again.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
                 wrapMode: Text.WordWrap
@@ -179,7 +179,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Default: %1").arg(backend.defaultOsStoragePath)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontMono
                 font.pixelSize: Style.font9
                 elide: Text.ElideMiddle

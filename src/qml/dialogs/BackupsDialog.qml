@@ -25,15 +25,15 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: bErrTxt.implicitHeight + Style.space14
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurfaceAlt
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             id: bErrTxt
             anchors.fill: parent
             anchors.margins: Style.space7
             text: app.backupError
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
             wrapMode: Text.WordWrap
@@ -46,9 +46,9 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: exportCol.implicitHeight + Style.space20
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         readonly property var spaceInfo: (app.backupsVisible && backend.selectedEnvironment && backend.selectedEnvironment.name)
             ? backend.checkExportSpace(backend.selectedEnvironment.name, app.backupIncludeWorkspace)
@@ -75,7 +75,7 @@ ModalDialog {
                         text: (backend.selectedEnvironment && backend.selectedEnvironment.name)
                               ? qsTr("Export '%1'").arg(backend.selectedEnvironment.name)
                               : qsTr("No environment selected to export")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font13
                         font.weight: Font.Medium
@@ -88,7 +88,7 @@ ModalDialog {
                         text: qsTr("Est. size: %1  •  Free: %2")
                               .arg(exportCard.spaceInfo.estimatedDisplay || "—")
                               .arg(exportCard.spaceInfo.availableDisplay || "—")
-                        color: exportCard.spaceInfo.ok ? theme.muted : theme.red
+                        color: exportCard.spaceInfo.ok ? theme.textMuted : theme.dangerText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                         elide: Text.ElideRight
@@ -128,7 +128,7 @@ ModalDialog {
 
     Text {
         text: qsTr("Saved Backup Archives (%1)").arg(backend.backupArchives.length)
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font11
         font.weight: Font.Medium
@@ -138,15 +138,15 @@ ModalDialog {
         Layout.fillWidth: true
         Layout.fillHeight: true
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         Text {
             anchors.centerIn: parent
             visible: backend.backupArchives.length === 0
             text: qsTr("No backup archives found in %1").arg(backend.backupsDirPath)
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -162,9 +162,9 @@ ModalDialog {
                 width: ListView.view.width
                 height: 48
                 radius: Math.min(Style.radius3, theme.radius)
-                color: Style.surfaceCard
+                color: theme.surfaceCard
                 border.width: Style.hairline
-                border.color: app.importBackupFile === (modelData.filePath || "") ? theme.accent : Style.borderSubtle
+                border.color: app.importBackupFile === (modelData.filePath || "") ? theme.accentBorder : theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -185,7 +185,7 @@ ModalDialog {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 text: modelData.fileName || ""
-                                color: theme.foreground
+                                color: theme.textPrimary
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font11
                                 elide: Text.ElideMiddle
@@ -202,7 +202,7 @@ ModalDialog {
                             text: "%1  •  %2"
                                   .arg(modelData.sizeDisplay || "")
                                   .arg(modelData.createdAt || "")
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -236,9 +236,9 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: importCol.implicitHeight + Style.space20
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: importCol
@@ -252,7 +252,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("Import Archive:")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     Layout.preferredWidth: 102
@@ -283,7 +283,7 @@ ModalDialog {
 
                 Text {
                     text: qsTr("New Env Name:")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     Layout.preferredWidth: 102

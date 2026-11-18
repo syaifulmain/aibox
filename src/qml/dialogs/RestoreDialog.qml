@@ -32,9 +32,9 @@ ModalDialog {
                 implicitHeight: 48
                 radius: Math.min(Style.radius4, theme.radius)
                 opacity: modelData.enabled ? 1.0 : 0.45
-                color: app.restoreMode === modelData.id ? Style.surfaceCard : Style.surfaceInput
+                color: app.restoreMode === modelData.id ? theme.surfaceSelected : theme.surfaceInput
                 border.width: Style.hairline
-                border.color: app.restoreMode === modelData.id ? theme.accent : Style.borderSubtle
+                border.color: app.restoreMode === modelData.id ? theme.accentBorder : theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -49,7 +49,7 @@ ModalDialog {
                         radius: 7
                         color: "transparent"
                         border.width: Style.hairline
-                        border.color: app.restoreMode === modelData.id ? theme.accent : theme.muted
+                        border.color: app.restoreMode === modelData.id ? theme.accent : theme.textMuted
                         Rectangle {
                             anchors.centerIn: parent
                             width: 8
@@ -65,14 +65,14 @@ ModalDialog {
                         spacing: Style.space2
                         Text {
                             text: modelData.title
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontSans
                             font.pixelSize: Style.font12
                             font.weight: Font.Medium
                         }
                         Text {
                             text: modelData.desc
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontSans
                             font.pixelSize: Style.font11
                         }
@@ -94,9 +94,9 @@ ModalDialog {
         visible: app.restoreMode !== "system"
         implicitHeight: restoreNoteText.implicitHeight + Style.space16
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         Text {
             id: restoreNoteText
@@ -107,7 +107,7 @@ ModalDialog {
             text: (backend.selectedEnvironment.running || false)
                   ? qsTr("A safety snapshot (pre-restore) of your current %1 will be created first, and '%2' will be stopped automatically before swapping %1.").arg(backend.containerWorkspacePath).arg(backend.selectedEnvironment.name || "")
                   : qsTr("A safety snapshot (pre-restore) of your current %1 will be created before swapping %1.").arg(backend.containerWorkspacePath)
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }

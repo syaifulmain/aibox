@@ -40,15 +40,15 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: staleErrTxt.implicitHeight + Style.space14
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurfaceAlt
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             id: staleErrTxt
             anchors.fill: parent
             anchors.margins: Style.space7
             text: app.staleActionError
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
             wrapMode: Text.WordWrap
@@ -61,9 +61,9 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: staleConfirmCol.implicitHeight + Style.space20
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: app.staleConfirmAction === "export-wipe" ? theme.accent : theme.red
+        border.color: app.staleConfirmAction === "export-wipe" ? theme.accentBorder : theme.dangerBorder
 
         ColumnLayout {
             id: staleConfirmCol
@@ -74,7 +74,7 @@ ModalDialog {
             Text {
                 Layout.fillWidth: true
                 text: app.staleConfirmTitle
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -83,7 +83,7 @@ ModalDialog {
             Text {
                 Layout.fillWidth: true
                 text: app.staleConfirmDetail
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
                 wrapMode: Text.WordWrap
@@ -98,9 +98,9 @@ ModalDialog {
                     height: Style.controlHeightSm
                     width: staleWsDelRow.implicitWidth + Style.space16
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: app.staleConfirmDeleteWs ? Style.surfaceSelected : Style.surfaceCard
+                    color: app.staleConfirmDeleteWs ? theme.surfaceSelected : theme.surfaceCard
                     border.width: Style.hairline
-                    border.color: app.staleConfirmDeleteWs ? theme.accent : Style.borderSubtle
+                    border.color: app.staleConfirmDeleteWs ? theme.accentBorder : theme.borderSubtle
 
                     RowLayout {
                         id: staleWsDelRow
@@ -108,13 +108,13 @@ ModalDialog {
                         spacing: Style.space6
                         Text {
                             text: app.staleConfirmDeleteWs ? "[x]" : "[ ]"
-                            color: app.staleConfirmDeleteWs ? theme.accent : theme.muted
+                            color: app.staleConfirmDeleteWs ? theme.accentText : theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font11
                         }
                         Text {
                             text: qsTr("Also delete host %1 files & snapshots").arg(backend.containerWorkspacePath)
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontSans
                             font.pixelSize: Style.font11
                         }
@@ -203,7 +203,7 @@ ModalDialog {
 
             Text {
                 text: qsTr("Stale & Unknown Environments (%1)").arg((backend.staleReport.entries || []).length)
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font13
                 font.weight: Font.Medium
@@ -212,7 +212,7 @@ ModalDialog {
             Text {
                 visible: (backend.staleReport.entries || []).length === 0
                 text: qsTr("No environments have been unused for %1+ days (templates excluded).").arg(backend.staleReport.staleDays || backend.staleDays)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -224,9 +224,9 @@ ModalDialog {
                     Layout.fillWidth: true
                     implicitHeight: staleEnvRow.implicitHeight + Style.space20
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: Style.surfaceInput
+                    color: theme.surfaceInput
                     border.width: Style.hairline
-                    border.color: modelData.status === "stale" ? Style.warning : Style.borderSubtle
+                    border.color: modelData.status === "stale" ? theme.warningBorder : theme.borderSubtle
 
                     RowLayout {
                         id: staleEnvRow
@@ -245,12 +245,12 @@ ModalDialog {
                                     width: 8
                                     height: 8
                                     radius: 4
-                                    color: modelData.running ? theme.green : theme.muted
+                                    color: modelData.running ? theme.success : theme.textMuted
                                 }
 
                                 Text {
                                     text: modelData.name || ""
-                                    color: theme.foreground
+                                    color: theme.textPrimary
                                     font.family: Style.fontMono
                                     font.pixelSize: Style.font13
                                     font.weight: Font.Medium
@@ -259,7 +259,7 @@ ModalDialog {
                                 TagBadge {
                                     text: modelData.status === "stale" ? qsTr("STALE") : qsTr("UNKNOWN")
                                     tone: modelData.status === "stale" ? "warning" : "neutral"
-                                    fillColor: Style.surfaceCard
+                                    fillColor: theme.surfaceCard
                                     badgeHeight: Style.badgeHeightMd
                                     badgeRadius: Style.radius3
                                     textSize: Style.font10
@@ -268,7 +268,7 @@ ModalDialog {
 
                                 Text {
                                     text: (modelData.osName || "") + " · " + (modelData.lastUsedDisplay || "")
-                                    color: theme.muted
+                                    color: theme.textMuted
                                     font.family: Style.fontSans
                                     font.pixelSize: Style.font11
                                     elide: Text.ElideRight
@@ -284,7 +284,7 @@ ModalDialog {
                                           .arg(modelData.snapshotTotalDisplay || "—")
                                           .arg(modelData.workspaceSizeDisplay || "0 KB")
                                           .arg(modelData.totalFootprintDisplay || "0 KB")
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                                 elide: Text.ElideRight
@@ -334,12 +334,12 @@ ModalDialog {
             Rectangle {
                 Layout.fillWidth: true
                 height: Style.hairline
-                color: Style.borderSubtle
+                color: theme.borderSubtle
             }
 
             Text {
                 text: qsTr("Orphaned Folders, Snapshots & Backups (%1)").arg((backend.staleReport.orphans || []).length)
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font13
                 font.weight: Font.Medium
@@ -348,7 +348,7 @@ ModalDialog {
             Text {
                 visible: (backend.staleReport.orphans || []).length === 0
                 text: qsTr("No orphaned workspace folders, workspace snapshot directories, or unpaired backup workspace archives found.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -360,9 +360,9 @@ ModalDialog {
                     Layout.fillWidth: true
                     implicitHeight: orphanRow.implicitHeight + Style.space20
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: Style.surfaceInput
+                    color: theme.surfaceInput
                     border.width: Style.hairline
-                    border.color: Style.borderSubtle
+                    border.color: theme.borderSubtle
 
                     RowLayout {
                         id: orphanRow
@@ -379,7 +379,7 @@ ModalDialog {
 
                                 Text {
                                     text: modelData.name || ""
-                                    color: theme.foreground
+                                    color: theme.textPrimary
                                     font.family: Style.fontMono
                                     font.pixelSize: Style.font12
                                     font.weight: Font.Medium
@@ -388,7 +388,7 @@ ModalDialog {
                                 TagBadge {
                                     text: modelData.kindLabel || modelData.kind || ""
                                     tone: "neutral"
-                                    fillColor: Style.surfaceCard
+                                    fillColor: theme.surfaceCard
                                     badgeHeight: Style.badgeHeightMd
                                     badgeRadius: Style.radius3
                                     textSize: Style.font10
@@ -397,7 +397,7 @@ ModalDialog {
                                 TagBadge {
                                     text: modelData.sizeDisplay || "0 KB"
                                     tone: "accent"
-                                    fillColor: Style.surfaceCard
+                                    fillColor: theme.surfaceCard
                                     badgeHeight: Style.badgeHeightMd
                                     badgeRadius: Style.radius3
                                     textSize: Style.font10
@@ -407,7 +407,7 @@ ModalDialog {
                             Text {
                                 Layout.fillWidth: true
                                 text: modelData.path || ""
-                                color: theme.muted
+                                color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                                 elide: Text.ElideMiddle

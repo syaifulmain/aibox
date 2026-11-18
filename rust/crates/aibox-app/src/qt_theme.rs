@@ -76,16 +76,6 @@ pub mod qobject {
         #[qproperty(QString, scrim_strong, cxx_name = "scrimStrong", READ, NOTIFY = changed)]
         #[qproperty(QString, selection, READ, NOTIFY = changed)]
         #[qproperty(QString, selection_text, cxx_name = "selectionText", READ, NOTIFY = changed)]
-        // Deprecated legacy raw color properties (kept through M6 transition)
-        #[qproperty(QString, accent_foreground, cxx_name = "accentForeground", READ, NOTIFY = changed)]
-        #[qproperty(QString, background, READ, NOTIFY = changed)]
-        #[qproperty(QString, dark_background, cxx_name = "darkBackground", READ, NOTIFY = changed)]
-        #[qproperty(QString, lighter_background, cxx_name = "lighterBackground", READ, NOTIFY = changed)]
-        #[qproperty(QString, foreground, READ, NOTIFY = changed)]
-        #[qproperty(QString, muted, READ, NOTIFY = changed)]
-        #[qproperty(QString, green, READ, NOTIFY = changed)]
-        #[qproperty(QString, red, READ, NOTIFY = changed)]
-        #[qproperty(QString, yellow, READ, NOTIFY = changed)]
         #[qproperty(i32, radius, READ, NOTIFY = changed)]
         type Theme = super::ThemeRust;
 
@@ -111,16 +101,6 @@ macro_rules! define_theme_rust {
             is_dark: bool,
             mode: QString,
             $($palette_field: QString,)+
-            // Deprecated legacy fields (kept through M6 transition)
-            accent_foreground: QString,
-            background: QString,
-            dark_background: QString,
-            lighter_background: QString,
-            foreground: QString,
-            muted: QString,
-            green: QString,
-            red: QString,
-            yellow: QString,
             radius: i32,
             colors: aibox_core::theme::ThemeColors,
             palette: aibox_core::theme::Palette,
@@ -135,20 +115,10 @@ macro_rules! define_theme_rust {
             fn default() -> Self {
                 let colors = aibox_core::theme::ThemeColors::default();
                 let palette = aibox_core::theme::derive_palette(&colors);
-                let accent_fg = aibox_core::theme::accent_foreground(&colors.accent);
                 Self {
                     is_dark: palette.is_dark,
                     mode: QString::from(&colors.mode),
                     $($palette_field: QString::from(&palette.$palette_field),)+
-                    accent_foreground: QString::from(accent_fg),
-                    background: QString::from(&colors.background),
-                    dark_background: QString::from(&colors.dark_background),
-                    lighter_background: QString::from(&colors.lighter_background),
-                    foreground: QString::from(&colors.foreground),
-                    muted: QString::from(&colors.muted),
-                    green: QString::from(&colors.green),
-                    red: QString::from(&colors.red),
-                    yellow: QString::from(&colors.yellow),
                     radius: 0,
                     colors,
                     palette,
@@ -167,19 +137,9 @@ macro_rules! define_theme_rust {
                 colors: aibox_core::theme::ThemeColors,
                 palette: aibox_core::theme::Palette,
             ) {
-                let accent_fg = aibox_core::theme::accent_foreground(&colors.accent);
                 self.is_dark = palette.is_dark;
                 self.mode = QString::from(&colors.mode);
                 $(self.$palette_field = QString::from(&palette.$palette_field);)+
-                self.accent_foreground = QString::from(accent_fg);
-                self.background = QString::from(&colors.background);
-                self.dark_background = QString::from(&colors.dark_background);
-                self.lighter_background = QString::from(&colors.lighter_background);
-                self.foreground = QString::from(&colors.foreground);
-                self.muted = QString::from(&colors.muted);
-                self.green = QString::from(&colors.green);
-                self.red = QString::from(&colors.red);
-                self.yellow = QString::from(&colors.yellow);
                 self.colors = colors;
                 self.palette = palette;
             }

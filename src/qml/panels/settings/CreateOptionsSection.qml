@@ -23,9 +23,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: presetCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: presetCardCol
@@ -35,7 +35,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Capability presets")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -44,7 +44,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("These cards appear above the distribution list. Their behavior stays the same; edit the title and subtitle.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
                 wrapMode: Text.WordWrap
@@ -58,7 +58,7 @@ ColumnLayout {
                     Layout.preferredWidth: root.badgeWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Preset")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font9
                 }
@@ -66,7 +66,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Title")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font9
                 }
@@ -74,7 +74,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Subtitle")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font9
                 }
@@ -97,7 +97,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         visible: index > 0
                         height: Style.hairline
-                        color: Style.borderSubtle
+                        color: theme.borderSubtle
                     }
 
                     RowLayout {
@@ -109,9 +109,9 @@ ColumnLayout {
                             Layout.preferredHeight: Style.controlHeightSm
                             Layout.alignment: Qt.AlignVCenter
                             radius: Math.min(Style.radius4, theme.radius)
-                            color: Style.surfaceSelected
+                            color: theme.surfaceSelected
                             border.width: Style.hairline
-                            border.color: Style.borderSubtle
+                            border.color: theme.borderSubtle
 
                             Text {
                                 anchors.fill: parent
@@ -120,7 +120,7 @@ ColumnLayout {
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 text: modelData.id
-                                color: theme.accent
+                                color: theme.accentText
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font9
                                 elide: Text.ElideRight
@@ -166,9 +166,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: quotaCardCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: quotaCardCol
@@ -178,7 +178,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Quota and core choices")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -186,7 +186,7 @@ ColumnLayout {
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically; press × on a chip to remove it.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
                 wrapMode: Text.WordWrap
@@ -200,7 +200,7 @@ ColumnLayout {
                     Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("Disk quota")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -232,7 +232,7 @@ ColumnLayout {
                     Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("RAM limit")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -264,7 +264,7 @@ ColumnLayout {
                     Layout.preferredWidth: root.labelWidth
                     Layout.alignment: Qt.AlignVCenter
                     text: qsTr("CPU cores")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }

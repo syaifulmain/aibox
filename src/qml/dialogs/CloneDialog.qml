@@ -26,7 +26,7 @@ ModalDialog {
         Text {
             Layout.fillWidth: true
             text: qsTr("New Environment Name")
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontSans
             font.pixelSize: Style.font12
             font.weight: Font.Medium
@@ -50,7 +50,7 @@ ModalDialog {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             text: qsTr("Shared at: %1/%2").arg(backend.workspaceBase).arg(app.cloneNewName.length > 0 ? app.cloneNewName : "<name>")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontMono
             font.pixelSize: Style.font10
             elide: Text.ElideMiddle

@@ -23,9 +23,9 @@ ColumnLayout {
         visible: !(backend.poolInfo.valid || false)
         implicitHeight: poolUnavailableCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: Style.borderSubtle
+        border.color: theme.borderSubtle
 
         ColumnLayout {
             id: poolUnavailableCol
@@ -35,7 +35,7 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Pool details unavailable")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
                 font.weight: Font.Medium
@@ -44,7 +44,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 text: qsTr("AIBox could not read the Incus storage pool yet. Make sure Incus is initialized with the default pool, then refresh.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }
@@ -68,11 +68,11 @@ ColumnLayout {
         visible: backend.poolInfo.valid || false
         implicitHeight: poolSettingsCol.implicitHeight + Style.cardPadding * 2
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
         border.color: backend.poolInfo.alertLevel === 2
-                      ? theme.red
-                      : (backend.poolInfo.alertLevel === 1 ? Style.warning : Style.borderSubtle)
+                      ? theme.dangerBorder
+                      : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
 
         ColumnLayout {
             id: poolSettingsCol
@@ -87,7 +87,7 @@ ColumnLayout {
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("Incus storage pool")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -99,8 +99,8 @@ ColumnLayout {
                               .arg(backend.poolInfo.totalText || "0 MiB")
                               .arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
                     color: backend.poolInfo.alertLevel === 2
-                           ? theme.red
-                           : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.muted)
+                           ? theme.dangerText
+                           : (backend.poolInfo.alertLevel === 1 ? theme.warningText : theme.textMuted)
                     font.family: Style.fontMono
                     font.pixelSize: Style.font10
                 }
@@ -110,13 +110,13 @@ ColumnLayout {
                 Layout.fillWidth: true
                 implicitHeight: 4
                 value: backend.poolInfo.usedPercent || 0
-                trackColor: Style.surfaceTrack
+                trackColor: theme.surfaceTrack
                 minFillWidth: Style.space2
                 showAtZero: true
                 animationMs: 0
                 fillColor: backend.poolInfo.alertLevel === 2
-                           ? theme.red
-                           : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.accent)
+                           ? theme.danger
+                           : (backend.poolInfo.alertLevel === 1 ? theme.warning : theme.accent)
             }
 
             Text {
@@ -130,7 +130,7 @@ ColumnLayout {
                       : qsTr("%1 · %2 · directory-backed (follows host free space)")
                             .arg(backend.poolInfo.name || "default")
                             .arg(backend.poolInfo.driver || "btrfs")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontMono
                 font.pixelSize: Style.font10
             }
@@ -144,7 +144,7 @@ ColumnLayout {
                           .arg((backend.poolInfo.unboundedCount || 0) > 0
                                ? qsTr(" · %1 without quota").arg(backend.poolInfo.unboundedCount)
                                : "")
-                color: (backend.poolInfo.overcommitted || false) ? Style.warning : theme.muted
+                color: (backend.poolInfo.overcommitted || false) ? theme.warningText : theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }
@@ -155,7 +155,7 @@ ColumnLayout {
                 text: backend.poolInfo.resizable
                       ? qsTr("Grow the loop file in place, for example 60GiB (plain numbers mean GiB). Incus grows the Btrfs filesystem online; pools can never be shrunk.")
                       : qsTr("This pool is backed by a Btrfs subvolume on the host filesystem, so it grows automatically with the host and cannot be resized here.")
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }
@@ -191,7 +191,7 @@ ColumnLayout {
                 wrapMode: Text.WordWrap
                 visible: app.poolResizeError.length > 0
                 text: app.poolResizeError
-                color: theme.red
+                color: theme.dangerText
                 font.family: Style.fontSans
                 font.pixelSize: Style.font10
             }
@@ -202,9 +202,9 @@ ColumnLayout {
                 visible: app.poolResizeConfirmVisible
                 implicitHeight: poolConfirmCol.implicitHeight + Style.space20
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.warningSurfaceDeep
+                color: theme.warningSurface
                 border.width: Style.hairline
-                border.color: Style.warning
+                border.color: theme.warningBorder
 
                 ColumnLayout {
                     id: poolConfirmCol
@@ -219,7 +219,7 @@ ColumnLayout {
                                   .arg(backend.poolInfo.name || "default")
                                   .arg(backend.poolInfo.totalText || "0 MiB")
                                   .arg(app.poolResizeDraft.trim())
-                        color: Style.warning
+                        color: theme.warningText
                         font.family: Style.fontSans
                         font.pixelSize: Style.font11
                     }
@@ -231,7 +231,7 @@ ColumnLayout {
                               ? qsTr("%1 environment(s) are running. Incus grows Btrfs pools online, but stop them first if you want maximum safety.")
                                     .arg(app.runningEnvironmentCount())
                               : qsTr("No environment is running.")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }

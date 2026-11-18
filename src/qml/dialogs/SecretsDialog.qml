@@ -68,9 +68,9 @@ ModalDialog {
         Layout.fillWidth: true
         implicitHeight: secErrTxt.implicitHeight + Style.space14
         radius: Math.min(Style.radius4, theme.radius)
-        color: Style.dangerSurfaceAlt
+        color: theme.dangerSurface
         border.width: Style.hairline
-        border.color: theme.red
+        border.color: theme.dangerBorder
         Text {
             id: secErrTxt
             anchors.fill: parent
@@ -79,7 +79,7 @@ ModalDialog {
                   ? app.secretFormError
                   : (secretsDialogRoot.envScope ? backend.environmentSecretsError
                                                 : backend.secretsError)
-            color: theme.red
+            color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.font11
             wrapMode: Text.WordWrap
@@ -91,7 +91,7 @@ ModalDialog {
               ? qsTr("Secrets for '%1' (%2)").arg(secretsDialogRoot.envName)
                     .arg(backend.environmentSecrets.length)
               : qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font11
         font.weight: Font.Medium
@@ -100,7 +100,7 @@ ModalDialog {
     Text {
         visible: secretsDialogRoot.envScope && backend.secretsList.length > 0
         text: qsTr("Global secrets are available to every environment. Their checkbox controls injection here; delete them in Tools → Secrets.")
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font11
         wrapMode: Text.WordWrap
@@ -110,7 +110,7 @@ ModalDialog {
     Text {
         visible: !secretsDialogRoot.envScope
         text: qsTr("Checked secrets appear in every environment's Secrets dialog. Each environment controls its own injection checkbox there.")
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font11
         wrapMode: Text.WordWrap
@@ -123,7 +123,7 @@ ModalDialog {
         text: secretsDialogRoot.envScope
               ? qsTr("No secrets for this environment yet. Add one below.")
               : qsTr("No secrets configured yet. Add one below.")
-        color: theme.muted
+        color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.font11
     }
@@ -146,7 +146,7 @@ ModalDialog {
                     anchors.verticalCenter: parent.verticalCenter
                     text: section === "environment" ? qsTr("Only this environment")
                                                     : qsTr("Global · managed in Tools")
-                    color: theme.muted
+                    color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.font10
                     font.weight: Font.Medium
@@ -165,9 +165,9 @@ ModalDialog {
                 width: ListView.view.width
                 implicitHeight: 52
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.surfaceInput
+                color: theme.surfaceInput
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -183,13 +183,13 @@ ModalDialog {
                         radius: Style.radius2
                         color: assigned ? theme.accent : "transparent"
                         border.width: Style.hairline
-                        border.color: assigned ? theme.accent : Style.borderSubtle
+                        border.color: assigned ? theme.accent : theme.borderSubtle
 
                         Text {
                             anchors.centerIn: parent
                             visible: assigned
                             text: "x"
-                            color: theme.accentForeground
+                            color: theme.onAccent
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                             font.weight: Font.Bold
@@ -213,7 +213,7 @@ ModalDialog {
 
                     Text {
                         text: modelData.name
-                        color: theme.accent
+                        color: theme.accentText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -223,7 +223,7 @@ ModalDialog {
 
                     Text {
                         text: revealed ? modelData.value : modelData.maskedValue
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                         Layout.fillWidth: true
@@ -257,7 +257,7 @@ ModalDialog {
     Rectangle {
         Layout.fillWidth: true
         height: Style.hairline
-        color: Style.borderSubtle
+        color: theme.borderSubtle
     }
 
     // Add / update secret form
@@ -269,7 +269,7 @@ ModalDialog {
             text: secretsDialogRoot.envScope
                   ? qsTr("Add a secret that only '%1' receives. It is injected automatically at session start:").arg(secretsDialogRoot.envName)
                   : qsTr("Add or Update Secret (values are injected only at session start via tmpfs, never written to containers or backups):")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
             wrapMode: Text.WordWrap

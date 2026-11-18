@@ -33,7 +33,7 @@ ModalDialog {
 
         Text {
             text: qsTr("Snapshot:")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -105,14 +105,14 @@ ModalDialog {
         Text {
             visible: app.diffSnapName.length === 0
             text: qsTr("No workspace Btrfs snapshots exist for this environment yet.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
         Text {
             visible: app.diffSnapName.length > 0 && backend.diffLoading
             text: qsTr("Scanning workspace changes against '%1'...").arg(app.diffSnapName)
-            color: theme.accent
+            color: theme.accentText
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -123,7 +123,7 @@ ModalDialog {
                   .arg(backend.diffSummary.modifiedCount || 0)
                   .arg(backend.diffSummary.deletedCount || 0)
                   .arg(backend.diffSummary.totalCount || 0)
-            color: theme.foreground
+            color: theme.textPrimary
             font.family: Style.fontMono
             font.pixelSize: Style.font12
         }
@@ -132,7 +132,7 @@ ModalDialog {
             visible: backend.diffSummary.truncated || false
             text: qsTr("RESULTS TRUNCATED (5000 MAX)")
             tone: "warning"
-            fillColor: Style.surfaceInput
+            fillColor: theme.surfaceInput
             badgeHeight: Style.badgeHeightMd
             badgeRadius: Style.radius2
             textSize: Style.font10
@@ -146,7 +146,7 @@ ModalDialog {
         Layout.fillWidth: true
         visible: (backend.diffSummary.error && backend.diffSummary.error.length > 0) || app.diffActionError.length > 0
         text: app.diffActionError.length > 0 ? app.diffActionError : (backend.diffSummary.error || "")
-        color: theme.red
+        color: theme.dangerText
         font.family: Style.fontSans
         font.pixelSize: Style.font12
         wrapMode: Text.WordWrap
@@ -163,15 +163,15 @@ ModalDialog {
             Layout.preferredWidth: 370
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             Text {
                 anchors.centerIn: parent
                 visible: !backend.diffLoading && backend.diffEntries.length === 0 && app.diffSnapName.length > 0
                 text: qsTr("No workspace changes since '%1'.").arg(app.diffSnapName)
-                color: theme.muted
+                color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -190,9 +190,9 @@ ModalDialog {
                     width: diffListView.width
                     height: 32
                     radius: Math.min(Style.radius3, theme.radius)
-                    color: isSelected ? Style.surfaceCard : "transparent"
+                    color: isSelected ? theme.surfaceSelected : "transparent"
                     border.width: isSelected ? Style.hairline : 0
-                    border.color: theme.accent
+                    border.color: theme.accentBorder
 
                     RowLayout {
                         anchors.fill: parent
@@ -202,7 +202,7 @@ ModalDialog {
 
                         Text {
                             text: modelData.status === "added" ? "+" : (modelData.status === "deleted" ? "-" : "~")
-                            color: modelData.status === "added" ? theme.green : (modelData.status === "deleted" ? theme.red : theme.yellow)
+                            color: modelData.status === "added" ? theme.successText : (modelData.status === "deleted" ? theme.dangerText : theme.warningText)
                             font.family: Style.fontMono
                             font.pixelSize: Style.font12
                             font.weight: Font.Bold
@@ -212,14 +212,14 @@ ModalDialog {
                             Layout.fillWidth: true
                             elide: Text.ElideLeft
                             text: modelData.path || ""
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontMono
                             font.pixelSize: Style.font11
                         }
 
                         Text {
                             text: modelData.sizeText || ""
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -245,9 +245,9 @@ ModalDialog {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             ColumnLayout {
                 anchors.fill: parent
@@ -264,7 +264,7 @@ ModalDialog {
                         text: backend.selectedDiffInfo.length > 0
                               ? backend.selectedDiffInfo
                               : qsTr("Select a changed file to inspect its unified diff.")
-                        color: backend.selectedDiffInfo.length > 0 ? theme.foreground : theme.muted
+                        color: backend.selectedDiffInfo.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }
@@ -291,7 +291,7 @@ ModalDialog {
                 Rectangle {
                     Layout.fillWidth: true
                     height: Style.hairline
-                    color: Style.borderSubtle
+                    color: theme.borderSubtle
                 }
 
                 ScrollView {
@@ -308,7 +308,7 @@ ModalDialog {
                               : (backend.selectedDiffInfo.length > 0 && app.diffSelectedPath.length > 0
                                  ? backend.selectedDiffInfo
                                  : "")
-                        color: backend.selectedDiffText.length > 0 ? theme.foreground : theme.muted
+                        color: backend.selectedDiffText.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                         background: null

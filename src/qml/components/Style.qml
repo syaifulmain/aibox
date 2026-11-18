@@ -2,12 +2,12 @@ pragma Singleton
 
 import QtQuick
 
-// Design tokens for the whole interface.
+// Design metrics for the whole interface.
 //
-// Live Omarchy colours (accent, foreground, red, green, yellow, radius) stay in
-// the C++ `theme` object. This singleton holds every value the application
-// itself owns: surface colours, spacing, control sizes, type scale and modal
-// metrics. Change a value here once and every panel, dialog and control follows.
+// All live colours (surfaces, borders, text, accent, status tones, scrims)
+// live in the `theme` QObject (`ThemeRust`). This singleton holds non-colour
+// design tokens: typography, spacing, control sizes, radii and modal metrics.
+// Change a value here once and every panel, dialog and control follows.
 QtObject {
     // ------------------------------------------------------------------
     // Typography (pixel sizes follow the existing scale)
@@ -74,38 +74,6 @@ QtObject {
     readonly property int badgeHeightMd: 20
     readonly property int badgeHeightLg: 22
     readonly property int hairline: 1
-
-    // ------------------------------------------------------------------
-    // Surfaces and borders (aliased to `theme` until M4–M6 migration)
-    // ------------------------------------------------------------------
-    readonly property color surfaceCard: theme.surfaceCard
-    readonly property color surfaceInput: theme.surfaceInput
-    readonly property color surfaceSelected: theme.surfaceSelected
-    readonly property color surfaceSidebar: theme.surfaceSidebar
-    readonly property color surfaceTrack: theme.surfaceTrack
-    readonly property color borderSubtle: theme.borderSubtle
-
-    // Backdrop behind every modal dialog
-    readonly property color scrim: theme.scrim
-    readonly property color scrimStrong: theme.scrimStrong
-
-    // ------------------------------------------------------------------
-    // Feedback surfaces (aliased to `theme` until M4–M6 migration)
-    // ------------------------------------------------------------------
-    readonly property color dangerSurface: theme.dangerSurface
-    readonly property color dangerSurfaceAlt: theme.dangerSurface
-    readonly property color dangerSurfaceDeep: theme.dangerSurface
-    readonly property color dangerTint: theme.dangerSurface
-    readonly property color dangerTintMuted: theme.dangerSurface
-
-    readonly property color successSurface: theme.successSurface
-    readonly property color successSurfaceTint: theme.successSurface
-    readonly property color successBorder: theme.successBorder
-
-    readonly property color warning: theme.warning
-    readonly property color warningSurface: theme.warningSurface
-    readonly property color warningSurfaceDeep: theme.warningSurface
-    readonly property color warningSurfaceAlt: theme.warningSurface
 
     // ------------------------------------------------------------------
     // Interaction feedback

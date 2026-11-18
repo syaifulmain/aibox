@@ -44,7 +44,7 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             text: qsTr("%n OS entries", "", backend.osCatalog.length)
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font11
         }
@@ -63,9 +63,9 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: visible ? osEditorColumn.implicitHeight + Style.cardPadding * 2 : 0
         radius: Math.min(Style.radius6, theme.radius)
-        color: Style.surfaceInput
+        color: theme.surfaceInput
         border.width: Style.hairline
-        border.color: theme.accent
+        border.color: theme.accentBorder
 
         ColumnLayout {
             id: osEditorColumn
@@ -75,7 +75,7 @@ ColumnLayout {
 
             Text {
                 text: app.osEditorOriginalId.length > 0 ? qsTr("Edit OS entry") : qsTr("New OS entry")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font13
                 font.weight: Font.Medium
@@ -93,7 +93,7 @@ ColumnLayout {
 
                     Text {
                         text: qsTr("OS ID")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -110,7 +110,7 @@ ColumnLayout {
 
                     Text {
                         text: qsTr("Image alias")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -127,7 +127,7 @@ ColumnLayout {
 
                     Text {
                         text: qsTr("Display name")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -144,7 +144,7 @@ ColumnLayout {
 
                     Text {
                         text: qsTr("Badge")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -162,7 +162,7 @@ ColumnLayout {
 
                     Text {
                         text: qsTr("Description")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -178,7 +178,7 @@ ColumnLayout {
                 visible: app.osEditorError.length > 0
                 Layout.fillWidth: true
                 text: app.osEditorError
-                color: theme.red
+                color: theme.dangerText
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
                 wrapMode: Text.WordWrap
@@ -213,9 +213,9 @@ ColumnLayout {
             Layout.fillWidth: true
             height: 64
             radius: Math.min(Style.radius5, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
-            border.color: modelData.downloaded ? Style.successBorder : Style.borderSubtle
+            border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
@@ -227,14 +227,14 @@ ColumnLayout {
                     width: 30
                     height: 30
                     radius: Style.radius3
-                    color: modelData.downloaded ? Style.successSurface : Style.surfaceCard
+                    color: modelData.downloaded ? theme.successSurface : theme.surfaceCard
                     border.width: Style.hairline
-                    border.color: modelData.downloaded ? Style.successBorder : Style.borderSubtle
+                    border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
                     Text {
                         anchors.centerIn: parent
                         text: modelData.downloaded ? "✓" : "↓"
-                        color: modelData.downloaded ? theme.green : theme.accent
+                        color: modelData.downloaded ? theme.successText : theme.accentText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }
@@ -248,7 +248,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: modelData.name
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                         font.weight: Font.Medium
@@ -257,7 +257,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: modelData.id + "  ·  " + modelData.alias
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font9
                     }
@@ -266,7 +266,7 @@ ColumnLayout {
                 TagBadge {
                     text: modelData.badge
                     tone: "accentQuiet"
-                    fillColor: Style.surfaceCard
+                    fillColor: theme.surfaceCard
                     horizontalPadding: Style.space12
                 }
 
@@ -275,7 +275,7 @@ ColumnLayout {
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideRight
                     text: modelData.sizeText
-                    color: modelData.downloaded ? theme.green : theme.muted
+                    color: modelData.downloaded ? theme.successText : theme.textMuted
                     font.family: Style.fontMono
                     font.pixelSize: Style.font9
                 }
@@ -306,7 +306,7 @@ ColumnLayout {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             text: qsTr("Removing an entry only removes it from the catalog. Cached image files are kept until you remove them in OS Images.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font10
         }
