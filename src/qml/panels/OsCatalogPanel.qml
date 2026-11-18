@@ -19,14 +19,14 @@ ColumnLayout {
 
             Text {
                 text: qsTr("Linux OS Image Catalog")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font16
                 font.weight: Font.Medium
             }
             Text {
                 text: qsTr("Pre-download OS images to local storage so new environments launch in under 1 second, or click 'Use This OS' to start immediately.")
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -46,9 +46,9 @@ ColumnLayout {
             width: osListView.width
             height: Style.listRowHeight
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceCard
+            color: theme.surfaceCard
             border.width: Style.hairline
-            border.color: modelData.downloaded ? Style.successBorder : Style.borderSubtle
+            border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
@@ -61,14 +61,14 @@ ColumnLayout {
                     width: Style.iconTile
                     height: Style.iconTile
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: modelData.downloaded ? Style.successSurface : Style.surfaceInput
+                    color: modelData.downloaded ? theme.successSurface : theme.surfaceInput
                     border.width: Style.hairline
-                    border.color: modelData.downloaded ? Style.successBorder : Style.borderSubtle
+                    border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
                     Text {
                         anchors.centerIn: parent
                         text: modelData.downloaded ? "✓" : "↓"
-                        color: modelData.downloaded ? theme.green : theme.accent
+                        color: modelData.downloaded ? theme.successText : theme.accentText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font14
                     }
@@ -83,7 +83,7 @@ ColumnLayout {
 
                         Text {
                             text: modelData.name
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontSans
                             font.pixelSize: Style.font14
                             font.weight: Font.Medium
@@ -106,7 +106,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: modelData.description
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                     }

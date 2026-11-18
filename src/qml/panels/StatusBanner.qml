@@ -8,7 +8,7 @@ Rectangle {
     Layout.fillWidth: true
     Layout.preferredHeight: visible ? (backend.busy ? 68 : 42) : 0
     visible: (!app.createVisible && backend.busy) || backend.errorMessage.length > 0 || (!backend.busy && backend.statusMessage.length > 0)
-    color: backend.errorMessage.length > 0 ? Style.dangerSurfaceDeep : Style.surfaceCard
+    color: backend.errorMessage.length > 0 ? theme.dangerSurface : theme.surfaceCard
 
     ColumnLayout {
         anchors.fill: parent
@@ -25,7 +25,7 @@ Rectangle {
             Text {
                 visible: backend.busy
                 text: backend.taskProgress + "%"
-                color: theme.accent
+                color: theme.accentText
                 font.family: Style.fontMono
                 font.pixelSize: Style.font12
             }
@@ -36,7 +36,7 @@ Rectangle {
                 text: backend.errorMessage.length > 0
                       ? backend.errorMessage
                       : (backend.busy ? backend.taskStage : backend.statusMessage)
-                color: backend.errorMessage.length > 0 ? theme.red : theme.foreground
+                color: backend.errorMessage.length > 0 ? theme.dangerText : theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font12
             }
@@ -73,7 +73,7 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: 4
             value: Math.max(4, backend.taskProgress)
-            trackColor: Style.surfaceInput
+            trackColor: theme.surfaceTrack
             showAtZero: true
             animationMs: 150
         }
@@ -83,6 +83,6 @@ Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
         height: Style.hairline
-        color: backend.errorMessage.length > 0 ? theme.red : Style.borderSubtle
+        color: backend.errorMessage.length > 0 ? theme.dangerBorder : theme.borderSubtle
     }
 }

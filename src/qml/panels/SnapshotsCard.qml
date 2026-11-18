@@ -13,9 +13,9 @@ Rectangle {
     Layout.fillHeight: true
     Layout.minimumHeight: 150
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceInput
+    color: theme.surfaceInput
     border.width: Style.hairline
-    border.color: Style.borderSubtle
+    border.color: theme.borderSubtle
 
     ColumnLayout {
         anchors.fill: parent
@@ -34,7 +34,7 @@ Rectangle {
 
                 Text {
                     text: qsTr("Btrfs Snapshots")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -43,7 +43,7 @@ Rectangle {
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                     text: qsTr("Before Enter & Start")
-                    color: theme.muted
+                    color: theme.textSecondary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }
@@ -114,9 +114,9 @@ Rectangle {
                 selected: policyOn
                 mono: false
                 textSize: Style.font10
-                selectedFill: Style.dangerSurface
-                selectedBorderColor: theme.red
-                selectedTextColor: theme.red
+                selectedFill: theme.dangerSurface
+                selectedBorderColor: theme.dangerBorder
+                selectedTextColor: theme.dangerText
                 chipHeight: Style.controlHeightXs
                 horizontalPadding: Style.space12
                 interactive: !backend.busy
@@ -130,7 +130,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             height: Style.hairline
-            color: Style.borderSubtle
+            color: theme.borderSubtle
         }
 
         // One-time conversion banner for plain-directory workspaces on Btrfs
@@ -145,7 +145,7 @@ Rectangle {
                 text: (backend.selectedEnvironment.hasPreSubvolBackup || false)
                       ? qsTr("Pre-subvolume backup (.pre-subvol) is kept on disk.")
                       : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired %1 snapshots.").arg(backend.containerWorkspacePath)
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -171,7 +171,7 @@ Rectangle {
         Text {
             visible: (!backend.selectedEnvironment.snapshots || backend.selectedEnvironment.snapshots.length === 0) && (!backend.selectedEnvironment.orphanWorkspaceSnapshots || backend.selectedEnvironment.orphanWorkspaceSnapshots.length === 0)
             text: qsTr("No snapshots saved for this environment yet.")
-            color: theme.muted
+            color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.font12
         }
@@ -190,9 +190,9 @@ Rectangle {
                 width: snapListView.width
                 height: Style.rowHeight
                 radius: Math.min(Style.radius3, theme.radius)
-                color: Style.surfaceCard
+                color: theme.surfaceCard
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -216,7 +216,7 @@ Rectangle {
                         visible: hasWsHalf
                         text: qsTr("W")
                         tone: "accent"
-                        fillColor: Style.surfaceInput
+                        fillColor: theme.surfaceInput
                         textWeight: Font.Bold
                     }
 
@@ -225,7 +225,7 @@ Rectangle {
                         Layout.minimumWidth: 0
                         elide: Text.ElideRight
                         text: modelData
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }
@@ -250,7 +250,7 @@ Rectangle {
                         }
                         visible: combinedSize.length > 0
                         text: combinedSize
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font11
                     }
@@ -288,7 +288,7 @@ Rectangle {
 
             Text {
                 text: qsTr("Workspace-only snapshots")
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -301,9 +301,9 @@ Rectangle {
                     Layout.fillWidth: true
                     height: Style.rowHeight
                     radius: Math.min(Style.radius3, theme.radius)
-                    color: Style.surfaceCard
+                    color: theme.surfaceCard
                     border.width: Style.hairline
-                    border.color: Style.borderSubtle
+                    border.color: theme.borderSubtle
 
                     RowLayout {
                         anchors.fill: parent
@@ -321,7 +321,7 @@ Rectangle {
                             Layout.minimumWidth: 0
                             elide: Text.ElideRight
                             text: modelData
-                            color: theme.foreground
+                            color: theme.textPrimary
                             font.family: Style.fontMono
                             font.pixelSize: Style.font11
                         }
@@ -333,7 +333,7 @@ Rectangle {
                                                                  : ""
                             visible: wsOnlySize.length > 0
                             text: wsOnlySize
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font11
                         }

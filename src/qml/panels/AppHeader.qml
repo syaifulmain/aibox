@@ -8,7 +8,7 @@ Rectangle {
     property QtObject app: null
     Layout.fillWidth: true
     Layout.preferredHeight: Style.headerHeight
-    color: theme.darkBackground
+    color: theme.surfaceCanvas
 
     RowLayout {
         anchors.fill: parent
@@ -24,7 +24,7 @@ Rectangle {
 
             Text {
                 text: qsTr("AIBox")
-                color: theme.foreground
+                color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font15
                 font.weight: Font.Medium
@@ -100,6 +100,6 @@ Rectangle {
         anchors.bottom: parent.bottom
         width: parent.width
         height: Style.hairline
-        color: Style.borderSubtle
+        color: theme.borderSubtle
     }
 }

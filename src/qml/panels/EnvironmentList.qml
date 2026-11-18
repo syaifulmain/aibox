@@ -9,10 +9,10 @@ Rectangle {
     id: listRoot
     property QtObject app: null
 
-    color: Style.surfaceCard
+    color: theme.surfaceSidebar
     radius: theme.radius
     border.width: Style.hairline
-    border.color: Style.borderSubtle
+    border.color: theme.borderSubtle
 
     ColumnLayout {
         anchors.fill: parent
@@ -24,7 +24,7 @@ Rectangle {
 
             Text {
                 text: qsTr("Environments")
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
                 font.weight: Font.Medium
@@ -61,9 +61,13 @@ Rectangle {
                 Rectangle {
                     anchors.fill: parent
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: envRow.selected ? Style.surfaceSelected : Style.surfaceInput
+                    color: envRow.selected
+                           ? theme.surfaceSelected
+                           : (envRowMouse.containsMouse ? theme.surfaceRaised : theme.surfaceInput)
                     border.width: Style.hairline
-                    border.color: envRow.selected ? theme.accent : Style.borderSubtle
+                    border.color: envRow.selected
+                                  ? theme.accentBorder
+                                  : (envRowMouse.containsMouse ? theme.borderStrong : theme.borderSubtle)
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -79,14 +83,14 @@ Rectangle {
                                 width: 8
                                 height: 8
                                 radius: 4
-                                color: modelData.running ? theme.green : theme.muted
+                                color: modelData.running ? theme.success : theme.textMuted
                             }
 
                             Text {
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                                 text: modelData.name
-                                color: theme.foreground
+                                color: theme.textPrimary
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font13
                                 font.weight: Font.Medium
@@ -113,9 +117,8 @@ Rectangle {
                                 text: app.sizePair(modelData.diskUsage, modelData.diskLimit)
                                       + "  ·  "
                                       + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
-                                color: envRow.diskRatio >= 0.9 ? theme.red
-                                     : (envRow.diskRatio >= 0.75 ? theme.yellow : theme.foreground)
-                                opacity: envRow.diskRatio >= 0.75 ? 1 : Style.opacityDeemphasized
+                                color: envRow.diskRatio >= 0.9 ? theme.dangerText
+                                     : (envRow.diskRatio >= 0.75 ? theme.warningText : theme.textSecondary)
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                                 Layout.alignment: Qt.AlignVCenter
@@ -127,7 +130,7 @@ Rectangle {
                                 horizontalAlignment: Text.AlignRight
                                 elide: Text.ElideRight
                                 text: envRow.networkLabel
-                                color: modelData.networkMode === "offline" ? theme.red : theme.accent
+                                color: modelData.networkMode === "offline" ? theme.dangerText : theme.accentText
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.font10
                                 Layout.alignment: Qt.AlignVCenter
@@ -154,11 +157,11 @@ Rectangle {
             Layout.fillWidth: true
             implicitHeight: poolSidebarCol.implicitHeight + Style.space12
             radius: Math.min(Style.radius4, theme.radius)
-            color: Style.surfaceInput
+            color: theme.surfaceInput
             border.width: Style.hairline
             border.color: backend.poolInfo.alertLevel === 2
-                          ? theme.red
-                          : (backend.poolInfo.alertLevel === 1 ? Style.warning : Style.borderSubtle)
+                          ? theme.dangerBorder
+                          : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
 
             ColumnLayout {
                 id: poolSidebarCol
@@ -176,7 +179,7 @@ Rectangle {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: qsTr("Storage Pool")
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -186,8 +189,8 @@ Rectangle {
                                ? backend.poolInfo.usedPercent
                                : 0) + "%"
                         color: backend.poolInfo.alertLevel === 2
-                               ? theme.red
-                               : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.accent)
+                               ? theme.dangerText
+                               : (backend.poolInfo.alertLevel === 1 ? theme.warningText : theme.accentText)
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                         font.weight: Font.Medium
@@ -195,7 +198,7 @@ Rectangle {
 
                     Text {
                         text: qsTr("Manage")
-                        color: theme.accent
+                        color: theme.accentText
                         font.family: Style.fontSans
                         font.pixelSize: Style.font10
                     }
@@ -207,8 +210,8 @@ Rectangle {
                     value: backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0
                     minFillWidth: Style.space4
                     fillColor: backend.poolInfo.alertLevel === 2
-                               ? theme.red
-                               : (backend.poolInfo.alertLevel === 1 ? Style.warning : theme.accent)
+                               ? theme.danger
+                               : (backend.poolInfo.alertLevel === 1 ? theme.warning : theme.accent)
                 }
 
                 RowLayout {
@@ -221,7 +224,7 @@ Rectangle {
                         text: qsTr("%1 / %2 used")
                                   .arg(backend.poolInfo.usedText || "0 MiB")
                                   .arg(backend.poolInfo.totalText || "0 MiB")
-                        color: theme.muted
+                        color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                     }
@@ -230,7 +233,7 @@ Rectangle {
                         visible: (backend.poolInfo.allocatedBytes || 0) > 0
                         elide: Text.ElideRight
                         text: qsTr("Allocated %1").arg(backend.poolInfo.allocatedText || "0 MiB")
-                        color: (backend.poolInfo.overcommitted || false) ? Style.warning : theme.muted
+                        color: (backend.poolInfo.overcommitted || false) ? theme.warningText : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font10
                     }

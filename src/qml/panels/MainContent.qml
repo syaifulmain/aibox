@@ -25,10 +25,10 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: backend.environments.length === 0
-            color: Style.surfaceCard
+            color: theme.surfaceCard
             radius: theme.radius
             border.width: Style.hairline
-            border.color: Style.borderSubtle
+            border.color: theme.borderSubtle
 
             ColumnLayout {
                 anchors.centerIn: parent
@@ -47,7 +47,7 @@ Item {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     text: qsTr("No Isolated Environments Yet")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font16
                     font.weight: Font.Medium
@@ -59,7 +59,7 @@ Item {
                     wrapMode: Text.WordWrap
                     lineHeight: 1.35
                     text: qsTr("Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via %1, and wipe it in 1 second when done.").arg(backend.containerWorkspacePath)
-                    color: theme.muted
+                    color: theme.textSecondary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                 }

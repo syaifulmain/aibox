@@ -13,10 +13,10 @@ Rectangle {
                                          && cpuExpandedEnv === (backend.selectedEnvironment.name || "")
     readonly property string snapshotNameText: snapshotsCard.snapshotNameText
 
-    color: Style.surfaceCard
+    color: theme.surfaceCard
     radius: theme.radius
     border.width: Style.hairline
-    border.color: Style.borderSubtle
+    border.color: theme.borderSubtle
 
     // Per-core load shown inside the expanded CPU card, two columns of cores.
     Component {
@@ -45,14 +45,14 @@ Rectangle {
                         Text {
                             elide: Text.ElideRight
                             text: qsTr("Core %1").arg(index + 1)
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
 
                         Text {
                             text: modelData + "%"
-                            color: modelData >= 85 ? theme.red : theme.foreground
+                            color: modelData >= 85 ? theme.dangerText : theme.textPrimary
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                             font.weight: Font.Medium
@@ -66,8 +66,8 @@ Rectangle {
                         implicitHeight: 4
                         value: modelData
                         minFillWidth: Style.space2
-                        trackColor: Style.surfaceTrack
-                        fillColor: modelData >= 85 ? theme.red : theme.accent
+                        trackColor: theme.surfaceTrack
+                        fillColor: modelData >= 85 ? theme.danger : theme.accent
                     }
                 }
             }
@@ -101,7 +101,7 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         text: backend.selectedEnvironment.name || ""
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.font18
                         font.weight: Font.Medium
@@ -112,7 +112,7 @@ Rectangle {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: (backend.selectedEnvironment.osName || "") + "  ·  " + (backend.selectedEnvironment.preset || "")
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font12
                     }
@@ -220,9 +220,9 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.surfaceInput
+                color: theme.surfaceInput
                 border.width: Style.hairline
-                border.color: Style.borderSubtle
+                border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -232,7 +232,7 @@ Rectangle {
 
                     Text {
                         text: qsTr("Shared Workspace")
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font11
                     }
@@ -242,7 +242,7 @@ Rectangle {
                         Layout.minimumWidth: 0
                         elide: Text.ElideMiddle
                         text: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
-                        color: theme.accent
+                        color: theme.accentText
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                     }
@@ -270,11 +270,11 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.surfaceInput
+                color: theme.surfaceInput
                 border.width: Style.hairline
                 border.color: (backend.selectedEnvironment.fileAccessActive || false)
-                              ? theme.accent
-                              : Style.borderSubtle
+                              ? theme.accentBorder
+                              : theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
@@ -284,7 +284,7 @@ Rectangle {
 
                     Text {
                         text: qsTr("Root Files")
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font11
                         ToolTip.visible: rootLabelHover.hovered
@@ -303,8 +303,8 @@ Rectangle {
                                  ? qsTr("Off — browse the container root in your file manager")
                                  : qsTr("Off — start the environment to enable"))
                         color: (backend.selectedEnvironment.fileAccessActive || false)
-                               ? theme.accent
-                               : theme.muted
+                               ? theme.accentText
+                               : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.font12
                         ToolTip.visible: rootUrlHover.hovered && (backend.selectedEnvironment.fileAccessActive || false)

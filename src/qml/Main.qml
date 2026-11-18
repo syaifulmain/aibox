@@ -913,7 +913,7 @@ ApplicationWindow {
         ModalDialog {
             id: firstRunOverlay
             open: backend.firstRun
-            scrimColor: Style.scrimStrong
+            scrimColor: theme.scrimStrong
             zOrder: 100
             cardWidth: Math.min(parent.width - Style.modalGutter, 600)
             contentSpacing: Style.space14
@@ -949,7 +949,7 @@ ApplicationWindow {
                     Text {
                         Layout.fillWidth: true
                         text: qsTr("Welcome to AIBox")
-                        color: theme.foreground
+                        color: theme.textPrimary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font18
                         font.weight: Font.Medium
@@ -958,7 +958,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         text: qsTr("Choose where AIBox stores its system data, shared workspaces, OS images, and backups. You can keep the default or pick a custom location.")
-                        color: theme.muted
+                        color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.font11
                     }
@@ -968,7 +968,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.fillWidth: true
                 height: Style.hairline
-                color: Style.borderSubtle
+                color: theme.borderSubtle
             }
 
             ColumnLayout {
@@ -978,7 +978,7 @@ ApplicationWindow {
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("System Storage Location")
-                    color: theme.foreground
+                    color: theme.textPrimary
                     font.family: Style.fontSans
                     font.pixelSize: Style.font12
                     font.weight: Font.Medium
@@ -1013,9 +1013,9 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     implicitHeight: previewGrid.implicitHeight + Style.space20
                     radius: Math.min(Style.radius4, theme.radius)
-                    color: Style.surfaceInput
+                    color: theme.surfaceInput
                     border.width: Style.hairline
-                    border.color: Style.borderSubtle
+                    border.color: theme.borderSubtle
 
                     ColumnLayout {
                         id: previewGrid
@@ -1028,7 +1028,7 @@ ApplicationWindow {
                             Layout.minimumWidth: 0
                             elide: Text.ElideMiddle
                             text: qsTr("Workspaces:  %1/workspaces").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -1037,7 +1037,7 @@ ApplicationWindow {
                             Layout.minimumWidth: 0
                             elide: Text.ElideMiddle
                             text: qsTr("OS Images:   %1/os-images").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -1046,7 +1046,7 @@ ApplicationWindow {
                             Layout.minimumWidth: 0
                             elide: Text.ElideMiddle
                             text: qsTr("State & Cfg: %1/state, config.json").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.muted
+                            color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.font10
                         }
@@ -1059,16 +1059,16 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 implicitHeight: firstRunErrTxt.implicitHeight + Style.space14
                 radius: Math.min(Style.radius4, theme.radius)
-                color: Style.dangerSurface
+                color: theme.dangerSurface
                 border.width: Style.hairline
-                border.color: theme.red
+                border.color: theme.dangerBorder
                 Text {
                     id: firstRunErrTxt
                     anchors.fill: parent
                     anchors.margins: Style.space7
                     wrapMode: Text.WordWrap
                     text: win.firstRunError
-                    color: theme.red
+                    color: theme.dangerText
                     font.family: Style.fontSans
                     font.pixelSize: Style.font11
                 }

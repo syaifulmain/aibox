@@ -15,11 +15,11 @@ Rectangle {
     Layout.fillWidth: true
     Layout.preferredHeight: netCol.implicitHeight + Style.space16
     radius: Math.min(Style.radius4, theme.radius)
-    color: Style.surfaceInput
+    color: theme.surfaceInput
     border.width: Style.hairline
     border.color: root.offline
-                  ? theme.red
-                  : (backend.selectedEnvironment.networkMode === "allowlist" ? theme.accent : Style.borderSubtle)
+                  ? theme.warningBorder
+                  : (backend.selectedEnvironment.networkMode === "allowlist" ? theme.accentBorder : theme.borderSubtle)
 
     ColumnLayout {
         id: netCol
@@ -36,7 +36,7 @@ Rectangle {
 
             Text {
                 text: qsTr("Network")
-                color: theme.muted
+                color: theme.textSecondary
                 font.family: Style.fontSans
                 font.pixelSize: Style.font11
             }
@@ -56,11 +56,12 @@ Rectangle {
                     mono: false
                     textSize: Style.font11
                     mediumWhenSelected: true
-                    selectedTextColor: theme.foreground
-                    fillColor: Style.surfaceCard
+                    selectedTextColor: modelData.id === "offline" ? theme.warningText : theme.textPrimary
+                    selectedFill: modelData.id === "offline" ? theme.warningSurface : theme.surfaceSelected
+                    fillColor: theme.surfaceCard
                     chipHeight: Style.controlHeightSm
                     horizontalPadding: Style.space16
-                    selectedBorderColor: modelData.id === "offline" ? theme.red : theme.accent
+                    selectedBorderColor: modelData.id === "offline" ? theme.warningBorder : theme.accentBorder
                     interactive: !backend.busy && !root.template
                     opacity: backend.busy ? Style.opacityDisabled : 1.0
                     onClicked: {
@@ -82,7 +83,7 @@ Rectangle {
             Text {
                 visible: root.ipAddress.length > 0 && root.ipAddress !== "—" && !root.offline
                 text: root.ipAddress
-                color: theme.accent
+                color: theme.accentText
                 font.family: Style.fontMono
                 font.pixelSize: Style.font11
                 Layout.alignment: Qt.AlignVCenter
