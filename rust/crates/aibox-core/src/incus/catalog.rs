@@ -3,7 +3,6 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::config::defaults::{default_os_entries, OsEntry};
 use crate::util::format::format_bytes;
@@ -21,19 +20,25 @@ pub struct OsCatalogEntry {
     pub size_text: String,
 }
 
-fn json_i64(v: Option<&Value>) -> i64 {
-    let Some(val) = v else {
-        return 0;
-    };
-    if let Some(n) = val.as_i64() {
-        n
-    } else if let Some(u) = val.as_u64() {
-        u as i64
-    } else if let Some(f) = val.as_f64() {
-        f as i64
-    } else {
-        0
-    }
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct RawIncusImage {
+    size: i64,
+    aliases: Vec<RawImageAlias>,
+    properties: RawImageProperties,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct RawImageAlias {
+    name: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct RawImageProperties {
+    os: String,
+    release: String,
 }
 
 pub fn catalog_for_entries(
@@ -43,39 +48,18 @@ pub fn catalog_for_entries(
     storage_path: &str,
 ) -> Vec<OsCatalogEntry> {
     let mut cached_aliases: HashMap<String, i64> = HashMap::new();
-    if let Ok(Value::Array(arr)) = serde_json::from_slice::<Value>(images_json) {
-        for val in &arr {
-            let Some(img) = val.as_object() else {
-                continue;
-            };
-            let size = json_i64(img.get("size"));
-            if let Some(aliases) = img.get("aliases").and_then(Value::as_array) {
-                for alias_val in aliases {
-                    if let Some(alias_name) = alias_val
-                        .as_object()
-                        .and_then(|o| o.get("name"))
-                        .and_then(Value::as_str)
-                    {
-                        if !alias_name.is_empty() {
-                            cached_aliases.insert(alias_name.to_string(), size);
-                        }
-                    }
+    if let Ok(images) = serde_json::from_slice::<Vec<RawIncusImage>>(images_json) {
+        for img in &images {
+            let size = img.size;
+            for alias in &img.aliases {
+                if !alias.name.is_empty() {
+                    cached_aliases.insert(alias.name.clone(), size);
                 }
             }
-            if let Some(props) = img.get("properties").and_then(Value::as_object) {
-                let os = props
-                    .get("os")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_lowercase();
-                let rel = props
-                    .get("release")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_lowercase();
-                if !os.is_empty() {
-                    cached_aliases.insert(format!("{os}/{rel}"), size);
-                }
+            if !img.properties.os.is_empty() {
+                let os = img.properties.os.to_lowercase();
+                let rel = img.properties.release.to_lowercase();
+                cached_aliases.insert(format!("{os}/{rel}"), size);
             }
         }
     }

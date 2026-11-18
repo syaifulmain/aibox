@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Incus: `list/` Split, Typed Serde Deserialization, Unchanged-Poll Skip, Rare Catalog & `incus monitor` (`rust/crates/aibox-core/src/incus/`, `aibox-app`)
+
+- **Split `incus/list.rs` (`incus/list/mod.rs`, `model.rs`, `parse.rs`, `metrics.rs`, `quota.rs`):** Split the 1267-line monolithic `list.rs` into focused submodules for environment models, typed JSON parsing, CPU/network/proc-stat metrics, and root/device quota extraction while preserving all public re-exports.
+- **Typed serde deserialization (`incus/list/parse.rs`, `incus/catalog.rs`):** Replaced `serde_json::Value` tree traversals with minimal typed `#[derive(Deserialize)]` structs (`#[serde(default)]` with null-safe and flexible scalar visitors) so unknown future Incus fields are ignored without errors and allocations are minimized.
+- **Skip unchanged polls (`incus/list/parse.rs`, `qt_backend.rs`):** Added `hash_list_inputs` and `parse_if_changed` so byte-identical `incus list` polls (when no active CPU/network rates need settling and alert thresholds are unchanged) skip model rebuild, QVariant conversion, and `environments_changed` signals.
+- **Rare OS catalog refresh (`qt_backend.rs`):** Added `refresh_with_catalog(bool)` so the periodic background metric poll skips `incus image list --format=json`, running catalog queries only at startup, manual refresh, or after create/import/image events.
+- **Lifecycle event monitor (`incus/monitor.rs`, `qt_backend.rs`):** Added `parse_lifecycle_event` and a background `incus monitor --type=lifecycle --format=json` listener for instant state updates, extending the fallback metric poll interval from 4s to 10s while connected.
+- **Verification & fixture (`tests/fixtures/incus/incus_list_20_instances.json`, `incus/list/mod.rs`, `incus/monitor.rs`):** Added a 20-instance Incus JSON fixture and verified `< 2 ms` release parse time, unknown-field tolerance, unchanged-poll skipping, lifecycle event parsing, and identical golden `environments_json` output.
+
 ### Core Provision: Structured Rollback, `ProvisionError` Validation, Fast CoW Clone, Image Pre-fetch & Script Templates (`rust/crates/aibox-core/src/provision/`, `aibox-app`, `CreateDialog.qml`)
 
 - **Typed input validation (`provision/error.rs`, `provision/mod.rs`, `create.rs`, `clone.rs`, `lifecycle.rs`, `resources.rs`, `qt_backend_provision.rs`):** Added `ProvisionError` (`thiserror::Error`) and shared validation helpers (`validate_new_env_name`, `validate_limits`) so environment names, CPU cores, disk/RAM/process/I/O quotas, catalog selections, and workspace paths are validated in Rust before generating any shell script.

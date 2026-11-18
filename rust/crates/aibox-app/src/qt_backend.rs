@@ -24,8 +24,9 @@ use aibox_core::health::pool::{
 use aibox_core::incus::catalog::catalog_for_entries;
 use aibox_core::incus::demo::build_demo_state_now;
 use aibox_core::incus::list::{
-    parse as parse_incus_list, templates as extract_templates, ParseDefaults,
+    parse_if_changed as parse_incus_list_if_changed, templates as extract_templates, ParseDefaults,
 };
+use aibox_core::incus::monitor::parse_lifecycle_event;
 use aibox_core::session::scan_recorded_sessions;
 use aibox_core::snapshot::{
     compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes, SnapshotSizeCache,
@@ -964,10 +965,14 @@ pub struct BackendRust {
     pub(crate) history_seen_id: String,
     last_images_json: Vec<u8>,
     pub(crate) last_list_json: Vec<u8>,
+    last_alert_thresholds: (i32, i32),
+    last_pool_quotas: (i64, i32),
     last_refresh_at: Option<Instant>,
     refresh_in_flight: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
     poll_started: bool,
+    monitor_active: Arc<AtomicBool>,
+    monitor_child: Arc<std::sync::Mutex<Option<std::process::Child>>>,
     pub(crate) task_watch_active: Arc<AtomicBool>,
     pub(crate) diff_generation: Arc<AtomicU64>,
     pub(crate) diff_cache: WorkspaceDiffCache,
@@ -1083,10 +1088,14 @@ impl Default for BackendRust {
             history_seen_id: String::new(),
             last_images_json: Vec::new(),
             last_list_json: Vec::new(),
+            last_alert_thresholds: (0, 0),
+            last_pool_quotas: (0, 0),
             last_refresh_at: None,
             refresh_in_flight: Arc::new(AtomicBool::new(false)),
             stop_flag: Arc::new(AtomicBool::new(false)),
             poll_started: false,
+            monitor_active: Arc::new(AtomicBool::new(false)),
+            monitor_child: Arc::new(std::sync::Mutex::new(None)),
             task_watch_active: Arc::new(AtomicBool::new(false)),
             diff_generation: Arc::new(AtomicU64::new(0)),
             diff_cache: WorkspaceDiffCache::default(),
@@ -1112,6 +1121,12 @@ impl Default for BackendRust {
 impl Drop for BackendRust {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
+        if let Ok(mut guard) = self.monitor_child.lock() {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
     }
 }
 
@@ -1523,12 +1538,18 @@ impl qobject::Backend {
             rust.poll_started = true;
         }
 
-        // 4s refresh poll thread
+        // Metric refresh poll thread (4s fallback, 10s when incus monitor is active)
         let qt_thread_poll = self.qt_thread();
         let stop_poll = Arc::clone(&self.stop_flag);
+        let monitor_active_poll = Arc::clone(&self.monitor_active);
         std::thread::spawn(move || {
             while !stop_poll.load(Ordering::Relaxed) {
-                for _ in 0..20 {
+                let ticks = if monitor_active_poll.load(Ordering::Relaxed) {
+                    50
+                } else {
+                    20
+                };
+                for _ in 0..ticks {
                     if stop_poll.load(Ordering::Relaxed) {
                         return;
                     }
@@ -1536,9 +1557,84 @@ impl qobject::Backend {
                 }
                 let _ = qt_thread_poll.queue(|mut backend| {
                     if !backend.busy {
-                        backend.as_mut().refresh();
+                        backend.as_mut().refresh_with_catalog(false);
                     }
                 });
+            }
+        });
+
+        // Instant lifecycle event stream via `incus monitor --type=lifecycle --format=json`
+        let qt_thread_mon = self.qt_thread();
+        let stop_mon = Arc::clone(&self.stop_flag);
+        let monitor_active_mon = Arc::clone(&self.monitor_active);
+        let monitor_child_slot = Arc::clone(&self.monitor_child);
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            use std::process::Stdio;
+
+            while !stop_mon.load(Ordering::Relaxed) {
+                let child_res = Command::new("incus")
+                    .args(["monitor", "--type=lifecycle", "--format=json"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn();
+
+                let Ok(mut child) = child_res else {
+                    monitor_active_mon.store(false, Ordering::Relaxed);
+                    for _ in 0..25 {
+                        if stop_mon.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(200));
+                    }
+                    continue;
+                };
+
+                let stdout = child.stdout.take();
+                if let Ok(mut guard) = monitor_child_slot.lock() {
+                    *guard = Some(child);
+                }
+                monitor_active_mon.store(true, Ordering::Relaxed);
+
+                if let Some(out) = stdout {
+                    let reader = BufReader::new(out);
+                    for line in reader.lines() {
+                        if stop_mon.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let Ok(line_str) = line else {
+                            break;
+                        };
+                        if let Some(ev) = parse_lifecycle_event(&line_str) {
+                            if ev.should_trigger_refresh() {
+                                let include_catalog = ev.invalidates_catalog();
+                                let _ = qt_thread_mon.queue(move |mut backend| {
+                                    if !backend.busy {
+                                        backend.as_mut().refresh_with_catalog(include_catalog);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+
+                monitor_active_mon.store(false, Ordering::Relaxed);
+                if let Ok(mut guard) = monitor_child_slot.lock() {
+                    if let Some(mut c) = guard.take() {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
+                }
+
+                if stop_mon.load(Ordering::Relaxed) {
+                    return;
+                }
+                for _ in 0..25 {
+                    if stop_mon.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(200));
+                }
             }
         });
 
@@ -1595,7 +1691,11 @@ impl qobject::Backend {
         }
     }
 
-    pub fn refresh(mut self: Pin<&mut Self>) {
+    pub fn refresh(self: Pin<&mut Self>) {
+        self.refresh_with_catalog(true);
+    }
+
+    pub(crate) fn refresh_with_catalog(mut self: Pin<&mut Self>, include_catalog: bool) {
         if self.demo_mode {
             return;
         }
@@ -1619,10 +1719,17 @@ impl qobject::Backend {
         }
 
         std::thread::spawn(move || {
-            let script = "incus list --format=json 2>/dev/null; printf '\\0'; \
-                          incus image list --format=json 2>/dev/null; printf '\\0'; \
-                          (incus storage info default --bytes 2>/dev/null || incus storage info default 2>/dev/null); printf '\\0'; \
-                          (incus storage get default size 2>/dev/null || true)";
+            let script = if include_catalog {
+                "incus list --format=json 2>/dev/null; printf '\\0'; \
+                 incus image list --format=json 2>/dev/null; printf '\\0'; \
+                 (incus storage info default --bytes 2>/dev/null || incus storage info default 2>/dev/null); printf '\\0'; \
+                 (incus storage get default size 2>/dev/null || true)"
+            } else {
+                "incus list --format=json 2>/dev/null; printf '\\0'; \
+                 printf '\\0'; \
+                 (incus storage info default --bytes 2>/dev/null || incus storage info default 2>/dev/null); printf '\\0'; \
+                 (incus storage get default size 2>/dev/null || true)"
+            };
             let output = Command::new("/bin/sh").arg("-c").arg(script).output();
             in_flight.store(false, Ordering::SeqCst);
 
@@ -1636,12 +1743,17 @@ impl qobject::Backend {
             let _ = qt_thread.queue(move |mut backend| {
                 backend
                     .as_mut()
-                    .apply_refresh_output(&stdout, elapsed_wall_ns);
+                    .apply_refresh_output(&stdout, elapsed_wall_ns, include_catalog);
             });
         });
     }
 
-    fn apply_refresh_output(mut self: Pin<&mut Self>, raw: &[u8], elapsed_wall_ns: i64) {
+    fn apply_refresh_output(
+        mut self: Pin<&mut Self>,
+        raw: &[u8],
+        elapsed_wall_ns: i64,
+        include_catalog: bool,
+    ) {
         let mut parts = raw.split(|&b| b == 0);
         let list_json = parts.next().unwrap_or(&[]);
         let img_json = parts.next().unwrap_or(&[]);
@@ -1655,10 +1767,13 @@ impl qobject::Backend {
             pool_info.size_text = pool_size_text.clone();
             pool_info.resizable = !pool_size_text.is_empty();
         }
-        let list_bytes_saved = list_json.to_vec();
-        let list_str = String::from_utf8_lossy(list_json);
-        let (allocated_bytes, unbounded_count) =
-            sum_root_disk_quotas_bytes(&list_str, "", "default");
+        let list_unchanged = !self.last_list_json.is_empty() && self.last_list_json == list_json;
+        let (allocated_bytes, unbounded_count) = if list_unchanged {
+            self.last_pool_quotas
+        } else {
+            let list_str = String::from_utf8_lossy(list_json);
+            sum_root_disk_quotas_bytes(&list_str, "", "default")
+        };
         let pool_json_str = pool_info.to_json(allocated_bytes, unbounded_count);
         let pool_json: serde_json::Value =
             serde_json::from_str(&pool_json_str).unwrap_or(serde_json::Value::Null);
@@ -1673,101 +1788,124 @@ impl qobject::Backend {
             record_sessions: self.record_sessions,
         };
 
-        let (envs_changed, _clamped_index, pending_sizes) = {
+        let (envs_changed, _clamped_index, pending_sizes, catalog_updated) = {
             let mut rust = self.as_mut().rust_mut();
-            rust.last_images_json = img_json.to_vec();
+            let catalog_updated = if include_catalog && img_json != rust.last_images_json.as_slice()
+            {
+                rust.last_images_json = img_json.to_vec();
+                true
+            } else {
+                include_catalog && rust.os_catalog.is_empty()
+            };
             rust.engine.pool_info = pool_info;
-            rust.last_list_json = list_bytes_saved;
+            rust.last_pool_quotas = (allocated_bytes, unbounded_count);
             rust.pool_info = q_pool;
 
             let workspace_base = rust.engine.config.workspace_base.clone();
             let state_dir = rust.engine.paths.state_dir.clone();
             let warn = rust.watchdog_disk_warn;
             let crit = rust.watchdog_disk_critical;
+            let thresholds_changed = rust.last_alert_thresholds != (warn, crit);
+            rust.last_alert_thresholds = (warn, crit);
 
-            let mut envs = parse_incus_list(
-                list_json,
-                &workspace_base,
-                &mut rust.engine.counter_state,
-                elapsed_wall_ns,
-                defaults,
-                true,
-            );
-
-            let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
-            for env in &mut envs {
-                env.disk_alert_level = if env.disk_percent >= crit {
-                    2
-                } else if env.disk_percent >= warn {
-                    1
-                } else {
-                    0
-                };
-                // Seed cache with any Incus snapshot sizes already returned in the list payload.
-                if !env.snapshot_sizes.is_empty() {
-                    let initial = env.snapshot_sizes.clone();
-                    rust.snapshot_size_cache.insert_incus(&env.name, initial);
-                }
-                rust.snapshot_size_cache.prune_removed(
-                    &env.name,
-                    &env.snapshots,
-                    &env.workspace_snapshots,
-                );
-                rust.snapshot_size_cache.apply_to_environment(env);
-
-                let missing_incus = !rust
-                    .snapshot_size_cache
-                    .missing_incus_snapshots(&env.name, &env.snapshots)
-                    .is_empty();
-                let missing_ws = rust
-                    .snapshot_size_cache
-                    .missing_workspace_snapshots(&env.name, &env.workspace_snapshots);
-                if missing_incus || !missing_ws.is_empty() {
-                    pending_sizes.push((
-                        env.name.clone(),
-                        env.workspace_snapshot_dir.clone(),
-                        missing_incus,
-                        missing_ws,
-                    ));
-                }
-            }
-
-            let fa_inputs: Vec<FileAccessEnvInput> = envs
-                .iter()
-                .map(|e| FileAccessEnvInput {
-                    name: e.name.clone(),
-                    running: e.running,
-                })
-                .collect();
-            let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
-
-            let mut env_values: Vec<serde_json::Value> = envs
-                .iter()
-                .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
-                .collect();
-            for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
-                if let Some(obj) = val.as_object_mut() {
-                    obj.insert("fileAccessEnabled".into(), serde_json::json!(fa.active));
-                    obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
-                    obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
-                }
-            }
-
-            let changed = envs != rust.engine.environments;
-            let q_envs = json_array_to_qvariant_list(&env_values);
-            if changed {
-                rust.engine.environments = envs.clone();
-                rust.environments = q_envs;
-                rust.count = envs.len() as i32;
-            }
-            let max_idx = (envs.len() as i32 - 1).max(0);
-            let clamped = if rust.selected_index >= envs.len() as i32 {
-                max_idx
+            let parsed_envs = if thresholds_changed {
+                Some(aibox_core::incus::list::parse(
+                    list_json,
+                    &workspace_base,
+                    &mut rust.engine.counter_state,
+                    elapsed_wall_ns,
+                    defaults,
+                    true,
+                ))
             } else {
-                rust.selected_index
+                parse_incus_list_if_changed(
+                    list_json,
+                    &workspace_base,
+                    &mut rust.engine.counter_state,
+                    elapsed_wall_ns,
+                    defaults,
+                    true,
+                )
             };
-            rust.selected_index = clamped;
-            (changed, clamped, pending_sizes)
+
+            if let Some(mut envs) = parsed_envs {
+                rust.last_list_json = list_json.to_vec();
+                let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
+                for env in &mut envs {
+                    env.disk_alert_level = if env.disk_percent >= crit {
+                        2
+                    } else if env.disk_percent >= warn {
+                        1
+                    } else {
+                        0
+                    };
+                    // Seed cache with any Incus snapshot sizes already returned in the list payload.
+                    if !env.snapshot_sizes.is_empty() {
+                        let initial = env.snapshot_sizes.clone();
+                        rust.snapshot_size_cache.insert_incus(&env.name, initial);
+                    }
+                    rust.snapshot_size_cache.prune_removed(
+                        &env.name,
+                        &env.snapshots,
+                        &env.workspace_snapshots,
+                    );
+                    rust.snapshot_size_cache.apply_to_environment(env);
+
+                    let missing_incus = !rust
+                        .snapshot_size_cache
+                        .missing_incus_snapshots(&env.name, &env.snapshots)
+                        .is_empty();
+                    let missing_ws = rust
+                        .snapshot_size_cache
+                        .missing_workspace_snapshots(&env.name, &env.workspace_snapshots);
+                    if missing_incus || !missing_ws.is_empty() {
+                        pending_sizes.push((
+                            env.name.clone(),
+                            env.workspace_snapshot_dir.clone(),
+                            missing_incus,
+                            missing_ws,
+                        ));
+                    }
+                }
+
+                let fa_inputs: Vec<FileAccessEnvInput> = envs
+                    .iter()
+                    .map(|e| FileAccessEnvInput {
+                        name: e.name.clone(),
+                        running: e.running,
+                    })
+                    .collect();
+                let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
+
+                let changed = envs != rust.engine.environments;
+                if changed {
+                    let mut env_values: Vec<serde_json::Value> = envs
+                        .iter()
+                        .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
+                        .collect();
+                    for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
+                        if let Some(obj) = val.as_object_mut() {
+                            obj.insert("fileAccessEnabled".into(), serde_json::json!(fa.active));
+                            obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
+                            obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
+                        }
+                    }
+                    let q_envs = json_array_to_qvariant_list(&env_values);
+                    rust.engine.environments = envs.clone();
+                    rust.environments = q_envs;
+                    rust.count = envs.len() as i32;
+                }
+                let max_idx = (envs.len() as i32 - 1).max(0);
+                let clamped = if rust.selected_index >= envs.len() as i32 {
+                    max_idx
+                } else {
+                    rust.selected_index
+                };
+                rust.selected_index = clamped;
+                (changed, clamped, pending_sizes, catalog_updated)
+            } else {
+                (false, rust.selected_index, Vec::new(), catalog_updated)
+            }
         };
 
         self.as_mut().pool_info_changed();
@@ -1782,7 +1920,9 @@ impl qobject::Backend {
         self.as_mut().schedule_snapshot_size_worker(pending_sizes);
         self.as_mut().evaluate_all_watchdogs();
         self.as_mut().trigger_idle_auto_stops_check();
-        self.as_mut().rebuild_os_catalog();
+        if catalog_updated {
+            self.as_mut().rebuild_os_catalog();
+        }
     }
 
     fn schedule_snapshot_size_worker(
