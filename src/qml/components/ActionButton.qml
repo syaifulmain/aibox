@@ -40,7 +40,7 @@ Rectangle {
     opacity: btn.disabled ? Style.opacityDisabled : 1.0
 
     color: btn.isPrimary ? theme.accent
-         : btn.isDefault ? (btn.isHovered ? theme.surfaceRaised : theme.surfaceCard)
+         : btn.isDefault ? (btn.isHovered ? theme.surfaceRaised : theme.surfaceInput)
          : btn.tone === "danger" ? theme.dangerSurface
          : btn.tone === "success" ? theme.successSurface
          : (btn.isHovered ? theme.surfaceSelected : theme.accentSurface)

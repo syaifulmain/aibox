@@ -25,7 +25,7 @@ Rectangle {
                           ? cardContent.implicitHeight + Style.space20
                           : 88
     radius: Math.min(Style.radius4, theme.radius)
-    color: cardHover.hovered && root.interactive ? theme.surfaceRaised : theme.surfaceCard
+    color: cardHover.hovered && root.interactive ? theme.surfaceRaised : theme.surfaceInput
     border.width: Style.hairline
     border.color: root.alertLevel === 2
                   ? theme.danger
