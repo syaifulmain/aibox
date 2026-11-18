@@ -977,6 +977,7 @@ pub struct BackendRust {
     pub(crate) diff_generation: Arc<AtomicU64>,
     pub(crate) diff_cache: WorkspaceDiffCache,
     pub(crate) log_offset: i64,
+    pub(crate) line_buffer: String,
     pub(crate) has_exit_code: bool,
     pub(crate) last_exit_code: i32,
     pub(crate) enter_env_name: String,
@@ -1100,6 +1101,7 @@ impl Default for BackendRust {
             diff_generation: Arc::new(AtomicU64::new(0)),
             diff_cache: WorkspaceDiffCache::default(),
             log_offset: 0,
+            line_buffer: String::new(),
             has_exit_code: false,
             last_exit_code: -1,
             enter_env_name: String::new(),
@@ -1638,13 +1640,42 @@ impl qobject::Backend {
             }
         });
 
-        // 250ms task watch & 30s diff timeout thread
+        // inotify task watch on state_dir with 1s fallback polling
         let qt_thread_watch = self.qt_thread();
         let stop_watch = Arc::clone(&self.stop_flag);
         let task_watch_active = Arc::clone(&self.task_watch_active);
+        let watch_state_dir = self.engine.paths.state_dir.clone();
         std::thread::spawn(move || {
+            use notify::{RecursiveMode, Watcher};
+            use std::sync::mpsc;
+
+            let _ = std::fs::create_dir_all(&watch_state_dir);
+            let (fs_tx, fs_rx) = mpsc::channel::<()>();
+            let mut watcher =
+                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    if let Ok(ev) = res {
+                        let touches_task = ev.paths.iter().any(|p| {
+                            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                                matches!(n, "task.log" | "task.pid" | "result.json")
+                            })
+                        });
+                        if touches_task {
+                            let _ = fs_tx.send(());
+                        }
+                    }
+                })
+                .ok();
+            if let Some(ref mut w) = watcher {
+                let _ = w.watch(
+                    std::path::Path::new(&watch_state_dir),
+                    RecursiveMode::NonRecursive,
+                );
+            }
+
             while !stop_watch.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(250));
+                if fs_rx.recv_timeout(Duration::from_secs(1)).is_ok() {
+                    while fs_rx.try_recv().is_ok() {}
+                }
                 if stop_watch.load(Ordering::Relaxed) {
                     return;
                 }
@@ -1654,6 +1685,7 @@ impl qobject::Backend {
                     });
                 }
             }
+            drop(watcher);
         });
     }
 

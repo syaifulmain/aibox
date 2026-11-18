@@ -3,7 +3,8 @@ use std::path::Path;
 use chrono::Local;
 
 use crate::task::files::{
-    clear_task_files, read_task_pid, write_task_meta, write_task_pid, TaskMeta,
+    clear_task_files, read_process_start_time, read_task_lock, write_task_lock, write_task_meta,
+    TaskMeta,
 };
 
 pub fn is_pid_alive(pid: i64) -> bool {
@@ -28,16 +29,23 @@ pub fn send_signal_group(pid: i64, sig: i32) {
 }
 
 /// Returns `(active, pid)`. When `busy` is true, returns `(true, read_task_pid)`.
+///
+/// Compares `/proc/<pid>/stat` start time when recorded in `task.pid` so a
+/// recycled PID after a crash or reboot is treated as stale.
 pub fn is_task_lock_active(state_dir: &Path, busy: bool) -> (bool, i64) {
+    let lock = read_task_lock(state_dir);
     if busy {
-        return (true, read_task_pid(state_dir));
+        return (true, lock.pid);
     }
-    let pid = read_task_pid(state_dir);
-    if is_pid_alive(pid) {
-        (true, pid)
-    } else {
-        (false, 0)
+    if !is_pid_alive(lock.pid) {
+        return (false, 0);
     }
+    if let Some(expected_start) = lock.start_time {
+        if read_process_start_time(lock.pid) != Some(expected_start) {
+            return (false, 0);
+        }
+    }
+    (true, lock.pid)
 }
 
 pub fn acquire_cli_task_lock(
@@ -59,7 +67,7 @@ pub fn acquire_cli_task_lock(
     };
     let _ = write_task_meta(state_dir, &meta);
     let pid = i64::from(unsafe { libc::getpid() });
-    write_task_pid(state_dir, pid).is_ok()
+    write_task_lock(state_dir, pid, read_process_start_time(pid)).is_ok()
 }
 
 pub fn release_cli_task_lock(state_dir: &Path) {
@@ -69,6 +77,7 @@ pub fn release_cli_task_lock(state_dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task::files::write_task_pid;
     use std::fs;
     use std::path::PathBuf;
     use std::process::{Command, Stdio};
@@ -117,6 +126,32 @@ mod tests {
         release_cli_task_lock(&dir);
         assert!(!is_task_lock_active(&dir, false).0);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lock_with_live_pid_and_mismatched_start_time_is_stale() {
+        let dir = temp_dir("pid_reuse");
+        let mut sleeper = Command::new("/bin/sleep")
+            .arg("10")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = i64::from(sleeper.id());
+        let actual_start = read_process_start_time(pid).expect("start time");
+
+        // Live PID with different start time simulates PID reuse -> must be stale.
+        write_task_lock(&dir, pid, Some(actual_start.wrapping_add(999)))
+            .expect("write mismatched lock");
+        assert_eq!(is_task_lock_active(&dir, false), (false, 0));
+
+        // Live PID with matching start time -> active.
+        write_task_lock(&dir, pid, Some(actual_start)).expect("write matching lock");
+        assert_eq!(is_task_lock_active(&dir, false), (true, pid));
+
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
         let _ = fs::remove_dir_all(&dir);
     }
 }

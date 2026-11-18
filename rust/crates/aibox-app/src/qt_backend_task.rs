@@ -111,6 +111,7 @@ impl qobject::Backend {
             let mut rust = self.as_mut().rust_mut();
             rust.pending_env_name = QString::from(created_env_name);
             rust.log_offset = 0;
+            rust.line_buffer.clear();
             rust.has_exit_code = false;
             rust.last_exit_code = -1;
             rust.task_progress = 5;
@@ -173,6 +174,7 @@ impl qobject::Backend {
                     rust.pending_env_name = QString::from(env_name.as_str());
                     rust.downloading_os_id = QString::from(downloading_os_id.as_str());
                     rust.log_offset = log_offset;
+                    rust.line_buffer = progress.line_buffer;
                     rust.has_exit_code = progress.has_exit_code;
                     rust.last_exit_code = progress.last_exit_code;
                     rust.task_progress = progress.task_progress;
@@ -207,6 +209,7 @@ impl qobject::Backend {
                     rust.downloading_os_id = QString::default();
                     rust.pending_env_name = QString::default();
                     rust.log_offset = 0;
+                    rust.line_buffer.clear();
                     rust.has_exit_code = has_exit_code;
                     rust.last_exit_code = exit_code;
                     rust.task_log = QString::from(task_log.as_str());
@@ -240,7 +243,7 @@ impl qobject::Backend {
             has_exit_code: self.has_exit_code,
             last_exit_code: self.last_exit_code,
             pending_env_name: self.pending_env_name().to_string(),
-            line_buffer: String::new(),
+            line_buffer: self.line_buffer.clone(),
         };
         let state_dir = self.engine.paths.state_dir.clone();
         let log_offset = self.log_offset;
@@ -256,6 +259,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.log_offset = res.log_offset;
+            rust.line_buffer = res.progress.line_buffer;
             rust.task_progress = res.progress.task_progress;
             rust.task_stage = QString::from(res.progress.task_stage.as_str());
             rust.task_log = QString::from(res.progress.task_log.as_str());
@@ -286,6 +290,8 @@ impl qobject::Backend {
             let mut rust = self.as_mut().rust_mut();
             rust.downloading_os_id = QString::default();
             rust.pending_env_name = QString::default();
+            rust.log_offset = 0;
+            rust.line_buffer.clear();
         }
         self.as_mut().os_catalog_changed();
         self.as_mut().set_busy(false, "");
@@ -344,6 +350,8 @@ impl qobject::Backend {
             let mut rust = self.as_mut().rust_mut();
             rust.downloading_os_id = QString::default();
             rust.pending_env_name = QString::default();
+            rust.log_offset = 0;
+            rust.line_buffer.clear();
         }
         self.as_mut().os_catalog_changed();
         self.as_mut().set_busy(false, "Operation cancelled.");

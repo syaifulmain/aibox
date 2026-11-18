@@ -21,7 +21,7 @@ All host-level configurations are automated in [bin/setup-system](bin/setup-syst
 | **Shared Workspaces** | `~/aibox/workspaces/<name>` (configurable) ⟷ `/home/workspace` | Two-way shared directory between Host and container using POSIX default ACLs (`setfacl`) and UID shifting (`shift=true`). Existing environments keep the workspace path they were created with, and their container mount is moved from `/workspace` to `/home/workspace` automatically on the next Start/Enter. |
 | **App Configuration** | `~/aibox/config.json` & `~/.config/aibox/location.json` | Persists the active system root location (`location.json`), workspace and OS image storage locations, the editable OS catalog, preset titles, disk/RAM/CPU choices, defaults, and first-run completion (`config.json`). |
 | **OS Image Storage** | `~/aibox/os-images` (configurable) | Offline OS image exports (`<id>` metadata + `<id>.root`) used as a fallback import source when the local Incus image is missing. |
-| **Background Task State** | `~/aibox/state/` (`task.pid`, `task.meta`, `task.log`, `task.sh`) | Tracks detached background operations (`setsid`) so tasks survive GUI window closure and automatically re-attach on startup. |
+| **Background Task State** | `~/aibox/state/` (`task.pid`, `task.meta`, `task.log`, `task.sh`, `result.json`) | Tracks detached background operations (`setsid`) so tasks survive GUI window closure and automatically re-attach on startup. |
 | **Root File Access State** | `~/aibox/state/file-access/` (`<env>.json`, `<env>.log`) | PID/port of the per-environment localhost-only SFTP listener (`incus file mount --listen --no-auth`), so **Root Files** survives AIBox restarts and dead listeners are pruned on refresh. |
 
 ---
@@ -62,6 +62,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ---
 
 ## 3. Changelog
+
+### Core Task: Anti-PID-Reuse Lock, Atomic Writes, Streaming Incremental Log, `inotify` Watch & `result.json` (`rust/crates/aibox-core/src/task/`, `aibox-app`)
+
+- **Anti-PID-reuse lock (`task/files.rs`, `task/lock.rs`, `task/runner.rs`):** Recorded `/proc/<pid>/stat` field 22 (`starttime`) alongside the PID in `task.pid` (`read_process_start_time`, `read_task_lock`, `write_task_lock`) and in `build_detached_launch_command`; `is_task_lock_active` now treats a live PID with a mismatched start time as stale.
+- **Atomic writes (`task/files.rs`, `task/runner.rs`, `task/progress.rs`):** Switched `write_task_lock`, `write_task_meta`, `write_task_result`, `task.log` truncation, `task.sh` creation (`atomic_write_with_mode` `0o700`), and `redact_log_file_in_place` to `atomic_write`.
+- **Incremental line-buffered log parsing (`task/progress.rs`, `qt_backend.rs`, `qt_backend_task.rs`):** Persisted `line_buffer` on `Backend` across ticks and switched `evaluate_check_background_task` and `evaluate_attach_existing_task` to `feed_process_output_streaming` / `flush_process_output_streaming` (with truncation reset when `file_len < offset`) so partial lines split across reads are buffered cleanly.
+- **`inotify` task watch (`qt_backend.rs`):** Replaced the 250 ms polling loop with a `notify::recommended_watcher` on `state_dir` watching `task.log`, `task.pid`, and `result.json` with a 1 s fallback timeout.
+- **Structured `result.json` (`task/files.rs`, `task/progress.rs`, `task/runner.rs`):** Added `TaskResult` (`exitCode`, `durationMs`, `lastStage`, `status`) written atomically to `state_dir/result.json` on completion, attach-finish, and cancellation (and cleared before a new task starts).
+- **Verification tests (`task/files.rs`, `task/lock.rs`, `task/progress.rs`):** Added unit tests for `TaskResult` round-trip, live-PID with mismatched start-time stale lock detection, and mid-line split log parsing across incremental `evaluate_check_background_task` ticks.
 
 ### Core Incus: `list/` Split, Typed Serde Deserialization, Unchanged-Poll Skip, Rare Catalog & `incus monitor` (`rust/crates/aibox-core/src/incus/`, `aibox-app`)
 

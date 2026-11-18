@@ -3,12 +3,16 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 
+use chrono::{Local, NaiveDateTime};
 use regex::Regex;
 
 use crate::history::{record_operation_history, RecordOperationParams};
 use crate::secrets::redact::{redact_secrets, redact_secrets_bytes};
-use crate::task::files::{clear_task_files, read_task_meta, read_task_pid, task_log_path};
-use crate::task::lock::{is_pid_alive, send_signal_group};
+use crate::task::files::{
+    clear_task_files, read_task_meta, read_task_pid, task_log_path, write_task_result, TaskResult,
+};
+use crate::task::lock::{is_task_lock_active, send_signal_group};
+use crate::util::paths::atomic_write;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TaskProgressState {
@@ -163,8 +167,32 @@ fn redact_log_file_in_place(log_path: &Path, raw_log: &[u8], secret_values: &[St
     }
     let scrubbed = redact_secrets_bytes(raw_log, secret_values);
     if scrubbed != raw_log {
-        let _ = fs::write(log_path, scrubbed);
+        let _ = atomic_write(log_path, &scrubbed);
     }
+}
+
+fn compute_duration_ms(started_at_iso: &str) -> u64 {
+    let Ok(started) = NaiveDateTime::parse_from_str(started_at_iso, "%Y-%m-%dT%H:%M:%S") else {
+        return 0;
+    };
+    let elapsed = Local::now().naive_local().signed_duration_since(started);
+    u64::try_from(elapsed.num_milliseconds()).unwrap_or(0)
+}
+
+fn persist_task_result(
+    state_dir: &Path,
+    exit_code: i32,
+    started_at: &str,
+    last_stage: &str,
+    status: &str,
+) {
+    let result = TaskResult {
+        exit_code,
+        duration_ms: compute_duration_ms(started_at),
+        last_stage: last_stage.to_string(),
+        status: status.to_string(),
+    };
+    let _ = write_task_result(state_dir, &result);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,8 +223,7 @@ pub fn evaluate_attach_existing_task(
         return AttachOutcome::NoTask;
     };
 
-    let pid = read_task_pid(state_dir);
-    let still_running = is_pid_alive(pid);
+    let still_running = is_task_lock_active(state_dir, false).0;
 
     let log_path = task_log_path(state_dir);
     let raw_log = fs::read(&log_path).unwrap_or_default();
@@ -212,7 +239,7 @@ pub fn evaluate_attach_existing_task(
         line_buffer: String::new(),
     };
     if !raw_log.is_empty() {
-        parse_process_output_chunk(&mut progress, &raw_log, secret_values);
+        feed_process_output_streaming(&mut progress, &raw_log, secret_values);
     }
 
     if still_running && !progress.has_exit_code {
@@ -224,6 +251,8 @@ pub fn evaluate_attach_existing_task(
             progress,
         };
     }
+
+    flush_process_output_streaming(&mut progress, secret_values);
 
     let exit_code = if progress.has_exit_code {
         progress.last_exit_code
@@ -238,6 +267,13 @@ pub fn evaluate_attach_existing_task(
         &meta.target_env_name
     };
     let status = if exit_code == 0 { "success" } else { "failed" };
+    persist_task_result(
+        state_dir,
+        exit_code,
+        &meta.started_at,
+        &progress.task_stage,
+        status,
+    );
     let state_dir_str = state_dir.to_string_lossy();
     let history_entries = record_operation_history(&RecordOperationParams {
         state_dir: &state_dir_str,
@@ -292,20 +328,23 @@ pub fn evaluate_check_background_task(
     if let Ok(mut f) = File::open(&log_path) {
         if let Ok(meta) = f.metadata() {
             let file_len = meta.len() as i64;
+            if file_len < new_offset {
+                new_offset = 0;
+                progress.line_buffer.clear();
+            }
             if file_len > new_offset {
                 let _ = f.seek(SeekFrom::Start(new_offset as u64));
                 let mut buf = Vec::new();
                 if f.read_to_end(&mut buf).is_ok() {
                     new_offset = file_len;
-                    let delta = parse_process_output_chunk(&mut progress, &buf, secret_values);
+                    let delta = feed_process_output_streaming(&mut progress, &buf, secret_values);
                     progress_changed = delta.progress_changed;
                 }
             }
         }
     }
 
-    let pid = read_task_pid(state_dir);
-    let alive = is_pid_alive(pid);
+    let alive = is_task_lock_active(state_dir, false).0;
 
     if alive && !progress.has_exit_code {
         return CheckTaskOutcome {
@@ -318,6 +357,10 @@ pub fn evaluate_check_background_task(
             last_log: String::new(),
             history_json: String::new(),
         };
+    }
+
+    if flush_process_output_streaming(&mut progress, secret_values).progress_changed {
+        progress_changed = true;
     }
 
     let finished_env = progress.pending_env_name.clone();
@@ -347,6 +390,13 @@ pub fn evaluate_check_background_task(
     redact_log_file_in_place(&log_path, &full_log, secret_values);
 
     let status = if exit_code == 0 { "success" } else { "failed" };
+    persist_task_result(
+        state_dir,
+        exit_code,
+        &started_at,
+        &progress.task_stage,
+        status,
+    );
     let state_dir_str = state_dir.to_string_lossy();
     let history_entries = record_operation_history(&RecordOperationParams {
         state_dir: &state_dir_str,
@@ -409,6 +459,7 @@ pub fn cancel_running_task(
     let log_path = task_log_path(state_dir);
     let full_log = fs::read(&log_path).unwrap_or_default();
     redact_log_file_in_place(&log_path, &full_log, secret_values);
+    persist_task_result(state_dir, 130, &started_at, task_stage, "cancelled");
 
     let state_dir_str = state_dir.to_string_lossy();
     let history_entries = record_operation_history(&RecordOperationParams {
@@ -503,6 +554,92 @@ mod tests {
             other => panic!("unexpected attach outcome: {other:?}"),
         }
         assert!(!dir.join("task.meta").exists());
+        let res = crate::task::files::read_task_result(&dir).expect("result.json");
+        assert_eq!(res.exit_code, 0);
+        assert_eq!(res.last_stage, "Ready!");
+        assert_eq!(res.status, "success");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn incremental_check_handles_mid_line_splits_and_writes_result() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let dir = temp_dir("mid_line");
+        let mut sleeper = Command::new("/bin/sleep")
+            .arg("10")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let pid = i64::from(sleeper.id());
+        crate::task::files::write_task_pid(&dir, pid).expect("write pid");
+        crate::task::files::write_task_meta(
+            &dir,
+            &crate::task::files::TaskMeta {
+                description: "Creating 'dev'".to_string(),
+                env_name: "dev".to_string(),
+                target_env_name: "dev".to_string(),
+                downloading_os_id: None,
+                started_at: Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
+                reason: None,
+            },
+        )
+        .expect("write meta");
+
+        let log_path = task_log_path(&dir);
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path)
+            .expect("open log");
+        // Write a partial @@STAGE line (cut mid-line)
+        f.write_all(b"@@STAGE:40:Down").expect("write chunk 1");
+        f.flush().expect("flush");
+
+        let state = TaskProgressState {
+            task_progress: 5,
+            task_stage: "Init".to_string(),
+            pending_env_name: "dev".to_string(),
+            ..Default::default()
+        };
+        let tick1 = evaluate_check_background_task(&dir, 0, state, &[], 50);
+        assert!(!tick1.finished);
+        assert_eq!(tick1.log_offset, 15);
+        // Incomplete line stays buffered; stage has not been applied yet.
+        assert_eq!(tick1.progress.task_progress, 5);
+        assert_eq!(tick1.progress.line_buffer, "@@STAGE:40:Down");
+
+        // Complete the line and start another mid-line split for @@EXIT
+        f.write_all(b"loading image...\n@@STAGE:90:Unpacking\n@@EX")
+            .expect("write chunk 2");
+        f.flush().expect("flush");
+
+        let tick2 = evaluate_check_background_task(&dir, tick1.log_offset, tick1.progress, &[], 50);
+        assert!(!tick2.finished);
+        assert_eq!(tick2.progress.task_progress, 90);
+        assert_eq!(tick2.progress.task_stage, "Unpacking");
+        assert_eq!(tick2.progress.line_buffer, "@@EX");
+
+        // Finish @@EXIT without trailing newline and stop the sleeper process
+        f.write_all(b"IT:0").expect("write chunk 3");
+        f.flush().expect("flush");
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
+
+        let tick3 = evaluate_check_background_task(&dir, tick2.log_offset, tick2.progress, &[], 50);
+        assert!(tick3.finished);
+        assert_eq!(tick3.exit_code, 0);
+        assert!(tick3.progress.has_exit_code);
+        assert_eq!(tick3.progress.task_stage, "Unpacking");
+
+        let result = crate::task::files::read_task_result(&dir).expect("result.json");
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.last_stage, "Unpacking");
+        assert_eq!(result.status, "success");
 
         let _ = fs::remove_dir_all(&dir);
     }

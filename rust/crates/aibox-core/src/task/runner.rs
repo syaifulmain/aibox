@@ -1,11 +1,12 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 use std::path::Path;
 
 use chrono::Local;
 
-use crate::task::files::{task_log_path, task_script_path, write_task_meta, TaskMeta};
+use crate::task::files::{
+    task_log_path, task_result_path, task_script_path, write_task_meta, TaskMeta,
+};
+use crate::util::paths::{atomic_write, atomic_write_with_mode};
 
 pub fn build_task_script_wrapper(script: &str, description: &str) -> String {
     format!(
@@ -29,8 +30,10 @@ exit $CODE
 
 pub fn build_detached_launch_command(script_path: &Path, state_dir: &Path) -> String {
     format!(
-        "setsid '{}' > '{}/task.log' 2>&1 < /dev/null & echo $! > '{}/task.pid'",
+        "setsid '{}' > '{}/task.log' 2>&1 < /dev/null & PID=$!; START=$(sed 's/.*) //' \"/proc/$PID/stat\" 2>/dev/null | awk '{{print $20}}'); printf '%s %s\\n' \"$PID\" \"$START\" > '{}/task.pid.tmp' && mv -f '{}/task.pid.tmp' '{}/task.pid'",
         script_path.display(),
+        state_dir.display(),
+        state_dir.display(),
         state_dir.display(),
         state_dir.display(),
     )
@@ -70,20 +73,13 @@ pub fn prepare_shell_task(params: &PrepareShellTaskParams<'_>) -> Result<String,
     };
     write_task_meta(params.state_dir, &meta)?;
 
-    fs::write(task_log_path(params.state_dir), b"")
+    let _ = fs::remove_file(task_result_path(params.state_dir));
+    atomic_write(&task_log_path(params.state_dir), b"")
         .map_err(|e| format!("Failed to truncate task.log: {e}"))?;
 
     let script_path = task_script_path(params.state_dir);
     let wrapped = build_task_script_wrapper(params.script, params.description);
-    let _ = fs::remove_file(&script_path);
-    let mut f = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o700)
-        .open(&script_path)
-        .map_err(|e| format!("Failed to create task.sh: {e}"))?;
-    f.write_all(wrapped.as_bytes())
+    atomic_write_with_mode(&script_path, wrapped.as_bytes(), Some(0o700))
         .map_err(|e| format!("Failed to write task.sh: {e}"))?;
 
     Ok(build_detached_launch_command(

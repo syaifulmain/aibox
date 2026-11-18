@@ -30,6 +30,8 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+use crate::util::paths::atomic_write;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskMeta {
@@ -45,6 +47,22 @@ pub struct TaskMeta {
     pub started_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskResult {
+    pub exit_code: i32,
+    pub duration_ms: u64,
+    pub last_stage: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TaskLockInfo {
+    pub pid: i64,
+    pub start_time: Option<u64>,
 }
 
 pub fn task_pid_path(state_dir: &Path) -> PathBuf {
@@ -63,17 +81,53 @@ pub fn task_script_path(state_dir: &Path) -> PathBuf {
     state_dir.join("task.sh")
 }
 
-pub fn read_task_pid(state_dir: &Path) -> i64 {
+pub fn task_result_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("result.json")
+}
+
+/// Reads field 22 (`starttime` in clock ticks) from `/proc/<pid>/stat`.
+///
+/// Parses past the final `')'` of the `comm` field so process names containing
+/// spaces or parentheses do not shift subsequent field indices.
+pub fn read_process_start_time(pid: i64) -> Option<u64> {
+    if pid <= 0 {
+        return None;
+    }
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_comm = stat.rsplit_once(')')?.1;
+    // Field 3 (`state`) is index 0 after `')'`, so field 22 (`starttime`) is index 19.
+    after_comm.split_whitespace().nth(19)?.parse::<u64>().ok()
+}
+
+pub fn read_task_lock(state_dir: &Path) -> TaskLockInfo {
     let Ok(raw) = fs::read_to_string(task_pid_path(state_dir)) else {
-        return 0;
+        return TaskLockInfo::default();
     };
-    raw.trim().parse::<i64>().unwrap_or(0)
+    let mut parts = raw.split_whitespace();
+    let pid = parts
+        .next()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let start_time = parts.next().and_then(|s| s.parse::<u64>().ok());
+    TaskLockInfo { pid, start_time }
+}
+
+pub fn read_task_pid(state_dir: &Path) -> i64 {
+    read_task_lock(state_dir).pid
+}
+
+pub fn write_task_lock(state_dir: &Path, pid: i64, start_time: Option<u64>) -> Result<(), String> {
+    fs::create_dir_all(state_dir).map_err(|e| format!("Failed to create state dir: {e}"))?;
+    let payload = match start_time {
+        Some(st) => format!("{pid} {st}\n"),
+        None => format!("{pid}\n"),
+    };
+    atomic_write(&task_pid_path(state_dir), payload.as_bytes())
+        .map_err(|e| format!("Failed to write task.pid: {e}"))
 }
 
 pub fn write_task_pid(state_dir: &Path, pid: i64) -> Result<(), String> {
-    fs::create_dir_all(state_dir).map_err(|e| format!("Failed to create state dir: {e}"))?;
-    fs::write(task_pid_path(state_dir), format!("{pid}\n"))
-        .map_err(|e| format!("Failed to write task.pid: {e}"))
+    write_task_lock(state_dir, pid, read_process_start_time(pid))
 }
 
 pub fn read_task_meta(state_dir: &Path) -> Option<TaskMeta> {
@@ -85,8 +139,21 @@ pub fn write_task_meta(state_dir: &Path, meta: &TaskMeta) -> Result<(), String> 
     fs::create_dir_all(state_dir).map_err(|e| format!("Failed to create state dir: {e}"))?;
     let json =
         serde_json::to_string(meta).map_err(|e| format!("Failed to serialize task.meta: {e}"))?;
-    fs::write(task_meta_path(state_dir), json)
+    atomic_write(&task_meta_path(state_dir), json.as_bytes())
         .map_err(|e| format!("Failed to write task.meta: {e}"))
+}
+
+pub fn read_task_result(state_dir: &Path) -> Option<TaskResult> {
+    let bytes = fs::read(task_result_path(state_dir)).ok()?;
+    serde_json::from_slice::<TaskResult>(&bytes).ok()
+}
+
+pub fn write_task_result(state_dir: &Path, result: &TaskResult) -> Result<(), String> {
+    fs::create_dir_all(state_dir).map_err(|e| format!("Failed to create state dir: {e}"))?;
+    let json = serde_json::to_string(result)
+        .map_err(|e| format!("Failed to serialize result.json: {e}"))?;
+    atomic_write(&task_result_path(state_dir), json.as_bytes())
+        .map_err(|e| format!("Failed to write result.json: {e}"))
 }
 
 /// Removes `task.pid`, `task.meta`, and `task.sh`. Leaves `task.log` intact.
@@ -183,5 +250,29 @@ mod tests {
             "sudo usermod -aG incus-admin alice"
         );
         assert_eq!(admin_fix_command("run: echo not-sudo"), "");
+    }
+
+    #[test]
+    fn lock_and_result_round_trip() {
+        let dir = temp_dir("lock_result");
+        let self_pid = i64::from(unsafe { libc::getpid() });
+        let self_start = read_process_start_time(self_pid);
+        assert!(self_start.is_some());
+
+        write_task_pid(&dir, self_pid).expect("write pid");
+        let lock = read_task_lock(&dir);
+        assert_eq!(lock.pid, self_pid);
+        assert_eq!(lock.start_time, self_start);
+
+        let result = TaskResult {
+            exit_code: 0,
+            duration_ms: 1234,
+            last_stage: "Ready!".to_string(),
+            status: "success".to_string(),
+        };
+        write_task_result(&dir, &result).expect("write result");
+        assert_eq!(read_task_result(&dir), Some(result));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
