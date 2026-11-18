@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Create Dialog Top Input Headers & Settings Modal Rounded Left Corners (`CreateDialog.qml`, `SettingsPanel.qml`)
+
+- **Stacked input headers (`src/qml/dialogs/CreateDialog.qml`):** Restored stacked section headings (`theme.textPrimary`, `Style.fontBody`, `Font.Medium`) above the `Project / Environment Name` and `Shared Folder Location (optional)` inputs (with the `Shared at: ...` hint right-aligned on the first header row) to match the other section titles in `CreateDialog`.
+- **Settings modal left corners (`src/qml/panels/SettingsPanel.qml`):** Inset the `SettingsPanel` body by `Style.hairline` inside `ModalDialog` and gave the left sidebar `radius: Math.min(Style.radiusLg, theme.radius)` (with a straight inner right edge against the divider) so the top-left and bottom-left corners follow the Omarchy window radius and preserve the modal border.
+
 ### Hide ScrollBar Indicators Across All ScrollViews (`src/qml/`)
 
 - **Scrollbars hidden (`EnvironmentInspector.qml`, `SettingsPanel.qml`, `SecretsDialog.qml`, `CreateDialog.qml`, `StaleReportDialog.qml`, `ChangeReviewDialog.qml`, `HistoryDialog.qml`, `ComponentGallery.qml`):** Set `ScrollBar.horizontal.policy: ScrollBar.AlwaysOff` and `ScrollBar.vertical.policy: ScrollBar.AlwaysOff` on all `ScrollView`s so wheel/touchpad/keyboard scrolling works without visible scrollbar indicators.

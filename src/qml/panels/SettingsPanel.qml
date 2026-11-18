@@ -10,7 +10,7 @@ ModalDialog {
     open: app.settingsVisible
     size: "lg"
     zOrder: 80
-    padding: 0
+    padding: Style.hairline
     contentSpacing: 0
     borderColor: theme.borderSubtle
     clipCard: true
@@ -63,8 +63,17 @@ ModalDialog {
             id: sidebar
             Layout.preferredWidth: 232
             Layout.fillHeight: true
+            radius: Math.min(Style.radiusLg, theme.radius)
             color: theme.surfaceInput
             activeFocusOnTab: true
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                width: Math.min(Style.radiusLg, theme.radius)
+                color: theme.surfaceInput
+            }
 
             Keys.onUpPressed: function(event) {
                 app.settingsSection = Math.max(0, app.settingsSection - 1)

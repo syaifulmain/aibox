@@ -1205,6 +1205,7 @@ impl qobject::Backend {
         if self.demo_mode {
             {
                 let mut rust = self.as_mut().rust_mut();
+                rust.engine.config.first_run_completed = true;
                 rust.first_run = false;
             }
             self.as_mut().first_run_changed();

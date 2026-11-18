@@ -275,6 +275,10 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
                 copy_to_buf(QStringLiteral("Root object is not a QQuickWindow"), err_buf, err_buf_len);
                 rc = 1;
             } else {
+                win->show();
+                win->requestActivate();
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+
                 win->setProperty("settingsVisible", true);
                 for (int section = 0; section <= 4; ++section) {
                     win->setProperty("settingsSection", section);
@@ -368,13 +372,23 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
 
                     win->setProperty(prop, true);
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    if (QGuiApplication::focusWindow() != win) {
+                        win->requestActivate();
+                        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+                    }
                     QKeyEvent escPress(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
                     QKeyEvent escRelease(QEvent::KeyRelease, Qt::Key_Escape, Qt::NoModifier);
                     QCoreApplication::sendEvent(win, &escPress);
                     QCoreApplication::sendEvent(win, &escRelease);
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     if (win->property(prop).toBool()) {
-                        copy_to_buf(QStringLiteral("Escape did not close modal: %1").arg(QString::fromLatin1(prop)), err_buf, err_buf_len);
+                        copy_to_buf(
+                            QStringLiteral("Escape did not close modal: %1 (active=%2, firstRun=%3)")
+                                .arg(QString::fromLatin1(prop))
+                                .arg(win->isActive())
+                                .arg(backend.getFirstRun()),
+                            err_buf,
+                            err_buf_len);
                         rc = 1;
                         win->setProperty(prop, false);
                         break;

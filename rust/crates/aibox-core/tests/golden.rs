@@ -2390,6 +2390,7 @@ fn replay_active_goldens() {
     let old_xdg = env::var_os("XDG_CONFIG_HOME");
     let old_loc = env::var_os("AIBOX_LOCATION_FILE");
     env::set_var("HOME", "/tmp/aibox-golden-home");
+    let _ = fs::create_dir_all("/tmp/aibox-golden-home");
     env::remove_var("XDG_CONFIG_HOME");
     env::remove_var("AIBOX_LOCATION_FILE");
 

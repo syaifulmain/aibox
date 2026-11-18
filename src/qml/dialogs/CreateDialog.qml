@@ -71,11 +71,36 @@ ModalDialog {
             width: createFormScroll.availableWidth
             spacing: Style.padCard
 
-            FormRow {
-                label: qsTr("Project / Environment Name")
-                hint: qsTr("Shared at: %1/%2")
-                      .arg(app.newEnvSharedPath.trim().length > 0 ? app.newEnvSharedPath.trim() : backend.workspaceBase)
-                      .arg(app.newEnvName.length > 0 ? app.newEnvName : "<name>")
+            // Project name and resulting shared path
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.gap
+
+                    Text {
+                        text: qsTr("Project / Environment Name")
+                        color: theme.textPrimary
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.fontBody
+                        font.weight: Font.Medium
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        horizontalAlignment: Text.AlignRight
+                        text: qsTr("Shared at: %1/%2")
+                              .arg(app.newEnvSharedPath.trim().length > 0 ? app.newEnvSharedPath.trim() : backend.workspaceBase)
+                              .arg(app.newEnvName.length > 0 ? app.newEnvName : "<name>")
+                        color: theme.textMuted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.fontSmall
+                        elide: Text.ElideMiddle
+                    }
+                }
 
                 FlatInput {
                     id: createNameField
@@ -86,27 +111,42 @@ ModalDialog {
                 }
             }
 
-            FormRow {
-                label: qsTr("Shared Folder Location (optional)")
+            // Optional custom shared folder location (defaults to the configured base)
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
 
-                FlatInput {
-                    id: createSharedPathField
+                Text {
+                    text: qsTr("Shared Folder Location (optional)")
+                    color: theme.textPrimary
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontBody
+                    font.weight: Font.Medium
+                }
+
+                RowLayout {
                     Layout.fillWidth: true
-                    placeholder: qsTr("Default: %1").arg(backend.workspaceBase)
-                    text: app.newEnvSharedPath
-                    onTextChanged: app.newEnvSharedPath = text
-                }
+                    spacing: Style.gapMd
 
-                ActionButton {
-                    label: qsTr("Browse...")
-                    onClicked: createSharedFolderDialog.open()
-                }
+                    FlatInput {
+                        id: createSharedPathField
+                        Layout.fillWidth: true
+                        placeholder: qsTr("Default: %1").arg(backend.workspaceBase)
+                        text: app.newEnvSharedPath
+                        onTextChanged: app.newEnvSharedPath = text
+                    }
 
-                ActionButton {
-                    label: qsTr("Default")
-                    onClicked: {
-                        app.newEnvSharedPath = ""
-                        createSharedPathField.text = ""
+                    ActionButton {
+                        label: qsTr("Browse...")
+                        onClicked: createSharedFolderDialog.open()
+                    }
+
+                    ActionButton {
+                        label: qsTr("Default")
+                        onClicked: {
+                            app.newEnvSharedPath = ""
+                            createSharedPathField.text = ""
+                        }
                     }
                 }
             }
