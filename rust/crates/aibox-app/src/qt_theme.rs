@@ -79,6 +79,15 @@ pub mod qobject {
         #[qproperty(QString, scrim_strong, cxx_name = "scrimStrong", READ, NOTIFY = changed)]
         #[qproperty(QString, selection, READ, NOTIFY = changed)]
         #[qproperty(QString, selection_text, cxx_name = "selectionText", READ, NOTIFY = changed)]
+        // Chart hues
+        #[qproperty(QString, chart_1, cxx_name = "chart1", READ, NOTIFY = changed)]
+        #[qproperty(QString, chart_2, cxx_name = "chart2", READ, NOTIFY = changed)]
+        #[qproperty(QString, chart_3, cxx_name = "chart3", READ, NOTIFY = changed)]
+        #[qproperty(QString, chart_4, cxx_name = "chart4", READ, NOTIFY = changed)]
+        // Preferences
+        #[qproperty(QString, mode_override, cxx_name = "modeOverride", READ, NOTIFY = changed)]
+        #[qproperty(bool, high_contrast, cxx_name = "highContrast", READ, NOTIFY = changed)]
+        #[qproperty(bool, reduce_motion, cxx_name = "reduceMotion", READ, NOTIFY = changed)]
         #[qproperty(i32, radius, READ, NOTIFY = changed)]
         type Theme = super::ThemeRust;
 
@@ -87,6 +96,15 @@ pub mod qobject {
 
         #[qinvokable]
         fn configure(self: Pin<&mut Theme>, directory: &QString, hyprctl: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "setPreferences"]
+        fn set_preferences(
+            self: Pin<&mut Theme>,
+            mode_override: &QString,
+            high_contrast: bool,
+            reduce_motion: bool,
+        );
     }
 
     impl cxx_qt::Threading for Theme {}
@@ -104,9 +122,13 @@ macro_rules! define_theme_rust {
             is_dark: bool,
             mode: QString,
             $($palette_field: QString,)+
+            mode_override: QString,
+            high_contrast: bool,
+            reduce_motion: bool,
             radius: i32,
             colors: aibox_core::theme::ThemeColors,
             palette: aibox_core::theme::Palette,
+            palette_options: aibox_core::theme::PaletteOptions,
             directory: String,
             hyprctl: String,
             watcher_state: Option<Arc<Mutex<WatcherState>>>,
@@ -117,14 +139,19 @@ macro_rules! define_theme_rust {
         impl Default for ThemeRust {
             fn default() -> Self {
                 let colors = aibox_core::theme::ThemeColors::default();
-                let palette = aibox_core::theme::derive_palette(&colors);
+                let palette_options = aibox_core::theme::PaletteOptions::default();
+                let palette = aibox_core::theme::derive_palette_with_options(&colors, palette_options);
                 Self {
                     is_dark: palette.is_dark,
                     mode: QString::from(&colors.mode),
                     $($palette_field: QString::from(&palette.$palette_field),)+
+                    mode_override: QString::from("auto"),
+                    high_contrast: false,
+                    reduce_motion: false,
                     radius: 0,
                     colors,
                     palette,
+                    palette_options,
                     directory: String::new(),
                     hyprctl: String::new(),
                     watcher_state: None,
@@ -141,7 +168,7 @@ macro_rules! define_theme_rust {
                 palette: aibox_core::theme::Palette,
             ) {
                 self.is_dark = palette.is_dark;
-                self.mode = QString::from(&colors.mode);
+                self.mode = QString::from(if palette.is_dark { "dark" } else { "light" });
                 $(self.$palette_field = QString::from(&palette.$palette_field);)+
                 self.colors = colors;
                 self.palette = palette;
@@ -196,6 +223,10 @@ define_theme_rust!(
     scrim_strong,
     selection,
     selection_text,
+    chart_1,
+    chart_2,
+    chart_3,
+    chart_4,
 );
 
 impl Drop for ThemeRust {
@@ -331,13 +362,51 @@ impl qobject::Theme {
         self.reload();
     }
 
+    fn set_preferences(
+        mut self: Pin<&mut Self>,
+        mode_override: &QString,
+        high_contrast: bool,
+        reduce_motion: bool,
+    ) {
+        let mode_str = mode_override.to_string();
+        let parsed_mode = aibox_core::theme::ModeOverride::from_str_lossy(&mode_str);
+        let next_opts = aibox_core::theme::PaletteOptions {
+            mode_override: parsed_mode,
+            high_contrast,
+        };
+        let needs_update = {
+            let rust = self.rust();
+            rust.palette_options != next_opts || rust.reduce_motion != reduce_motion
+        };
+        if !needs_update {
+            return;
+        }
+
+        let (colors, palette) = {
+            let rust = self.rust();
+            let colors = rust.colors.clone();
+            let palette = aibox_core::theme::derive_palette_with_options(&colors, next_opts);
+            (colors, palette)
+        };
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.palette_options = next_opts;
+            rust.mode_override = QString::from(parsed_mode.as_str());
+            rust.high_contrast = high_contrast;
+            rust.reduce_motion = reduce_motion;
+            rust.apply_theme(colors, palette);
+        }
+        self.as_mut().changed();
+    }
+
     fn reload(mut self: Pin<&mut Self>) {
-        let (directory, watcher_state, rounding_wake_tx) = {
+        let (directory, watcher_state, rounding_wake_tx, palette_options) = {
             let rust = self.rust();
             (
                 rust.directory.clone(),
                 rust.watcher_state.clone(),
                 rust.rounding_wake_tx.clone(),
+                rust.palette_options,
             )
         };
 
@@ -351,7 +420,7 @@ impl qobject::Theme {
             }
         }
 
-        let (colors, palette) = load_colors_and_palette(Path::new(&directory));
+        let (colors, palette) = load_colors_and_palette(Path::new(&directory), palette_options);
 
         let changed = {
             let rust = self.rust();
@@ -382,6 +451,7 @@ impl qobject::Theme {
 
 fn load_colors_and_palette(
     theme_dir: &Path,
+    opts: aibox_core::theme::PaletteOptions,
 ) -> (aibox_core::theme::ThemeColors, aibox_core::theme::Palette) {
     let candidate = if theme_dir.is_file() {
         Some(theme_dir.to_path_buf())
@@ -400,7 +470,7 @@ fn load_colors_and_palette(
         },
         None => aibox_core::theme::ThemeColors::default(),
     };
-    let palette = aibox_core::theme::derive_palette(&colors);
+    let palette = aibox_core::theme::derive_palette_with_options(&colors, opts);
     (colors, palette)
 }
 

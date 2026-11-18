@@ -15,6 +15,18 @@ use crate::util::json::{to_json_compact, to_json_indented};
 use crate::util::paths::{atomic_write, normalized_path};
 use crate::util::size::{validated_cpu_options, validated_size_options};
 
+fn default_theme_mode_override() -> String {
+    "auto".to_string()
+}
+
+fn is_default_theme_mode_override(v: &str) -> bool {
+    v == "auto"
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -42,6 +54,15 @@ pub struct Config {
     pub stale_days: i32,
     pub record_sessions: bool,
     pub diff_excludes: Vec<String>,
+    #[serde(
+        default = "default_theme_mode_override",
+        skip_serializing_if = "is_default_theme_mode_override"
+    )]
+    pub theme_mode_override: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub high_contrast: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reduce_motion: bool,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -73,6 +94,9 @@ impl Config {
             stale_days: 30,
             record_sessions: false,
             diff_excludes: default_diff_excludes(),
+            theme_mode_override: default_theme_mode_override(),
+            high_contrast: false,
+            reduce_motion: false,
             extra: BTreeMap::new(),
         }
     }
@@ -406,6 +430,18 @@ fn apply_object(
     if let Some(v) = obj.get("recordSessions") {
         cfg.record_sessions = v.as_bool().unwrap_or(false);
     }
+    if let Some(s) = obj.get("themeModeOverride").and_then(|v| v.as_str()) {
+        let normalized = s.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "auto" | "light" | "dark") {
+            cfg.theme_mode_override = normalized;
+        }
+    }
+    if let Some(v) = obj.get("highContrast") {
+        cfg.high_contrast = v.as_bool().unwrap_or(false);
+    }
+    if let Some(v) = obj.get("reduceMotion") {
+        cfg.reduce_motion = v.as_bool().unwrap_or(false);
+    }
 
     if let Some(arr) = obj.get("diffExcludes").and_then(|v| v.as_array()) {
         let mut loaded = Vec::new();
@@ -443,6 +479,9 @@ fn apply_object(
         "staleDays",
         "recordSessions",
         "diffExcludes",
+        "themeModeOverride",
+        "highContrast",
+        "reduceMotion",
     ];
     for (k, v) in obj {
         if !KNOWN_KEYS.contains(&k.as_str()) {

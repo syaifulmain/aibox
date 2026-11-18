@@ -1,9 +1,45 @@
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::color::{contrast_ratio, ensure_contrast, mix, Rgb};
 use super::parse::{parse_colors_file, ThemeColors};
+
+/// Optional user override for theme polarity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModeOverride {
+    #[default]
+    Auto,
+    Light,
+    Dark,
+}
+
+impl ModeOverride {
+    /// Parses `"auto"`, `"light"`, or `"dark"` (case-insensitive), defaulting to `Auto`.
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "light" => Self::Light,
+            "dark" => Self::Dark,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+}
+
+/// Options controlling palette derivation (mode override and high-contrast thresholds).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PaletteOptions {
+    pub mode_override: ModeOverride,
+    pub high_contrast: bool,
+}
 
 /// Mixing ratios and scrim opacities used to derive a semantic `Palette`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -129,6 +165,12 @@ pub struct Palette {
     pub scrim_strong: String,
     pub selection: String,
     pub selection_text: String,
+
+    // Additional chart hues (>= 3:1 vs card)
+    pub chart_1: String,
+    pub chart_2: String,
+    pub chart_3: String,
+    pub chart_4: String,
 }
 
 struct StatusTokens {
@@ -169,7 +211,10 @@ fn derive_status(
     fg: Rgb,
     is_dark: bool,
     ratios: &MixRatios,
+    high_contrast: bool,
 ) -> StatusTokens {
+    let text_min = if high_contrast { 7.0 } else { 4.5 };
+    let border_min = if high_contrast { 3.0 } else { 1.8 };
     let fill = ensure_contrast(raw, card, 3.0);
     let surface_ratio = if is_dark {
         ratios.status_surface_dark
@@ -177,9 +222,9 @@ fn derive_status(
         ratios.status_surface_light
     };
     let surface = mix(card, fill, surface_ratio);
-    let text_on_card = ensure_contrast(raw, card, 4.5);
-    let text = ensure_contrast(text_on_card, surface, 4.5);
-    let border = ensure_contrast(mix(card, fill, ratios.status_border), card, 1.8);
+    let text_on_card = ensure_contrast(raw, card, text_min);
+    let text = ensure_contrast(text_on_card, surface, text_min);
+    let border = ensure_contrast(mix(card, fill, ratios.status_border), card, border_min);
     let on_fill = best_on_color(fill, bg, fg);
     StatusTokens {
         fill,
@@ -190,27 +235,39 @@ fn derive_status(
     }
 }
 
-/// Derives a complete contrast-guarded `Palette` from parsed `ThemeColors`.
+/// Derives a complete contrast-guarded `Palette` from parsed `ThemeColors`
+/// using default `PaletteOptions`.
 pub fn derive_palette(raw: &ThemeColors) -> Palette {
+    derive_palette_with_options(raw, PaletteOptions::default())
+}
+
+/// Derives a complete contrast-guarded `Palette` from parsed `ThemeColors`
+/// with explicit `PaletteOptions` (mode override and high contrast).
+pub fn derive_palette_with_options(raw: &ThemeColors, opts: PaletteOptions) -> Palette {
     let ratios = MixRatios::DEFAULT;
-    let is_dark = raw.is_dark;
+    let is_dark = match opts.mode_override {
+        ModeOverride::Auto => raw.is_dark,
+        ModeOverride::Light => false,
+        ModeOverride::Dark => true,
+    };
+    let polarity_flipped = is_dark != raw.is_dark;
     let fallback = if is_dark {
         ThemeColors::default()
     } else {
         ThemeColors::default_light()
     };
 
-    let bg = parse_rgb_or(
+    let bg_raw = parse_rgb_or(
         &raw.background,
         Rgb::from_hex(&fallback.background).unwrap_or(Rgb::BLACK),
     );
-    let dark_bg = parse_rgb_or(
+    let dark_bg_raw = parse_rgb_or(
         &raw.dark_background,
-        Rgb::from_hex(&fallback.dark_background).unwrap_or(bg),
+        Rgb::from_hex(&fallback.dark_background).unwrap_or(bg_raw),
     );
-    let darker_bg = parse_rgb_or(
+    let darker_bg_raw = parse_rgb_or(
         &raw.darker_background,
-        Rgb::from_hex(&fallback.darker_background).unwrap_or(dark_bg),
+        Rgb::from_hex(&fallback.darker_background).unwrap_or(dark_bg_raw),
     );
     let fg_raw = parse_rgb_or(
         &raw.bright_foreground,
@@ -218,7 +275,6 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
     );
     let fg_secondary_raw = parse_rgb_or(&raw.base_foreground, fg_raw);
     let fg_muted_raw = parse_rgb_or(&raw.dark_foreground, fg_secondary_raw);
-    let selection_raw = parse_rgb_or(&raw.selection, dark_bg);
 
     let accent_raw = parse_rgb_or(
         &raw.accent,
@@ -233,14 +289,51 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
         &raw.yellow,
         Rgb::from_hex(&fallback.yellow).unwrap_or(accent_raw),
     );
+    let orange_raw = parse_rgb_or(
+        &raw.orange,
+        Rgb::from_hex(&fallback.orange).unwrap_or(accent_raw),
+    );
+    let magenta_raw = parse_rgb_or(
+        &raw.magenta,
+        Rgb::from_hex(&fallback.magenta).unwrap_or(accent_raw),
+    );
     let cyan_raw = parse_rgb_or(
         &raw.cyan,
         Rgb::from_hex(&fallback.cyan).unwrap_or(accent_raw),
     );
 
+    // When the user forces the opposite polarity, derive surfaces from the opposite pole
+    // while keeping the theme's foreground tint, accent, and status hues.
+    let (bg, dark_bg, darker_bg) = if polarity_flipped {
+        if is_dark {
+            let b = mix(fg_raw, Rgb::BLACK, 0.90);
+            let d = mix(b, Rgb::WHITE, 0.04);
+            let dd = mix(b, Rgb::BLACK, 0.25);
+            (b, d, dd)
+        } else {
+            let b = mix(fg_raw, Rgb::WHITE, 0.90);
+            let d = mix(b, fg_raw, 0.05);
+            let dd = mix(b, fg_raw, 0.10);
+            (b, d, dd)
+        }
+    } else {
+        (bg_raw, dark_bg_raw, darker_bg_raw)
+    };
+
+    let selection_raw = if polarity_flipped {
+        mix(dark_bg, accent_raw, if is_dark { 0.22 } else { 0.18 })
+    } else {
+        parse_rgb_or(&raw.selection, dark_bg)
+    };
+
     // Surfaces
     let surface_canvas = bg;
     let card = dark_bg;
+    let fg_pole = if polarity_flipped {
+        ensure_contrast(fg_raw, card, 7.0)
+    } else {
+        fg_raw
+    };
     let surface_sidebar = mix(
         dark_bg,
         darker_bg,
@@ -257,7 +350,7 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
     };
     let surface_raised = mix(
         card,
-        fg_raw,
+        fg_pole,
         if is_dark {
             ratios.raised_dark
         } else {
@@ -275,7 +368,7 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
     );
     let surface_track = mix(
         card,
-        fg_raw,
+        fg_pole,
         if is_dark {
             ratios.track_dark
         } else {
@@ -285,29 +378,82 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
     let surface_overlay = if is_dark { card } else { bg };
 
     // Text
+    let text_min = if opts.high_contrast { 7.0 } else { 4.5 };
     let text_primary = ensure_contrast(fg_raw, card, 7.0);
-    let text_secondary = ensure_contrast(fg_secondary_raw, card, 4.5);
-    let text_muted = ensure_contrast(fg_muted_raw, card, 4.5);
+    let text_secondary = ensure_contrast(fg_secondary_raw, card, text_min);
+    let text_muted = ensure_contrast(fg_muted_raw, card, text_min);
     let text_disabled = mix(text_muted, card, ratios.text_disabled);
 
     // Accent & Status
-    let accent = derive_status(accent_raw, card, bg, fg_raw, is_dark, &ratios);
-    let danger = derive_status(red_raw, card, bg, fg_raw, is_dark, &ratios);
-    let success = derive_status(green_raw, card, bg, fg_raw, is_dark, &ratios);
-    let warning = derive_status(yellow_raw, card, bg, fg_raw, is_dark, &ratios);
-    let info = derive_status(cyan_raw, card, bg, fg_raw, is_dark, &ratios);
+    let accent = derive_status(
+        accent_raw,
+        card,
+        bg,
+        fg_pole,
+        is_dark,
+        &ratios,
+        opts.high_contrast,
+    );
+    let danger = derive_status(
+        red_raw,
+        card,
+        bg,
+        fg_pole,
+        is_dark,
+        &ratios,
+        opts.high_contrast,
+    );
+    let success = derive_status(
+        green_raw,
+        card,
+        bg,
+        fg_pole,
+        is_dark,
+        &ratios,
+        opts.high_contrast,
+    );
+    let warning = derive_status(
+        yellow_raw,
+        card,
+        bg,
+        fg_pole,
+        is_dark,
+        &ratios,
+        opts.high_contrast,
+    );
+    let info = derive_status(
+        cyan_raw,
+        card,
+        bg,
+        fg_pole,
+        is_dark,
+        &ratios,
+        opts.high_contrast,
+    );
+
+    // Chart hues (>= 3:1 vs card)
+    let chart_1 = ensure_contrast(accent_raw, card, 3.0);
+    let chart_2 = ensure_contrast(orange_raw, card, 3.0);
+    let chart_3 = ensure_contrast(magenta_raw, card, 3.0);
+    let chart_4 = ensure_contrast(cyan_raw, card, 3.0);
 
     // Borders
-    let border_subtle = mix(
+    let border_min = if opts.high_contrast { 3.0 } else { 1.8 };
+    let border_subtle_raw = mix(
         card,
-        fg_raw,
+        fg_pole,
         if is_dark {
             ratios.border_subtle_dark
         } else {
             ratios.border_subtle_light
         },
     );
-    let border_strong = ensure_contrast(mix(card, fg_raw, ratios.border_strong), card, 1.8);
+    let border_subtle = if opts.high_contrast {
+        ensure_contrast(border_subtle_raw, card, 3.0)
+    } else {
+        border_subtle_raw
+    };
+    let border_strong = ensure_contrast(mix(card, fg_pole, ratios.border_strong), card, border_min);
     let border_focus = accent.fill;
 
     // Overlay & selection
@@ -369,12 +515,21 @@ pub fn derive_palette(raw: &ThemeColors) -> Palette {
         scrim_strong,
         selection: selection_raw.to_hex(),
         selection_text: text_primary.to_hex(),
+        chart_1: chart_1.to_hex(),
+        chart_2: chart_2.to_hex(),
+        chart_3: chart_3.to_hex(),
+        chart_4: chart_4.to_hex(),
     }
 }
 
 /// Loads `colors.toml` from `theme_dir` (checking `colors.toml` directly,
 /// `theme/colors.toml`, or a direct file path) and derives its `Palette`.
 pub fn load_palette(theme_dir: &Path) -> Palette {
+    load_palette_with_options(theme_dir, PaletteOptions::default())
+}
+
+/// Loads `colors.toml` from `theme_dir` and derives its `Palette` with `PaletteOptions`.
+pub fn load_palette_with_options(theme_dir: &Path, opts: PaletteOptions) -> Palette {
     let candidate = if theme_dir.is_file() {
         Some(theme_dir.to_path_buf())
     } else if theme_dir.join("theme").join("colors.toml").is_file() {
@@ -392,7 +547,7 @@ pub fn load_palette(theme_dir: &Path) -> Palette {
         },
         None => ThemeColors::default(),
     };
-    derive_palette(&colors)
+    derive_palette_with_options(&colors, opts)
 }
 
 impl Palette {
@@ -444,6 +599,10 @@ impl Palette {
             ("scrimStrong", self.scrim_strong.clone()),
             ("selection", self.selection.clone()),
             ("selectionText", self.selection_text.clone()),
+            ("chart1", self.chart_1.clone()),
+            ("chart2", self.chart_2.clone()),
+            ("chart3", self.chart_3.clone()),
+            ("chart4", self.chart_4.clone()),
         ]
     }
 
@@ -635,5 +794,103 @@ mod tests {
         assert!(p.is_dark);
         assert_eq!(p.surface_canvas, "#0e0e10");
         assert!(!p.tokens().is_empty());
+    }
+
+    #[test]
+    fn mode_override_flips_polarity_with_valid_contrast() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes");
+
+        let tokyo_forced_light = load_palette_with_options(
+            &dir.join("tokyo-night.toml"),
+            PaletteOptions {
+                mode_override: ModeOverride::Light,
+                high_contrast: false,
+            },
+        );
+        assert!(!tokyo_forced_light.is_dark);
+        let card = rgb(&tokyo_forced_light.surface_card);
+        assert_contrast(
+            "tokyo-night->light",
+            "textPrimary",
+            rgb(&tokyo_forced_light.text_primary),
+            card,
+            7.0,
+        );
+        assert_contrast(
+            "tokyo-night->light",
+            "textMuted",
+            rgb(&tokyo_forced_light.text_muted),
+            card,
+            4.5,
+        );
+
+        let latte_forced_dark = load_palette_with_options(
+            &dir.join("catppuccin-latte.toml"),
+            PaletteOptions {
+                mode_override: ModeOverride::Dark,
+                high_contrast: false,
+            },
+        );
+        assert!(latte_forced_dark.is_dark);
+        let card = rgb(&latte_forced_dark.surface_card);
+        assert_contrast(
+            "latte->dark",
+            "textPrimary",
+            rgb(&latte_forced_dark.text_primary),
+            card,
+            7.0,
+        );
+        assert_contrast(
+            "latte->dark",
+            "textMuted",
+            rgb(&latte_forced_dark.text_muted),
+            card,
+            4.5,
+        );
+    }
+
+    #[test]
+    fn high_contrast_enforces_aaa_text_and_3_to_1_borders() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes");
+
+        for fixture in ["tokyo-night.toml", "catppuccin-latte.toml", "white.toml"] {
+            let p = load_palette_with_options(
+                &dir.join(fixture),
+                PaletteOptions {
+                    mode_override: ModeOverride::Auto,
+                    high_contrast: true,
+                },
+            );
+            let card = rgb(&p.surface_card);
+            assert_contrast(fixture, "textPrimary", rgb(&p.text_primary), card, 7.0);
+            assert_contrast(fixture, "textSecondary", rgb(&p.text_secondary), card, 7.0);
+            assert_contrast(fixture, "textMuted", rgb(&p.text_muted), card, 7.0);
+            assert_contrast(fixture, "accentText", rgb(&p.accent_text), card, 7.0);
+            assert_contrast(fixture, "dangerText", rgb(&p.danger_text), card, 7.0);
+            assert_contrast(fixture, "borderSubtle", rgb(&p.border_subtle), card, 3.0);
+            assert_contrast(fixture, "borderStrong", rgb(&p.border_strong), card, 3.0);
+        }
+    }
+
+    #[test]
+    fn chart_hues_meet_contrast_against_card() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes");
+        for fixture in ["tokyo-night.toml", "catppuccin-latte.toml"] {
+            let p = load_palette(&dir.join(fixture));
+            let card = rgb(&p.surface_card);
+            assert_contrast(fixture, "chart1", rgb(&p.chart_1), card, 3.0);
+            assert_contrast(fixture, "chart2", rgb(&p.chart_2), card, 3.0);
+            assert_contrast(fixture, "chart3", rgb(&p.chart_3), card, 3.0);
+            assert_contrast(fixture, "chart4", rgb(&p.chart_4), card, 3.0);
+        }
     }
 }

@@ -7,6 +7,7 @@
         <file alias="components/FlatInput.qml">qml/components/FlatInput.qml</file>
         <file alias="components/ChipInput.qml">qml/components/ChipInput.qml</file>
         <file alias="components/SlidersIcon.qml">qml/components/SlidersIcon.qml</file>
+        <file alias="components/ThemeDebugOverlay.qml">qml/components/ThemeDebugOverlay.qml</file>
         <file alias="components/TagBadge.qml">qml/components/TagBadge.qml</file>
         <file alias="components/MeterBar.qml">qml/components/MeterBar.qml</file>
         <file alias="components/BrandMark.qml">qml/components/BrandMark.qml</file>
@@ -47,6 +48,7 @@
         <file alias="panels/settings/OsCatalogSection.qml">qml/panels/settings/OsCatalogSection.qml</file>
         <file alias="panels/settings/CreateOptionsSection.qml">qml/panels/settings/CreateOptionsSection.qml</file>
         <file alias="panels/settings/SafetySection.qml">qml/panels/settings/SafetySection.qml</file>
+        <file alias="panels/settings/AppearanceSection.qml">qml/panels/settings/AppearanceSection.qml</file>
         <file alias="panels/SettingsPanel.qml">qml/panels/SettingsPanel.qml</file>
         <file alias="panels/StatusBanner.qml">qml/panels/StatusBanner.qml</file>
         <file alias="i18n/en.json">i18n/en.json</file>

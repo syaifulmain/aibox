@@ -564,5 +564,21 @@
   "Invalid secret name '%1'.": "Ugyldigt hemmelighedsnavn '%1'.",
   "Click to expand core usage": "Klik for at udvide CPU-forbrug pr. kerne",
   "Click to collapse core usage": "Klik for at skjule CPU-forbrug pr. kerne",
-  "Core %1": "Kerne %1"
+  "Core %1": "Kerne %1",
+  "Appearance": "Udseende",
+  "Theme mode & contrast": "Tematilstand & kontrast",
+  "Appearance & Accessibility": "Udseende & tilgængelighed",
+  "Override light/dark polarity, enable high contrast, or reduce theme transition motion.": "Tilsidesæt lys/mørk polaritet, aktivér høj kontrast eller reducer overgangsanimationer.",
+  "Theme Mode": "Tematilstand",
+  "Follow the active Omarchy theme automatically, or force a light or dark palette inside AIBox.": "Følg det aktive Omarchy-tema automatisk, eller gennemtving en lys eller mørk palet i AIBox.",
+  "Follow Omarchy": "Følg Omarchy",
+  "Always light": "Altid lys",
+  "Always dark": "Altid mørk",
+  "Accessibility & Motion": "Tilgængelighed & bevægelse",
+  "High contrast (7:1 text, 3:1 borders)": "Høj kontrast (7:1 tekst, 3:1 kanter)",
+  "Reduce motion (disable theme transition animations)": "Reducer bevægelse (deaktivér temaovergange)",
+  "Save Appearance": "Gem udseende",
+  "Appearance preferences saved.": "Udseendeindstillinger gemt.",
+  "Toggle theme token debug overlay": "Skift fejlfindingslag for tematokens",
+  "Custom / Unmapped": "Tilpasset / ikke kortlagt"
 }

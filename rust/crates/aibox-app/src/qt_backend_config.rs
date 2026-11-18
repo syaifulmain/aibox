@@ -7,9 +7,9 @@ use cxx_qt_lib::QString;
 use aibox_core::config::model;
 use aibox_core::config::settings::{
     complete_first_run, remove_os_entry, reset_create_options, reset_os_catalog,
-    save_auto_snapshot_settings, save_create_options, save_diff_excludes, save_idle_stop_settings,
-    save_os_entry, save_preset, save_session_recording_settings, save_settings,
-    save_stale_settings, save_watchdog_settings, FirstRunRequest,
+    save_appearance_settings, save_auto_snapshot_settings, save_create_options, save_diff_excludes,
+    save_idle_stop_settings, save_os_entry, save_preset, save_session_recording_settings,
+    save_settings, save_stale_settings, save_watchdog_settings, FirstRunRequest,
 };
 use aibox_core::history::{load_history_seen_marker, load_operation_history};
 use aibox_core::util::paths::{default_location_file_path, save_location_file};
@@ -586,6 +586,42 @@ impl qobject::Backend {
         }
         self.as_mut().sync_config_properties();
         self.as_mut().diff_excludes_changed();
+        QString::default()
+    }
+
+    pub fn save_appearance_settings(
+        mut self: Pin<&mut Self>,
+        mode_override: &QString,
+        high_contrast: bool,
+        reduce_motion: bool,
+    ) -> QString {
+        if *self.busy() {
+            return QString::from(BUSY_CONFIG_MSG);
+        }
+        let next_cfg = match save_appearance_settings(
+            &self.engine.config,
+            &mode_override.to_string(),
+            high_contrast,
+            reduce_motion,
+        ) {
+            Ok(c) => c,
+            Err(e) => return QString::from(e.as_str()),
+        };
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.engine.config = next_cfg;
+        }
+        if self.save_config().is_err() {
+            return QString::from(
+                format!(
+                    "Could not save the configuration file: {}",
+                    self.engine.paths.config_file_path
+                )
+                .as_str(),
+            );
+        }
+        self.as_mut().sync_config_properties();
+        self.as_mut().appearance_settings_changed();
         QString::default()
     }
 }

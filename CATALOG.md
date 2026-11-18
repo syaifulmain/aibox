@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Adaptive Theme M9 — Appearance Preferences & Polish (`aibox-core`, `aibox-app`, `src/qml/`, `src/i18n/`)
+* **Theme Mode Override & High Contrast (`theme/palette.rs`, `config/{model,settings}.rs`)**: Added `ModeOverride` (`auto`, `light`, `dark`) and `PaletteOptions { mode_override, high_contrast }` with `derive_palette_with_options` / `load_palette_with_options`. When forced opposite to the active Omarchy theme polarity, surfaces are derived from the opposite pole while keeping accent/status hues contrast-guarded. High-contrast mode raises text thresholds to 7:1 (WCAG AAA) and border thresholds to 3:1.
+* **Chart Hue Tokens (`theme/palette.rs`, `qt_theme.rs`)**: Exposed `chart1`..`chart4` (`accent`, `orange`, `magenta`, `cyan`) on `Palette` and `Theme` QObject, contrast-guarded at >= 3:1 against `surfaceCard`.
+* **Appearance Settings (`qt_backend*.rs`, `SettingsPanel.qml`, `AppearanceSection.qml`)**: Added `themeModeOverride`, `highContrast`, and `reduceMotion` config fields, `Backend::saveAppearanceSettings`, `Theme::setPreferences`, and the new **Appearance** section in Settings with `en.json` and `da.json` translations.
+* **Smooth Theme Transitions & Debug Overlay (`Main.qml`, `EnvironmentList.qml`, `EnvironmentInspector.qml`, `ThemeDebugOverlay.qml`, `HelpOverlay.qml`)**: Added 150 ms `ColorAnimation` transitions on the three primary surfaces (window canvas, sidebar, inspector card) gated by `!theme.reduceMotion`, plus a `Ctrl+Shift+T` theme token debug overlay showing the matching `theme.<token>` name and hex value under the cursor.
+
 ### Adaptive Theme M8 — QA: Color Lint, Contrast Checks, & Screenshot Matrix (`aibox-core`, `aibox-app`, `cpp/shim/test_helpers.{h,cpp}`)
 * **Actionable Contrast Diagnostics (`rust/crates/aibox-core/src/theme/palette.rs`)**: Enhanced `all_23_omarchy_fixtures_satisfy_contrast_contracts` with `assert_contrast` so any failing contrast pair reports the theme fixture name, token pair, actual WCAG ratio, minimum threshold, and hex colors.
 * **Strict QML Color Lint (`rust/crates/aibox-app/tests/qml_color_lint.rs`)**: Added an automated integration test scanning all `src/qml/**/*.qml` files in strict mode and failing on hardcoded hex literals (`#rgb`..`#rrggbbaa`), CSS named color literals (allowing `"transparent"`), QML color derivations (`Qt.rgba(`, `Qt.lighter(`, `Qt.darker(`), deprecated `theme.*` raw tokens, and legacy `Style.*` color aliases.

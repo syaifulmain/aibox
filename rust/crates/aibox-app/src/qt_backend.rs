@@ -172,6 +172,9 @@ pub mod qobject {
         )]
         #[qproperty(QMap_QString_QVariant, stale_report, cxx_name = "staleReport", READ, NOTIFY = stale_report_changed)]
         #[qproperty(bool, record_sessions, cxx_name = "recordSessions", READ, NOTIFY = record_sessions_settings_changed)]
+        #[qproperty(QString, theme_mode_override, cxx_name = "themeModeOverride", READ, NOTIFY = appearance_settings_changed)]
+        #[qproperty(bool, high_contrast, cxx_name = "highContrast", READ, NOTIFY = appearance_settings_changed)]
+        #[qproperty(bool, reduce_motion, cxx_name = "reduceMotion", READ, NOTIFY = appearance_settings_changed)]
         #[qproperty(QList_QVariant, recorded_sessions, cxx_name = "recordedSessions", READ, NOTIFY = recorded_sessions_changed)]
         #[qproperty(QList_QVariant, operation_history, cxx_name = "operationHistory", READ, NOTIFY = operation_history_changed)]
         #[qproperty(i32, recent_failed_history_count, cxx_name = "recentFailedHistoryCount", READ = recent_failed_history_count, NOTIFY = operation_history_changed)]
@@ -266,6 +269,9 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "recordSessionsSettingsChanged"]
         fn record_sessions_settings_changed(self: Pin<&mut Backend>);
+        #[qsignal]
+        #[cxx_name = "appearanceSettingsChanged"]
+        fn appearance_settings_changed(self: Pin<&mut Backend>);
         #[qsignal]
         #[cxx_name = "recordedSessionsChanged"]
         fn recorded_sessions_changed(self: Pin<&mut Backend>);
@@ -752,6 +758,15 @@ pub mod qobject {
         fn save_session_recording_settings(self: Pin<&mut Backend>, enabled: bool) -> QString;
 
         #[qinvokable]
+        #[cxx_name = "saveAppearanceSettings"]
+        fn save_appearance_settings(
+            self: Pin<&mut Backend>,
+            mode_override: &QString,
+            high_contrast: bool,
+            reduce_motion: bool,
+        ) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "setEnvironmentRecordSessions"]
         fn set_environment_record_sessions(self: Pin<&mut Backend>, name: &QString, mode: &QString);
 
@@ -915,6 +930,9 @@ pub struct BackendRust {
     stale_day_options: QListQVariant,
     pub(crate) stale_report: QMapQStringQVariant,
     record_sessions: bool,
+    theme_mode_override: QString,
+    high_contrast: bool,
+    reduce_motion: bool,
     recorded_sessions: QListQVariant,
     pub(crate) operation_history: QListQVariant,
     pub(crate) egress_logs: QListQVariant,
@@ -1030,6 +1048,9 @@ impl Default for BackendRust {
             stale_day_options: i32s_to_qvariant_list(&stale_day_options()),
             stale_report: QMapQStringQVariant::default(),
             record_sessions: false,
+            theme_mode_override: QString::from("auto"),
+            high_contrast: false,
+            reduce_motion: false,
             recorded_sessions: QListQVariant::default(),
             operation_history: QListQVariant::default(),
             egress_logs: QListQVariant::default(),
@@ -1231,6 +1252,9 @@ impl qobject::Backend {
             idle_stop_minutes,
             stale_days,
             record_sessions,
+            theme_mode_override,
+            high_contrast,
+            reduce_motion,
             diff_excludes,
             secrets_store_path,
             secrets_error,
@@ -1261,6 +1285,9 @@ impl qobject::Backend {
                 cfg.idle_stop_minutes,
                 cfg.stale_days,
                 cfg.record_sessions,
+                QString::from(cfg.theme_mode_override.as_str()),
+                cfg.high_contrast,
+                cfg.reduce_motion,
                 strings_to_qstringlist(&cfg.diff_excludes),
                 QString::from(self.engine.secrets.secrets_path.as_str()),
                 QString::from(self.engine.secrets.secrets_error.as_str()),
@@ -1292,6 +1319,9 @@ impl qobject::Backend {
             rust.idle_stop_minutes = idle_stop_minutes;
             rust.stale_days = stale_days;
             rust.record_sessions = record_sessions;
+            rust.theme_mode_override = theme_mode_override;
+            rust.high_contrast = high_contrast;
+            rust.reduce_motion = reduce_motion;
             rust.diff_excludes = diff_excludes;
             rust.secrets_store_path = secrets_store_path;
             rust.secrets_error = secrets_error;
@@ -1308,6 +1338,7 @@ impl qobject::Backend {
         self.as_mut().idle_stop_settings_changed();
         self.as_mut().stale_report_settings_changed();
         self.as_mut().record_sessions_settings_changed();
+        self.as_mut().appearance_settings_changed();
         self.as_mut().diff_excludes_changed();
         self.as_mut().secrets_changed();
     }

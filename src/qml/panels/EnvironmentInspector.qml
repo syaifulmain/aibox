@@ -18,6 +18,11 @@ Rectangle {
     border.width: Style.hairline
     border.color: theme.borderSubtle
 
+    Behavior on color {
+        enabled: !theme.reduceMotion
+        ColorAnimation { duration: 150 }
+    }
+
     // Per-core load shown inside the expanded CPU card, two columns of cores.
     Component {
         id: cpuCoresGrid

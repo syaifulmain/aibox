@@ -90,6 +90,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | `3` | Open the configuration menu |
 | `R` | Refresh status and disk usage |
 | `?` | Toggle keyboard shortcuts overlay |
+| `Ctrl+Shift+T` | Toggle theme token debug overlay |
 | `Q` | Quit AIBox |
 
 ## Development

@@ -70,5 +70,21 @@
   "Preset": "Preset",
   "Click to expand core usage": "Click to expand core usage",
   "Click to collapse core usage": "Click to collapse core usage",
-  "Core %1": "Core %1"
+  "Core %1": "Core %1",
+  "Appearance": "Appearance",
+  "Theme mode & contrast": "Theme mode & contrast",
+  "Appearance & Accessibility": "Appearance & Accessibility",
+  "Override light/dark polarity, enable high contrast, or reduce theme transition motion.": "Override light/dark polarity, enable high contrast, or reduce theme transition motion.",
+  "Theme Mode": "Theme Mode",
+  "Follow the active Omarchy theme automatically, or force a light or dark palette inside AIBox.": "Follow the active Omarchy theme automatically, or force a light or dark palette inside AIBox.",
+  "Follow Omarchy": "Follow Omarchy",
+  "Always light": "Always light",
+  "Always dark": "Always dark",
+  "Accessibility & Motion": "Accessibility & Motion",
+  "High contrast (7:1 text, 3:1 borders)": "High contrast (7:1 text, 3:1 borders)",
+  "Reduce motion (disable theme transition animations)": "Reduce motion (disable theme transition animations)",
+  "Save Appearance": "Save Appearance",
+  "Appearance preferences saved.": "Appearance preferences saved.",
+  "Toggle theme token debug overlay": "Toggle theme token debug overlay",
+  "Custom / Unmapped": "Custom / Unmapped"
 }

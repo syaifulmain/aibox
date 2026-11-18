@@ -17,6 +17,11 @@ ApplicationWindow {
     title: qsTr("AIBox")
     color: theme.surfaceCanvas
 
+    Behavior on color {
+        enabled: !theme.reduceMotion
+        ColorAnimation { duration: 150 }
+    }
+
     Material.theme: theme.isDark ? Material.Dark : Material.Light
     Material.accent: theme.accent
     Material.background: theme.surfaceCanvas
@@ -26,6 +31,7 @@ ApplicationWindow {
 
     property int activeTab: 0
     property bool helpVisible: false
+    property bool themeDebugVisible: false
     property bool toolsVisible: false
     property bool envActionsVisible: false
     property bool createVisible: false
@@ -575,6 +581,12 @@ ApplicationWindow {
         context: Qt.ApplicationShortcut
         onActivated: win.helpVisible = !win.helpVisible
     }
+    Shortcut {
+        sequence: "Ctrl+Shift+T"
+        context: Qt.ApplicationShortcut
+        onActivated: win.themeDebugVisible = !win.themeDebugVisible
+    }
+
     Shortcut {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
@@ -1150,6 +1162,31 @@ ApplicationWindow {
             id: configNoticeTimer
             interval: 5000
             onTriggered: win.configNotice = ""
+        }
+
+        ThemeDebugOverlay {
+            app: win
+            targetRoot: win.contentItem
+            active: win.themeDebugVisible
+        }
+
+        Connections {
+            target: backend
+            function onAppearanceSettingsChanged() {
+                theme.setPreferences(
+                    backend.themeModeOverride,
+                    backend.highContrast,
+                    backend.reduceMotion
+                )
+            }
+        }
+
+        Component.onCompleted: {
+            theme.setPreferences(
+                backend.themeModeOverride,
+                backend.highContrast,
+                backend.reduceMotion
+            )
         }
 
     }

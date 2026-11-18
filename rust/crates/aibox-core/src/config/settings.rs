@@ -416,6 +416,23 @@ pub fn save_session_recording_settings(cfg: &Config, enabled: bool) -> Config {
     next
 }
 
+pub fn save_appearance_settings(
+    cfg: &Config,
+    mode_override: &str,
+    high_contrast: bool,
+    reduce_motion: bool,
+) -> Result<Config, String> {
+    let normalized = mode_override.trim().to_ascii_lowercase();
+    if !matches!(normalized.as_str(), "auto" | "light" | "dark") {
+        return Err("Theme mode override must be auto, light, or dark.".to_string());
+    }
+    let mut next = cfg.clone();
+    next.theme_mode_override = normalized;
+    next.high_contrast = high_contrast;
+    next.reduce_motion = reduce_motion;
+    Ok(next)
+}
+
 pub fn parse_diff_excludes(raw_text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for part in raw_text.split([',', ';', '\r', '\n']) {

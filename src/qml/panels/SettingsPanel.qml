@@ -48,6 +48,7 @@ ModalDialog {
         osCatalogSection.reload()
         createOptionsSection.reload()
         safetySection.reload()
+        appearanceSection.reload()
     }
 
     RowLayout {
@@ -111,7 +112,8 @@ ModalDialog {
                         { title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth") },
                         { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove") },
                         { title: qsTr("Create Options"), detail: qsTr("Presets & quotas") },
-                        { title: qsTr("Safety"), detail: qsTr("Auto-snapshots") }
+                        { title: qsTr("Safety"), detail: qsTr("Auto-snapshots") },
+                        { title: qsTr("Appearance"), detail: qsTr("Theme mode & contrast") }
                     ]
 
                     delegate: Rectangle {
@@ -181,7 +183,11 @@ ModalDialog {
                           ? qsTr("Incus Storage Pool")
                           : (app.settingsSection === 2
                              ? qsTr("Linux OS Catalog")
-                             : (app.settingsSection === 3 ? qsTr("Create Environment Options") : qsTr("Safety & Auto-Snapshots"))))
+                             : (app.settingsSection === 3
+                                ? qsTr("Create Environment Options")
+                                : (app.settingsSection === 4
+                                   ? qsTr("Safety & Auto-Snapshots")
+                                   : qsTr("Appearance & Accessibility")))))
                 subtitle: app.settingsSection === 0
                           ? qsTr("Choose where shared project files live and where offline OS image copies are saved.")
                           : (app.settingsSection === 1
@@ -190,7 +196,9 @@ ModalDialog {
                                 ? qsTr("Add, edit, or remove the distributions shown in the environment creation dialog.")
                                 : (app.settingsSection === 3
                                    ? qsTr("Customize the preset cards, disk quota, RAM, and CPU choices shown in the creation dialog.")
-                                   : qsTr("Configure automatic Btrfs snapshots before entering or starting an environment."))))
+                                   : (app.settingsSection === 4
+                                      ? qsTr("Configure automatic Btrfs snapshots before entering or starting an environment.")
+                                      : qsTr("Override light/dark polarity, enable high contrast, or reduce theme transition motion.")))))
                 onClosed: app.settingsVisible = false
             }
 
@@ -256,6 +264,12 @@ ModalDialog {
                         id: safetySection
                         app: settingsOverlay.app
                         visible: app.settingsSection === 4
+                    }
+
+                    AppearanceSection {
+                        id: appearanceSection
+                        app: settingsOverlay.app
+                        visible: app.settingsSection === 5
                     }
                 }
             }

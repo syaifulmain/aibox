@@ -14,6 +14,11 @@ Rectangle {
     border.width: Style.hairline
     border.color: theme.borderSubtle
 
+    Behavior on color {
+        enabled: !theme.reduceMotion
+        ColorAnimation { duration: 150 }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Style.space12
