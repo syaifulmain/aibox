@@ -3,11 +3,12 @@
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use regex::Regex;
 use serde_json::{json, Value};
 
+use crate::util::error::IoError;
 use crate::util::json::to_json_indented;
 
 /// Container-side mount path for the shared workspace directory.
@@ -78,29 +79,46 @@ pub fn expand_tilde(raw: &str) -> String {
 }
 
 /// Atomically writes `data` to `path` by writing a sibling temp file, syncing, and renaming.
-pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
+pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), IoError> {
+    atomic_write_with_mode(path, data, None)
+}
+
+/// Like [`atomic_write`], but applies the Unix permission `mode` (e.g. `0o600`)
+/// to the temp file before any data is written, so the final file is never
+/// readable with looser permissions.
+///
+/// The temp file is fsynced before the rename and the parent directory after
+/// it, so the new contents survive a crash once this returns `Ok`.
+pub fn atomic_write_with_mode(path: &Path, data: &[u8], mode: Option<u32>) -> Result<(), IoError> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)
-        .map_err(|e| format!("failed to create directory {}: {e}", parent.display()))?;
+    fs::create_dir_all(parent).map_err(|e| IoError::new("create directory", parent, e))?;
 
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp");
     let pid = std::process::id();
     let tmp_path = parent.join(format!(".{file_name}.tmp.{pid}"));
 
-    let write_result = (|| -> Result<(), String> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
+    let write_result = (|| -> Result<(), IoError> {
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        if let Some(mode) = mode {
+            options.mode(mode);
+        }
+        let mut file = options
             .open(&tmp_path)
-            .map_err(|e| format!("failed to open {}: {e}", tmp_path.display()))?;
+            .map_err(|e| IoError::new("open", &tmp_path, e))?;
+        if let Some(mode) = mode {
+            // The umask may have stripped bits from `mode`, and a stale temp
+            // file keeps its old permissions, so set them explicitly.
+            file.set_permissions(fs::Permissions::from_mode(mode))
+                .map_err(|e| IoError::new("set permissions on", &tmp_path, e))?;
+        }
         file.write_all(data)
-            .map_err(|e| format!("failed to write {}: {e}", tmp_path.display()))?;
+            .map_err(|e| IoError::new("write", &tmp_path, e))?;
         file.sync_all()
-            .map_err(|e| format!("failed to sync {}: {e}", tmp_path.display()))?;
+            .map_err(|e| IoError::new("sync", &tmp_path, e))?;
         Ok(())
     })();
 
@@ -111,7 +129,13 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), String> {
 
     if let Err(e) = fs::rename(&tmp_path, path) {
         let _ = fs::remove_file(&tmp_path);
-        return Err(format!("failed to rename {}: {e}", path.display()));
+        return Err(IoError::new("rename", path, e));
+    }
+
+    // Persist the rename itself; some file systems do not support fsync on
+    // directories, so a failure here is not fatal once the rename succeeded.
+    if let Ok(dir) = fs::File::open(parent) {
+        let _ = dir.sync_all();
     }
     Ok(())
 }
@@ -179,7 +203,7 @@ pub fn save_location_file(system_path: &str) -> Result<(), String> {
     });
     let json_text = to_json_indented(&payload)
         .map_err(|e| format!("failed to serialize location.json: {e}"))?;
-    atomic_write(Path::new(&loc_path), json_text.as_bytes())
+    atomic_write(Path::new(&loc_path), json_text.as_bytes()).map_err(String::from)
 }
 
 /// Resolves the `.aibox` / `aibox` directory for a project or global mode.
@@ -288,11 +312,22 @@ pub fn resolve_workspace_path(
     Ok(clean_path(&format!("{parent}/{clean_name}")))
 }
 
+/// Replaces every character outside `[A-Za-z0-9._-]` with `_`.
+fn safe_path_component(raw: &str) -> String {
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Returns the cache directory for `os_id` under `os_storage_path`.
 pub fn cache_base_path(os_storage_path: &str, os_id: &str) -> String {
-    let re = Regex::new(r"[^A-Za-z0-9._-]").expect("valid regex");
-    let safe = re.replace_all(os_id, "_");
-    format!("{os_storage_path}/{safe}")
+    format!("{os_storage_path}/{}", safe_path_component(os_id))
 }
 
 /// Returns the workspace path for `name`, preferring an explicit override in `env_paths`.
@@ -317,5 +352,64 @@ mod tests {
         assert_eq!(clean_path("/../../a//b/./c/.."), "/a/b");
         assert_eq!(clean_path("a/b/../c/"), "a/c");
         assert_eq!(clean_path("../a/../../b"), "../../b");
+    }
+
+    #[test]
+    fn cache_base_path_replaces_unsafe_characters() {
+        assert_eq!(
+            cache_base_path("/os", "ubuntu/24.04 lts:amd64"),
+            "/os/ubuntu_24.04_lts_amd64"
+        );
+        assert_eq!(cache_base_path("/os", "a-b_c.d"), "/os/a-b_c.d");
+        // Each non-ASCII char maps to exactly one underscore, like the old regex.
+        assert_eq!(cache_base_path("/os", "\u{e6}\u{f8}x"), "/os/__x");
+        assert_eq!(cache_base_path("/os", "../etc"), "/os/.._etc");
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = env::temp_dir().join(format!("aibox-util-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn atomic_write_replaces_contents_and_leaves_no_temp_file() {
+        let dir = temp_dir("atomic");
+        let target = dir.join("state.json");
+        atomic_write(&target, b"one").unwrap();
+        atomic_write(&target, b"two").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"two");
+        let entries: Vec<_> = fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(entries.len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_with_mode_sets_permissions() {
+        let dir = temp_dir("mode");
+        let target = dir.join("secret.json");
+        atomic_write_with_mode(&target, b"{}", Some(0o600)).unwrap();
+        let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_write_in_read_only_dir_returns_error() {
+        let dir = temp_dir("readonly");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let target = dir.join("state.json");
+        // Root ignores directory permissions; only assert when the probe fails.
+        let probe_denied = fs::write(dir.join("probe"), b"x").is_err();
+        let result = atomic_write(&target, b"data");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        if probe_denied {
+            let err = result.unwrap_err();
+            assert_eq!(err.op, "open");
+            assert!(err.to_string().contains("failed to open"));
+            assert!(!target.exists());
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

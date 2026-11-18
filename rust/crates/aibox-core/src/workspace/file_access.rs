@@ -380,7 +380,7 @@ pub fn write_file_access_state(
     });
     let bytes = serde_json::to_vec(&state).map_err(|e| e.to_string())?;
     let path = file_access_state_path(state_dir, name);
-    atomic_write(Path::new(&path), &bytes)
+    atomic_write(Path::new(&path), &bytes).map_err(String::from)
 }
 
 pub fn read_file_access_failure_detail(log_path: &str) -> String {

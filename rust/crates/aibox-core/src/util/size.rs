@@ -23,6 +23,14 @@ fn size_option_regex() -> &'static Regex {
 
 /// Parses a human-readable byte size (e.g. `"1.5 GiB"`, `"100"` -> MiB).
 /// Returns `0` for invalid or non-positive inputs.
+///
+/// ```
+/// use aibox_core::util::size::parse_size_bytes;
+///
+/// assert_eq!(parse_size_bytes("1.5GiB"), 1_610_612_736);
+/// assert_eq!(parse_size_bytes("2 MB"), 2 * 1024 * 1024);
+/// assert_eq!(parse_size_bytes("nonsense"), 0);
+/// ```
 pub fn parse_size_bytes(size_text: &str) -> i64 {
     let Some(caps) = size_parse_regex().captures(size_text) else {
         return 0;

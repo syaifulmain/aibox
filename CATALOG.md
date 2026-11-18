@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Utilities: Typed File Errors, Durable Atomic Writes & Regex-Free Path Sanitizing (`rust/crates/aibox-core/src/util/`)
+
+- **Shared error type (`util/error.rs`):** Added `IoError` (`thiserror`), which records the failed operation, path, and `io::Error` cause, so domain error types can wrap it via `#[from]`. A `From<IoError> for String` conversion keeps existing `Result<_, String>` callers working.
+- **Durable atomic writes (`util/paths.rs`):** `atomic_write` now returns `IoError` and fsyncs the parent directory after the rename. The new `atomic_write_with_mode` applies a Unix permission mode (e.g. `0o600`) to the temp file before writing, so secret files can use it.
+- **Regex-free sanitizing:** `cache_base_path` replaces characters outside `[A-Za-z0-9._-]` by iterating over chars, so it no longer compiles a regex on every call. The output is unchanged.
+- **Tests:** Added a randomized `sh -c printf` round-trip test for `shell_quote`, tests that atomic writes replace the file, set the requested mode, and return an error in a read-only directory, a `cache_base_path` test, and doc-tests for `shell_quote`, `shell_array_words`, and `parse_size_bytes`.
+
 ### Create Dialog Top Input Headers & Settings Modal Rounded Left Corners (`CreateDialog.qml`, `SettingsPanel.qml`)
 
 - **Stacked input headers (`src/qml/dialogs/CreateDialog.qml`):** Restored stacked section headings (`theme.textPrimary`, `Style.fontBody`, `Font.Medium`) above the `Project / Environment Name` and `Shared Folder Location (optional)` inputs (with the `Shared at: ...` hint right-aligned on the first header row) to match the other section titles in `CreateDialog`.

@@ -521,7 +521,7 @@ pub fn save(path: &str, config: &Config) -> Result<(), String> {
         .map_err(|e| format!("failed to convert config to JSON: {e}"))?;
     let json_text =
         to_json_indented(&val).map_err(|e| format!("failed to format config JSON: {e}"))?;
-    atomic_write(Path::new(path), json_text.as_bytes())
+    atomic_write(Path::new(path), json_text.as_bytes()).map_err(String::from)
 }
 
 /// Saves a JSON config string atomically to `path` in Qt-compatible indented JSON format.
@@ -530,7 +530,7 @@ pub fn save_json_str(path: &str, json_str: &str) -> Result<(), String> {
         serde_json::from_str(json_str).map_err(|e| format!("invalid config JSON: {e}"))?;
     let json_text =
         to_json_indented(&val).map_err(|e| format!("failed to format config JSON: {e}"))?;
-    atomic_write(Path::new(path), json_text.as_bytes())
+    atomic_write(Path::new(path), json_text.as_bytes()).map_err(String::from)
 }
 
 /// Normalizes a config JSON string and returns compact JSON (for FFI).
