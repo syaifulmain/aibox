@@ -432,5 +432,11 @@
   "7:1 text, 3:1 borders": "7:1 tekst, 3:1 kanter",
   "Reduce motion": "Reducer bevægelse",
   "Disable theme transition animations": "Deaktiver temaovergangsanimationer",
-  "Close inline editor, active dialog, or clear error": "Luk indlejret editor, aktiv dialog eller ryd fejl"
+  "Close inline editor, active dialog, or clear error": "Luk indlejret editor, aktiv dialog eller ryd fejl",
+  "Receiving": "Modtager",
+  "Sending": "Sender",
+  "Downloaded": "Downloadet",
+  "Uploaded": "Uploadet",
+  "IP Address": "IP-adresse",
+  "Interface": "Grænseflade"
 }

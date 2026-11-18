@@ -63,6 +63,10 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Network Card Telemetry Grid (`NetworkModeCard.qml`, `da.json`)
+
+- **Network telemetry summary (`src/qml/panels/NetworkModeCard.qml`, `src/i18n/da.json`):** Added a 2-column monospace telemetry grid (`Receiving`, `Sending`, `Downloaded`, `Uploaded`, `IP Address`, `Interface`) on the right half of the `Network` card (50/50 split with a vertical hairline divider) using existing `backend.selectedEnvironment` metrics, and moved click-to-copy IP from the card header into the `IP Address` telemetry value.
+
 ### Inspector Two-Column Workspace & Root Files Row & Card Surface (`EnvironmentInspector.qml`, `EnvironmentList.qml`, `Card.qml`, `ResourceMeterCard.qml`)
 
 - **Shared Workspace & Root Files layout (`src/qml/panels/EnvironmentInspector.qml`):** Placed the `Shared Workspace` and `Root Files` cards side by side in a 2-column `GridLayout` (`Layout.fillHeight: false`) with equal widths and matching compact heights (`Math.max(sharedWorkspaceCard.implicitHeight, rootFilesCard.implicitHeight)`).
