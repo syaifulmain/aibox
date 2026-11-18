@@ -134,6 +134,15 @@ QT_QPA_PLATFORM=offscreen cargo test --release --locked --manifest-path rust/Car
 - **Tokens (`Style.qml` & `theme`)**: All QML metrics come from `Style.qml` — typography (`fontCaption` 10, `fontSmall` 11, `fontBody` 12, `fontTitle` 14, `fontHeading` 16, `fontDisplay` 18), spacing (`gapXs` 2, `gapSm` 4, `gapMd` 8, `gap` 10, `padCard` 12, `padSection` 16, `padModal` 24), control heights (`controlHeight` 34, `controlHeightCompact` 28), and corner radii (`radiusSm` 3, `radiusMd` 4, `radiusLg` 8, always capped by `Math.min(..., theme.radius)`). All colours come from the live Omarchy `theme` QObject. Enforced by `qml_token_lint` and `qml_color_lint`.
 - **Modals (`ModalDialog` & `ModalHeader`)**: Modals with an active `ModalHeader` Close button omit redundant `Cancel` buttons; `Close`, `Esc`, and clicking the scrim all dismiss the dialog. Each `DialogFooter` has at most one `primary` action button, placed on the right.
 
+## Localization
+
+AIBox reads the active language code from `~/.config/omarchy/language` (falling back to English). To add a new language (for example Indonesian, `id`):
+
+1. Copy `src/i18n/da.json` to `src/i18n/id.json` and translate the values. Preserve all `%n` and positional (`%1`, `%2`, ...) placeholders, and use CLDR plural form objects (such as `{"other": "..."}` or `{"one": "...", "other": "..."}`) for `%n` keys.
+2. Register `<file alias="i18n/id.json">i18n/id.json</file>` in `src/resources.qrc`.
+3. Run `./bin/install` and `./bin/test` to rebuild the Qt resource bundle and run the test suite (`i18n_catalog_lint` verifies QML `qsTr()` coverage, orphan keys, and placeholder parity).
+4. Write the language code (e.g. `id` or `pt-BR`) to `~/.config/omarchy/language`; `TranslatorState` reloads live.
+
 ## Uninstall
 
 Remove the application while keeping Incus and environments:

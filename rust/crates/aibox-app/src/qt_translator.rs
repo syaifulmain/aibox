@@ -235,7 +235,10 @@ pub fn translator_state_translate(
     let rust = state.rust();
     let language = rust.language.to_string();
     match rust.catalog.lookup(source_text, &language, n) {
-        Some(text) => qobject::TranslatorLookup { found: true, text },
+        Some(text) => qobject::TranslatorLookup {
+            found: true,
+            text: text.to_string(),
+        },
         None => qobject::TranslatorLookup {
             found: false,
             text: String::new(),

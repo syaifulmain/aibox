@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core i18n: Zero-Allocation Lookup, Placeholder Validation & Catalog Lint (`rust/crates/aibox-core/src/i18n.rs`, `src/i18n/da.json`)
+
+- **Zero-allocation catalog lookup (`i18n.rs`, `qt_translator.rs`):** Changed `Catalog` and `Entry` storage from `String` to `Box<str>` (`HashMap<Box<str>, Entry>`) and `Catalog::lookup` to return `Option<&str>`, eliminating per-lookup `String` allocations on the core side.
+- **Placeholder validation (`i18n.rs`):** Added `extract_placeholders`, `placeholders_match`, `find_placeholder_mismatches`, and `PlaceholderMismatch` to verify `%n` and positional (`%1`, `%2`, ...) placeholders match between source keys and translations while allowing argument reordering.
+- **Catalog lint & Danish parity (`tests/i18n_catalog_lint.rs`, `src/i18n/da.json`):** Added `i18n_catalog_lint` to extract all `qsTr("...")` literals from `src/qml/**/*.qml`, fail on missing `da.json` translations, fail on orphan keys in `da.json`/`en.json`, and run `find_placeholder_mismatches` on both catalogs. Added the 21 missing Danish translations to `src/i18n/da.json`.
+- **Documentation (`README.md`):** Documented the steps to add a new translation catalog (e.g. `id.json`) and register it in `src/resources.qrc`.
+
 ### Core Theme: `Copy` `Rgba` Representation, Palette Cache & Split `palette/` (`rust/crates/aibox-core/src/theme/`)
 
 - **`Copy` color representation (`color.rs`, `palette/mod.rs`, `icon.rs`, `qt_theme.rs`):** Added `struct Rgba(u8, u8, u8, u8)` (`Copy`, `Serialize`, `Display`) and switched `Palette` fields from `String` to `Rgba`, removing 49 `.clone()` calls in `Palette::tokens()` and formatting to `#rrggbb`/`#aarrggbb` only when exported to QML, JSON, or dumps. `icon::render` now reads `Rgba::rgb()` directly without re-parsing hex.

@@ -236,14 +236,14 @@ pub fn language_catalog_codes(language: &str) -> Vec<String> {
 
 #[derive(Debug, Clone)]
 enum Entry {
-    Plain(String),
-    Plural(HashMap<String, String>),
+    Plain(Box<str>),
+    Plural(HashMap<Box<str>, Box<str>>),
 }
 
 /// In-memory translation catalog layered from English -> base -> regional JSON files.
 #[derive(Debug, Default, Clone)]
 pub struct Catalog {
-    entries: HashMap<String, Entry>,
+    entries: HashMap<Box<str>, Entry>,
 }
 
 impl Catalog {
@@ -263,16 +263,18 @@ impl Catalog {
         for (key, val) in obj {
             match val {
                 Value::String(s) if !s.is_empty() => {
-                    self.entries.insert(key, Entry::Plain(s));
+                    self.entries
+                        .insert(key.into_boxed_str(), Entry::Plain(s.into_boxed_str()));
                 }
                 Value::Object(forms_obj) => {
                     let mut forms = HashMap::new();
                     for (form_key, form_val) in forms_obj {
                         if let Some(s) = form_val.as_str() {
-                            forms.insert(form_key, s.to_string());
+                            forms.insert(form_key.into_boxed_str(), s.to_string().into_boxed_str());
                         }
                     }
-                    self.entries.insert(key, Entry::Plural(forms));
+                    self.entries
+                        .insert(key.into_boxed_str(), Entry::Plural(forms));
                 }
                 _ => {}
             }
@@ -301,9 +303,9 @@ impl Catalog {
     }
 
     /// Looks up `source_text` for `language` and optional count `n` (`n < 0` means uncounted).
-    pub fn lookup(&self, source_text: &str, language: &str, n: i32) -> Option<String> {
+    pub fn lookup(&self, source_text: &str, language: &str, n: i32) -> Option<&str> {
         match self.entries.get(source_text)? {
-            Entry::Plain(s) => Some(s.clone()),
+            Entry::Plain(s) => Some(s),
             Entry::Plural(forms) => {
                 let category = if n < 0 {
                     "other"
@@ -314,10 +316,107 @@ impl Catalog {
                     .get(category)
                     .filter(|s| !s.is_empty())
                     .or_else(|| forms.get("other").filter(|s| !s.is_empty()))
-                    .cloned()
+                    .map(Box::as_ref)
             }
         }
     }
+}
+
+/// Placeholder mismatch between a catalog source key and its translation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceholderMismatch {
+    pub key: String,
+    pub form: Option<String>,
+    pub expected: Vec<String>,
+    pub actual: Vec<String>,
+}
+
+/// Extracts Qt-style placeholders (`%n` and `%1`, `%2`, ...) from `text`.
+pub fn extract_placeholders(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'n' {
+                out.push(&text[i..i + 2]);
+                i += 2;
+                continue;
+            }
+            if bytes[i + 1].is_ascii_digit() {
+                let mut end = i + 2;
+                while end < bytes.len() && bytes[end].is_ascii_digit() {
+                    end += 1;
+                }
+                out.push(&text[i..end]);
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Returns `true` when `source` and `translation` contain the same multiset of
+/// placeholders (`%n`, `%1`, etc.), allowing translations to reorder arguments.
+pub fn placeholders_match(source: &str, translation: &str) -> bool {
+    let mut expected = extract_placeholders(source);
+    let mut actual = extract_placeholders(translation);
+    expected.sort_unstable();
+    actual.sort_unstable();
+    expected == actual
+}
+
+/// Scans a JSON translation catalog and returns any entries whose placeholders
+/// do not match the source key.
+pub fn find_placeholder_mismatches(
+    json_bytes: &[u8],
+) -> Result<Vec<PlaceholderMismatch>, serde_json::Error> {
+    let root: Value = serde_json::from_slice(json_bytes)?;
+    let mut mismatches = Vec::new();
+    let Some(obj) = root.as_object() else {
+        return Ok(mismatches);
+    };
+
+    let mut check_pair = |key: &str, form: Option<&str>, val: &str| {
+        if !placeholders_match(key, val) {
+            let mut expected: Vec<String> = extract_placeholders(key)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            let mut actual: Vec<String> = extract_placeholders(val)
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+            expected.sort();
+            actual.sort();
+            mismatches.push(PlaceholderMismatch {
+                key: key.to_string(),
+                form: form.map(str::to_string),
+                expected,
+                actual,
+            });
+        }
+    };
+
+    for (key, val) in obj {
+        match val {
+            Value::String(s) if !s.is_empty() => check_pair(key, None, s),
+            Value::Object(forms) => {
+                for (form_key, form_val) in forms {
+                    if let Some(s) = form_val.as_str() {
+                        if !s.is_empty() {
+                            check_pair(key, Some(form_key), s);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(mismatches)
 }
 
 #[cfg(test)]
@@ -360,8 +459,8 @@ mod tests {
         let lang = read_language(&dir.join("language").to_string_lossy());
         assert_eq!(lang, "pt-BR");
         let cat = Catalog::load_from_dir(&dir.to_string_lossy(), &lang);
-        assert_eq!(cat.lookup("Save", &lang, -1).as_deref(), Some("Salvar"));
-        assert_eq!(cat.lookup("Open", &lang, -1).as_deref(), Some("Abrir"));
+        assert_eq!(cat.lookup("Save", &lang, -1), Some("Salvar"));
+        assert_eq!(cat.lookup("Open", &lang, -1), Some("Abrir"));
         assert_eq!(cat.lookup("Quit", &lang, -1), None);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -383,21 +482,36 @@ mod tests {
 
         let lang = read_language(&dir.join("language").to_string_lossy());
         let cat = Catalog::load_from_dir(&dir.to_string_lossy(), &lang);
-        assert_eq!(
-            cat.lookup("%n clips", &lang, 21).as_deref(),
-            Some("%n клип")
-        );
-        assert_eq!(
-            cat.lookup("%n clips", &lang, 22).as_deref(),
-            Some("%n клипа")
-        );
-        assert_eq!(
-            cat.lookup("%n clips", &lang, 25).as_deref(),
-            Some("%n клипов")
-        );
+        assert_eq!(cat.lookup("%n clips", &lang, 21), Some("%n клип"));
+        assert_eq!(cat.lookup("%n clips", &lang, 22), Some("%n клипа"));
+        assert_eq!(cat.lookup("%n clips", &lang, 25), Some("%n клипов"));
         assert_eq!(plural_category("ar", 11), "many");
         assert_eq!(plural_category("ja", 1), "other");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn placeholder_validation_detects_mismatches_and_allows_reordering() {
+        assert_eq!(
+            extract_placeholders("100% of %1 in %2 (%n items)"),
+            vec!["%1", "%2", "%n"]
+        );
+        assert!(placeholders_match("%1 of %2", "%2 af %1"));
+        assert!(!placeholders_match("%1 of %2", "%1 af"));
+        assert!(!placeholders_match("%n items", "items"));
+
+        let ok_json =
+            br#"{"%1 of %2": "%2 af %1", "%n items": {"one": "%n ting", "other": "%n ting"}}"#;
+        assert!(find_placeholder_mismatches(ok_json).unwrap().is_empty());
+
+        let bad_json =
+            br#"{"%1 of %2": "%1 af", "%n items": {"one": "en ting", "other": "%n ting"}}"#;
+        let mismatches = find_placeholder_mismatches(bad_json).unwrap();
+        assert_eq!(mismatches.len(), 2);
+        assert_eq!(mismatches[0].key, "%1 of %2");
+        assert_eq!(mismatches[0].form, None);
+        assert_eq!(mismatches[1].key, "%n items");
+        assert_eq!(mismatches[1].form.as_deref(), Some("one"));
     }
 
     #[test]
