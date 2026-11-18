@@ -79,7 +79,7 @@ ModalDialog {
                     width: historyListView.width
                     height: histItemCol.implicitHeight + Style.padSection
                     radius: Math.min(Style.radiusMd, theme.radius)
-                    color: selected ? theme.surfaceSelected : theme.surfaceCard
+                    color: selected ? theme.surfaceSelected : theme.surfaceInput
                     border.width: Style.hairline
                     border.color: selected ? theme.accentBorder : theme.borderSubtle
 
@@ -236,7 +236,7 @@ ModalDialog {
                     width: sessionsListView.width
                     height: sessItemCol.implicitHeight + Style.padSection
                     radius: Math.min(Style.radiusMd, theme.radius)
-                    color: selected ? theme.surfaceSelected : theme.surfaceCard
+                    color: selected ? theme.surfaceSelected : theme.surfaceInput
                     border.width: Style.hairline
                     border.color: selected ? theme.accentBorder : theme.borderSubtle
 

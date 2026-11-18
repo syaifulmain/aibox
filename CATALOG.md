@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Secrets Inline Save & History List Surface (`SecretsDialog.qml`, `HistoryDialog.qml`)
+
+- **Secrets inline Save (`src/qml/dialogs/SecretsDialog.qml`):** Moved the `Save` primary button onto the same `RowLayout` to the right of the secret inputs and removed the separate footer row.
+- **History list surface (`src/qml/dialogs/HistoryDialog.qml`):** Switched unselected task and session list items from `theme.surfaceCard` to `theme.surfaceInput` to match the environment sidebar.
+
 ### Network Card Telemetry Grid (`NetworkModeCard.qml`, `da.json`)
 
 - **Network telemetry summary (`src/qml/panels/NetworkModeCard.qml`, `src/i18n/da.json`):** Added a 2-column monospace telemetry grid (`Receiving`, `Sending`, `Downloaded`, `Uploaded`, `IP Address`, `Interface`) on the right half of the `Network` card (50/50 split with a vertical hairline divider) using existing `backend.selectedEnvironment` metrics, and moved click-to-copy IP from the card header into the `IP Address` telemetry value.

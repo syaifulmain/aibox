@@ -17,7 +17,7 @@ ModalDialog {
     zOrder: 27
     size: "md"
     cardHeight: Math.min(parent.height - Style.modalGutter,
-                         296 + Math.min(rowCount, 7) * 52 + (envScope ? 40 : 0))
+                         260 + Math.min(rowCount, 7) * 52 + (envScope ? 40 : 0))
     onDismissed: app.secretsVisible = false
 
     function saveDraft() {
@@ -293,15 +293,13 @@ ModalDialog {
                         app.secretValueDraft = text
                 }
             }
-        }
-    }
 
-    DialogFooter {
-        ActionButton {
-            label: qsTr("Save")
-            variant: "primary"
-            disabled: app.secretNameDraft.trim().length === 0
-            onClicked: secretsDialogRoot.saveDraft()
+            ActionButton {
+                label: qsTr("Save")
+                variant: "primary"
+                disabled: app.secretNameDraft.trim().length === 0
+                onClicked: secretsDialogRoot.saveDraft()
+            }
         }
     }
 }
