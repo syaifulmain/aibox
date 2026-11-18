@@ -9,6 +9,7 @@ Rectangle {
     property string placeholder: ""
     property bool readOnly: false
     property bool disabled: false
+    property bool mono: false
     signal accepted()
 
     implicitHeight: Style.controlHeight
@@ -34,7 +35,7 @@ Rectangle {
         visible: textInput.text.length === 0
         text: root.placeholder
         color: theme.textMuted
-        font.family: Style.fontSans
+        font.family: root.mono ? Style.fontMono : Style.fontSans
         font.pixelSize: Style.fontBody
         elide: Text.ElideRight
     }
@@ -52,7 +53,7 @@ Rectangle {
         selectByMouse: true
         clip: true
         readOnly: root.readOnly
-        font.family: Style.fontSans
+        font.family: root.mono ? Style.fontMono : Style.fontSans
         font.pixelSize: Style.fontBody
         onAccepted: root.accepted()
     }

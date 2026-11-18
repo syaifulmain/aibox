@@ -11,7 +11,7 @@ ColumnLayout {
     property bool reduceMotionDraft: backend.reduceMotion
 
     Layout.fillWidth: true
-    spacing: Style.space12
+    spacing: Style.gap
 
     function reload() {
         modeDraft = backend.themeModeOverride
@@ -19,95 +19,83 @@ ColumnLayout {
         reduceMotionDraft = backend.reduceMotion
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: modeCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("Theme Mode")
+        contentSpacing: Style.gap
 
-        ColumnLayout {
-            id: modeCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space10
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Follow the active Omarchy theme automatically, or force a light or dark palette inside AIBox.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+            wrapMode: Text.WordWrap
+        }
 
-            Text {
-                text: qsTr("Theme Mode")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gapMd
 
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Follow the active Omarchy theme automatically, or force a light or dark palette inside AIBox.")
-                color: theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font10
-                wrapMode: Text.WordWrap
-            }
+            Repeater {
+                model: [
+                    { id: "auto", label: qsTr("Follow Omarchy") },
+                    { id: "light", label: qsTr("Always light") },
+                    { id: "dark", label: qsTr("Always dark") }
+                ]
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space8
-
-                Repeater {
-                    model: [
-                        { id: "auto", label: qsTr("Follow Omarchy") },
-                        { id: "light", label: qsTr("Always light") },
-                        { id: "dark", label: qsTr("Always dark") }
-                    ]
-
-                    delegate: SelectChip {
-                        required property var modelData
-                        text: modelData.label
-                        selected: root.modeDraft === modelData.id
-                        onClicked: root.modeDraft = modelData.id
-                    }
+                delegate: SelectChip {
+                    required property var modelData
+                    text: modelData.label
+                    selected: root.modeDraft === modelData.id
+                    onClicked: root.modeDraft = modelData.id
                 }
-
-                Item { Layout.fillWidth: true }
             }
+
+            Item { Layout.fillWidth: true }
         }
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: accessCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("Accessibility & Motion")
+        contentSpacing: Style.gap
 
-        ColumnLayout {
-            id: accessCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space10
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gap
 
-            Text {
-                text: qsTr("Accessibility & Motion")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
-
-            CheckRow {
-                Layout.fillWidth: true
+            ToggleChip {
+                label: qsTr("High contrast")
                 checked: root.highContrastDraft
-                text: qsTr("High contrast (7:1 text, 3:1 borders)")
                 onToggled: root.highContrastDraft = !root.highContrastDraft
             }
 
-            CheckRow {
+            Text {
                 Layout.fillWidth: true
+                text: qsTr("7:1 text, 3:1 borders")
+                color: theme.textMuted
+                font.family: Style.fontSans
+                font.pixelSize: Style.fontSmall
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gap
+
+            ToggleChip {
+                label: qsTr("Reduce motion")
                 checked: root.reduceMotionDraft
-                text: qsTr("Reduce motion (disable theme transition animations)")
                 onToggled: root.reduceMotionDraft = !root.reduceMotionDraft
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Disable theme transition animations")
+                color: theme.textMuted
+                font.family: Style.fontSans
+                font.pixelSize: Style.fontSmall
+                wrapMode: Text.WordWrap
             }
         }
     }

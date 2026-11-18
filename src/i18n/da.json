@@ -580,7 +580,6 @@
   "Toggle theme token debug overlay": "Skift fejlfindingslag for tematokens",
   "Custom / Unmapped": "Tilpasset / ikke kortlagt",
   "System": "System",
-  "Environments": "Miljøer",
   "Interface": "Grænseflade",
   "Dark mode": "Mørk tilstand",
   "Light mode": "Lys tilstand",
@@ -588,5 +587,16 @@
   "OFF": "FRA",
   "Add Port": "Tilføj port",
   "Add Mount": "Tilføj montering",
-  "Include Workspace": "Inkludér arbejdsmappe"
+  "Include Workspace": "Inkludér arbejdsmappe",
+  "Workspace path": "Arbejdsområdesti",
+  "Storage path": "Lagersti",
+  "Grow storage pool": "Udvid lagerpulje",
+  "Target size": "Målstørrelse",
+  "Press Esc to cancel": "Tryk på Esc for at annullere",
+  "Session recording": "Sessionsoptagelse",
+  "High contrast": "Høj kontrast",
+  "7:1 text, 3:1 borders": "7:1 tekst, 3:1 kanter",
+  "Reduce motion": "Reducer bevægelse",
+  "Disable theme transition animations": "Deaktiver temaovergangsanimationer",
+  "Close inline editor, active dialog, or clear error": "Luk indlejret editor, aktiv dialog eller ryd fejl"
 }

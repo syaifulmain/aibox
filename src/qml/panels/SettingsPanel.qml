@@ -8,13 +8,13 @@ ModalDialog {
     id: settingsOverlay
     property QtObject app: null
     open: app.settingsVisible
+    size: "lg"
     zOrder: 80
     padding: 0
     contentSpacing: 0
     borderColor: theme.borderSubtle
     clipCard: true
-    cardWidth: Math.min(parent.width - Style.modalGutter, 980)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 650)
+    cardHeight: Math.min(parent.height - Style.modalGutter, 650)
     onDismissed: app.settingsVisible = false
 
     // The window functions read and write the location and OS catalog fields,
@@ -77,25 +77,23 @@ ModalDialog {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Style.space16
-                spacing: Style.space4
+                anchors.margins: Style.padSection
+                spacing: Style.gapSm
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space10
+                    spacing: Style.gap
 
                     Rectangle {
-                        width: Style.iconTile
-                        height: Style.iconTile
-                        radius: Math.min(Style.radius5, theme.radius)
+                        width: Style.controlHeight
+                        height: Style.controlHeight
+                        radius: Math.min(Style.radiusMd, theme.radius)
                         color: theme.accentSurface
                         border.width: Style.hairline
                         border.color: theme.accentBorder
 
                         SlidersIcon {
                             anchors.centerIn: parent
-                            width: 18
-                            height: 18
                             color: theme.accentText
                         }
                     }
@@ -104,15 +102,15 @@ ModalDialog {
                         text: qsTr("Settings")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font14
+                        font.pixelSize: Style.fontTitle
                         font.weight: Font.Medium
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.topMargin: Style.space8
-                    Layout.bottomMargin: Style.space4
+                    Layout.topMargin: Style.gapMd
+                    Layout.bottomMargin: Style.gapSm
                     height: Style.hairline
                     color: theme.borderSubtle
                 }
@@ -133,17 +131,17 @@ ModalDialog {
                         readonly property bool active: app.settingsSection === index
 
                         Layout.fillWidth: true
-                        spacing: Style.space4
+                        spacing: Style.gapSm
 
                         Text {
                             visible: modelData.group.length > 0
                             Layout.fillWidth: true
-                            Layout.topMargin: index === 0 ? Style.space2 : Style.space8
-                            Layout.leftMargin: Style.space10
+                            Layout.topMargin: index === 0 ? Style.gapXs : Style.gapMd
+                            Layout.leftMargin: Style.gap
                             text: modelData.group.toUpperCase()
                             color: theme.textMuted
                             font.family: Style.fontSans
-                            font.pixelSize: Style.font10
+                            font.pixelSize: Style.fontCaption
                             font.weight: Font.Medium
                             font.letterSpacing: 0.8
                         }
@@ -151,8 +149,8 @@ ModalDialog {
                         Rectangle {
                             id: navItem
                             Layout.fillWidth: true
-                            height: Style.menuRowHeight
-                            radius: Math.min(Style.radius5, theme.radius)
+                            height: Style.controlHeight + Style.padSection
+                            radius: Math.min(Style.radiusMd, theme.radius)
                             color: active ? theme.surfaceSelected
                                  : (navMouse.containsMouse ? theme.surfaceRaised : "transparent")
 
@@ -164,11 +162,11 @@ ModalDialog {
                             Rectangle {
                                 visible: active
                                 anchors.left: parent.left
-                                anchors.leftMargin: Style.space4
+                                anchors.leftMargin: Style.gapSm
                                 anchors.verticalCenter: parent.verticalCenter
-                                width: Style.space3
-                                height: 22
-                                radius: Style.radius2
+                                width: Style.radiusSm
+                                height: Style.badgeHeight
+                                radius: Style.radiusSm
                                 color: theme.accent
                             }
 
@@ -176,23 +174,23 @@ ModalDialog {
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                anchors.leftMargin: Style.space14
-                                anchors.rightMargin: Style.space12
-                                spacing: Style.space1
+                                anchors.leftMargin: Style.padSection
+                                anchors.rightMargin: Style.padCard
+                                spacing: Style.gapXs
 
                                 Text {
                                     text: modelData.title
                                     color: active ? theme.accentText
                                          : (navMouse.containsMouse ? theme.textPrimary : theme.textSecondary)
                                     font.family: Style.fontSans
-                                    font.pixelSize: Style.font12
+                                    font.pixelSize: Style.fontBody
                                     font.weight: active ? Font.Medium : Font.Normal
                                 }
                                 Text {
                                     text: modelData.detail
                                     color: theme.textMuted
                                     font.family: Style.fontSans
-                                    font.pixelSize: Style.font10
+                                    font.pixelSize: Style.fontCaption
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -222,14 +220,14 @@ ModalDialog {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: Style.space4
-                    spacing: Style.space6
+                    Layout.topMargin: Style.gapSm
+                    spacing: Style.gapMd
 
                     Text {
                         text: theme.isDark ? qsTr("Dark mode") : qsTr("Light mode")
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -238,7 +236,7 @@ ModalDialog {
                         text: "↑/↓ · Esc"
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                     }
                 }
             }
@@ -256,8 +254,8 @@ ModalDialog {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.margins: Style.space24
-            spacing: Style.space12
+            Layout.margins: Style.padModal
+            spacing: Style.padCard
 
             ModalHeader {
                 title: app.settingsSection === 0
@@ -290,21 +288,21 @@ ModalDialog {
                 visible: app.configNotice.length > 0
                 Layout.fillWidth: true
                 height: visible ? Style.controlHeight : 0
-                radius: Math.min(Style.radius4, theme.radius)
+                radius: Math.min(Style.radiusMd, theme.radius)
                 color: app.configNoticeError ? theme.dangerSurface : theme.successSurface
                 border.width: Style.hairline
                 border.color: app.configNoticeError ? theme.dangerBorder : theme.successBorder
 
                 Text {
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.padCard
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
                     text: app.configNotice
                     color: app.configNoticeError ? theme.dangerText : theme.successText
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                 }
             }
 
@@ -317,7 +315,7 @@ ModalDialog {
 
                 ColumnLayout {
                     width: configScroll.availableWidth
-                    spacing: Style.space14
+                    spacing: Style.padCard
 
                     LocationsSection {
                         id: locationsSection

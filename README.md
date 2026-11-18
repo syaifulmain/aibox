@@ -91,6 +91,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | `R` | Refresh status and disk usage |
 | `?` | Toggle keyboard shortcuts overlay |
 | `Ctrl+Shift+T` | Toggle theme token debug overlay |
+| `Esc` | Close inline editor, active dialog, or clear error |
 | `Q` | Quit AIBox |
 
 ## Development

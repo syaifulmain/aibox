@@ -97,5 +97,16 @@
   "Cancel Task": "Cancel Task",
   "Add Port": "Add Port",
   "Add Mount": "Add Mount",
-  "Include Workspace": "Include Workspace"
+  "Include Workspace": "Include Workspace",
+  "Workspace path": "Workspace path",
+  "Storage path": "Storage path",
+  "Grow storage pool": "Grow storage pool",
+  "Target size": "Target size",
+  "Press Esc to cancel": "Press Esc to cancel",
+  "Session recording": "Session recording",
+  "High contrast": "High contrast",
+  "7:1 text, 3:1 borders": "7:1 text, 3:1 borders",
+  "Reduce motion": "Reduce motion",
+  "Disable theme transition animations": "Disable theme transition animations",
+  "Close inline editor, active dialog, or clear error": "Close inline editor, active dialog, or clear error"
 }

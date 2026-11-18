@@ -604,7 +604,12 @@ ApplicationWindow {
             } else if (win.historyVisible) {
                 win.historyVisible = false
             } else if (win.settingsVisible) {
-                win.settingsVisible = false
+                if (win.settingsSection === 2 && win.osEditorVisible)
+                    win.osEditorVisible = false
+                else if (win.settingsSection === 1 && win.poolResizeConfirmVisible)
+                    win.poolResizeConfirmVisible = false
+                else
+                    win.settingsVisible = false
             } else if (win.createVisible) {
                 win.createVisible = false
             } else if (win.cloneVisible) {

@@ -39,6 +39,7 @@ ModalDialog {
             { k: "R", d: qsTr("Refresh status and disk usage") },
             { k: "?", d: qsTr("Toggle this shortcuts overlay") },
             { k: "Ctrl+Shift+T", d: qsTr("Toggle theme token debug overlay") },
+            { k: "Esc", d: qsTr("Close inline editor, active dialog, or clear error") },
             { k: "Q", d: qsTr("Quit AIBox") }
         ]
         delegate: RowLayout {

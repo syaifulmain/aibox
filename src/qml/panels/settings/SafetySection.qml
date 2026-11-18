@@ -9,7 +9,7 @@ ColumnLayout {
     property QtObject app: null
 
     Layout.fillWidth: true
-    spacing: Style.space12
+    spacing: Style.gap
 
     function reload() {
         app.autoSnapEnabledDraft = backend.autoSnapshotEnabled
@@ -23,324 +23,197 @@ ColumnLayout {
         watchdogCritField.text = String(backend.watchdogDiskCritical)
     }
 
-    // Automatic snapshots
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: safetyCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("Automatic Btrfs Snapshots")
+        contentSpacing: Style.gap
 
-        ColumnLayout {
-            id: safetyCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space10
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Creates an auto-<timestamp> snapshot before Enter OS Terminal and Start OS (at most once every 5 minutes). Manual snapshots are never pruned.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+            wrapMode: Text.WordWrap
+        }
 
-            Text {
-                text: qsTr("Automatic Btrfs Snapshots")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
+        CheckRow {
+            Layout.fillWidth: true
+            checked: app.autoSnapEnabledDraft
+            text: qsTr("Enable auto-snapshots by default")
+            onToggled: app.autoSnapEnabledDraft = !app.autoSnapEnabledDraft
+        }
+
+        FormRow {
+            label: qsTr("Keep last auto-snapshots")
+
+            FlatInput {
+                id: autoSnapKeepField
+                Layout.preferredWidth: Style.buttonMinWidth
+                mono: true
+                placeholder: "5"
             }
 
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Creates an auto-<timestamp> snapshot before Enter OS Terminal and Start OS (at most once every 5 minutes). Manual snapshots are never pruned.")
+                text: qsTr("1 to 50 snapshots per environment")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font10
-                wrapMode: Text.WordWrap
-            }
-
-            CheckRow {
-                Layout.fillWidth: true
-                checked: app.autoSnapEnabledDraft
-                text: qsTr("Enable auto-snapshots by default")
-                onToggled: app.autoSnapEnabledDraft = !app.autoSnapEnabledDraft
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-
-                Text {
-                    Layout.preferredWidth: 180
-                    text: qsTr("Keep last auto-snapshots")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font11
-                }
-                FlatInput {
-                    id: autoSnapKeepField
-                    Layout.preferredWidth: 100
-                    placeholder: "5"
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("1 to 50 snapshots per environment")
-                    color: theme.textMuted
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font10
-                }
+                font.pixelSize: Style.fontSmall
             }
         }
     }
 
-    // Disk and resource watchdog
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: watchdogCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("Disk & Resource Watchdog")
+        contentSpacing: Style.gap
 
-        ColumnLayout {
-            id: watchdogCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space10
-
-            Text {
-                text: qsTr("Disk & Resource Watchdog")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
-
-            CheckRow {
-                Layout.fillWidth: true
-                checked: app.watchdogEnabledDraft
-                text: qsTr("Send desktop alerts on high disk, CPU, or RAM")
-                rowHeight: 36
-                onToggled: app.watchdogEnabledDraft = !app.watchdogEnabledDraft
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-
-                Text {
-                    Layout.preferredWidth: 180
-                    text: qsTr("Disk warn / critical (%)")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font11
-                }
-                FlatInput {
-                    id: watchdogWarnField
-                    Layout.preferredWidth: 72
-                    placeholder: "90"
-                }
-                FlatInput {
-                    id: watchdogCritField
-                    Layout.preferredWidth: 72
-                    placeholder: "97"
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("50-98 warn, > warn critical (5% hysteresis)")
-                    color: theme.textMuted
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font10
-                }
-            }
-
-            CheckRow {
-                Layout.fillWidth: true
-                checked: app.watchdogAutoStopDraft
-                text: qsTr("Auto-stop running containers by default on critical disk")
-                rowHeight: 36
-                danger: true
-                onToggled: app.watchdogAutoStopDraft = !app.watchdogAutoStopDraft
-            }
+        CheckRow {
+            Layout.fillWidth: true
+            checked: app.watchdogEnabledDraft
+            text: qsTr("Send desktop alerts on high disk, CPU, or RAM")
+            onToggled: app.watchdogEnabledDraft = !app.watchdogEnabledDraft
         }
-    }
 
-    // Idle auto-stop
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: idleStopCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+        FormRow {
+            label: qsTr("Disk warn / critical (%)")
 
-        ColumnLayout {
-            id: idleStopCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
+            FlatInput {
+                id: watchdogWarnField
+                Layout.preferredWidth: Style.buttonMinWidth
+                mono: true
+                placeholder: "90"
+            }
 
-            Text {
-                text: qsTr("Idle Auto-Stop (Opt-in)")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
+            FlatInput {
+                id: watchdogCritField
+                Layout.preferredWidth: Style.buttonMinWidth
+                mono: true
+                placeholder: "97"
             }
 
             Text {
                 Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("Automatically stops running non-template containers after sustained <3% CPU with no active incus exec session or port forwards (1 min warning notification beforehand). Works only while the AIBox GUI is running — no background daemon is used.")
+                text: qsTr("50-98 warn, > warn critical (5% hysteresis)")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
             }
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space8
-
-                Repeater {
-                    model: backend.idleStopOptions
-                    delegate: SelectChip {
-                        required property int modelData
-                        text: modelData === 0 ? qsTr("Off") : qsTr("%1 min").arg(modelData)
-                        selected: app.idleStopMinutesDraft === modelData
-                        textSize: Style.font11
-                        fillColor: theme.surfaceCard
-                        chipHeight: Style.controlHeight
-                        horizontalPadding: Style.space20
-                        onClicked: app.idleStopMinutesDraft = modelData
-                    }
-                }
-                Item { Layout.fillWidth: true }
-            }
+        CheckRow {
+            Layout.fillWidth: true
+            checked: app.watchdogAutoStopDraft
+            text: qsTr("Auto-stop running containers by default on critical disk")
+            danger: true
+            onToggled: app.watchdogAutoStopDraft = !app.watchdogAutoStopDraft
         }
     }
 
-    // Stale environment report
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: staleCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("Idle Auto-Stop (Opt-in)")
+        contentSpacing: Style.gapMd
 
-        ColumnLayout {
-            id: staleCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
-
-            RowLayout {
-                Layout.fillWidth: true
-
-                Text {
-                    text: qsTr("Stale Environment Report (U)")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font12
-                    font.weight: Font.Medium
-                }
-                Item { Layout.fillWidth: true }
-                ActionButton {
-                    label: qsTr("Open Report")
-                    minWidth: 122
-                    onClicked: {
-                        app.settingsVisible = false
-                        app.openStaleReportDialog()
-                    }
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("Flags non-template environments unused for at least staleDays days (plus unknown-age environments without a usage timestamp) and scans orphaned workspaces, snapshot dirs, and unpaired backup archives.")
-                color: theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space8
-
-                Repeater {
-                    model: backend.staleDayOptions
-                    delegate: SelectChip {
-                        required property int modelData
-                        text: qsTr("%1 d").arg(modelData)
-                        selected: app.staleDaysDraft === modelData
-                        textSize: Style.font11
-                        fillColor: theme.surfaceCard
-                        chipHeight: Style.controlHeight
-                        horizontalPadding: Style.space20
-                        onClicked: app.staleDaysDraft = modelData
-                    }
-                }
-                Item { Layout.fillWidth: true }
-            }
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: qsTr("Automatically stops running non-template containers after sustained <3% CPU with no active incus exec session or port forwards (1 min warning notification beforehand). Works only while the AIBox GUI is running — no background daemon is used.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
         }
-    }
 
-    // Session recording
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.preferredHeight: recCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gapMd
 
-        ColumnLayout {
-            id: recCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-
-                Text {
-                    text: qsTr("Session Recording (Opt-in)")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font12
-                    font.weight: Font.Medium
-                }
-                Item { Layout.fillWidth: true }
-
-                SelectChip {
-                    text: app.recordSessionsDraft ? qsTr("Enabled") : qsTr("Disabled")
-                    selected: app.recordSessionsDraft
-                    textSize: Style.font11
+            Repeater {
+                model: backend.idleStopOptions
+                delegate: SelectChip {
+                    required property int modelData
+                    text: modelData === 0 ? qsTr("Off") : qsTr("%1 min").arg(modelData)
+                    selected: app.idleStopMinutesDraft === modelData
                     fillColor: theme.surfaceCard
-                    chipHeight: Style.controlHeightSm
-                    horizontalPadding: Style.space22
-                    onClicked: app.recordSessionsDraft = !app.recordSessionsDraft
+                    onClicked: app.idleStopMinutesDraft = modelData
                 }
             }
 
-            Text {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("Records interactive Enter shells using script -q -f with timing files, automatically scrubs S3 secrets after exit, and retains the last 20 sessions per environment (200 MB total cap). View or replay sessions under History (H) -> Sessions.")
-                color: theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    Card {
+        title: qsTr("Stale Environment Report (U)")
+        contentSpacing: Style.gapMd
+
+        actions: [
+            ActionButton {
+                label: qsTr("Open Report")
+                onClicked: {
+                    app.settingsVisible = false
+                    app.openStaleReportDialog()
+                }
             }
+        ]
+
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: qsTr("Flags non-template environments unused for at least staleDays days (plus unknown-age environments without a usage timestamp) and scans orphaned workspaces, snapshot dirs, and unpaired backup archives.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gapMd
+
+            Repeater {
+                model: backend.staleDayOptions
+                delegate: SelectChip {
+                    required property int modelData
+                    text: qsTr("%1 d").arg(modelData)
+                    selected: app.staleDaysDraft === modelData
+                    fillColor: theme.surfaceCard
+                    onClicked: app.staleDaysDraft = modelData
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    Card {
+        title: qsTr("Session Recording (Opt-in)")
+        contentSpacing: Style.gapMd
+
+        actions: [
+            ToggleChip {
+                label: qsTr("Session recording")
+                checked: app.recordSessionsDraft
+                compact: true
+                onToggled: app.recordSessionsDraft = !app.recordSessionsDraft
+            }
+        ]
+
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: qsTr("Records interactive Enter shells using script -q -f with timing files, automatically scrubs S3 secrets after exit, and retains the last 20 sessions per environment (200 MB total cap). View or replay sessions under History (H) -> Sessions.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
         }
     }
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space10
+        spacing: Style.gap
         Item { Layout.fillWidth: true }
 
         ActionButton {
             label: qsTr("Save Safety Settings")
             variant: "primary"
-            minWidth: 165
             onClicked: {
                 const parsedKeep = parseInt(autoSnapKeepField.text.trim(), 10)
                 const keep = isNaN(parsedKeep) ? 0 : parsedKeep

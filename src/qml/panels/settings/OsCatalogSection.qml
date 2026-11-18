@@ -14,7 +14,7 @@ ColumnLayout {
     readonly property string osFieldDescription: osDescriptionField.text
 
     Layout.fillWidth: true
-    spacing: Style.space10
+    spacing: Style.gap
 
     function clearOsFields() {
         osIdField.text = ""
@@ -37,170 +37,144 @@ ColumnLayout {
         app.osEditorError = ""
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Style.space10
-
-        Text {
-            Layout.fillWidth: true
-            text: qsTr("%n OS entries", "", backend.osCatalog.length)
-            color: theme.textMuted
-            font.family: Style.fontSans
-            font.pixelSize: Style.font11
-        }
+    SectionHeader {
+        title: qsTr("%n OS entries", "", backend.osCatalog.length)
 
         ActionButton {
             label: qsTr("+ Add OS")
             variant: "primary"
-            minWidth: 105
             onClicked: app.beginAddOs()
         }
     }
 
-    // Inline editor for adding or editing an OS entry
-    Rectangle {
+    // Inline editor for adding or editing an OS entry (Esc dismisses)
+    Card {
         visible: app.osEditorVisible
-        Layout.fillWidth: true
-        Layout.preferredHeight: visible ? osEditorColumn.implicitHeight + Style.cardPadding * 2 : 0
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.accentBorder
+        title: app.osEditorOriginalId.length > 0 ? qsTr("Edit OS entry") : qsTr("New OS entry")
+        borderColor: theme.accentBorder
+        contentSpacing: Style.gapMd
 
-        ColumnLayout {
-            id: osEditorColumn
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
+        GridLayout {
+            Layout.fillWidth: true
+            columns: 2
+            columnSpacing: Style.gap
+            rowSpacing: Style.gapMd
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
+
+                Text {
+                    text: qsTr("OS ID")
+                    color: theme.textMuted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontCaption
+                }
+                FlatInput {
+                    id: osIdField
+                    Layout.fillWidth: true
+                    mono: true
+                    placeholder: qsTr("e.g. ubuntu-24.04")
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
+
+                Text {
+                    text: qsTr("Image alias")
+                    color: theme.textMuted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontCaption
+                }
+                FlatInput {
+                    id: osAliasField
+                    Layout.fillWidth: true
+                    mono: true
+                    placeholder: qsTr("e.g. ubuntu/24.04")
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
+
+                Text {
+                    text: qsTr("Display name")
+                    color: theme.textMuted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontCaption
+                }
+                FlatInput {
+                    id: osNameField
+                    Layout.fillWidth: true
+                    placeholder: qsTr("e.g. Ubuntu 24.04 LTS")
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.gapSm
+
+                Text {
+                    text: qsTr("Badge")
+                    color: theme.textMuted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontCaption
+                }
+                FlatInput {
+                    id: osBadgeField
+                    Layout.fillWidth: true
+                    placeholder: qsTr("e.g. Recommended")
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.columnSpan: 2
+                spacing: Style.gapSm
+
+                Text {
+                    text: qsTr("Description")
+                    color: theme.textMuted
+                    font.family: Style.fontSans
+                    font.pixelSize: Style.fontCaption
+                }
+                FlatInput {
+                    id: osDescriptionField
+                    Layout.fillWidth: true
+                    placeholder: qsTr("Short description shown in the OS catalog")
+                }
+            }
+        }
+
+        Text {
+            visible: app.osEditorError.length > 0
+            Layout.fillWidth: true
+            text: app.osEditorError
+            color: theme.dangerText
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+            wrapMode: Text.WordWrap
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.gap
 
             Text {
-                text: app.osEditorOriginalId.length > 0 ? qsTr("Edit OS entry") : qsTr("New OS entry")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font13
-                font.weight: Font.Medium
+                Layout.fillWidth: true
+                text: qsTr("Press Esc to cancel")
+                color: theme.textMuted
+                font.family: Style.fontMono
+                font.pixelSize: Style.fontCaption
             }
 
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Style.space10
-                rowSpacing: Style.space8
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space4
-
-                    Text {
-                        text: qsTr("OS ID")
-                        color: theme.textMuted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                    FlatInput {
-                        id: osIdField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("e.g. ubuntu-24.04")
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space4
-
-                    Text {
-                        text: qsTr("Image alias")
-                        color: theme.textMuted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                    FlatInput {
-                        id: osAliasField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("e.g. ubuntu/24.04")
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space4
-
-                    Text {
-                        text: qsTr("Display name")
-                        color: theme.textMuted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                    FlatInput {
-                        id: osNameField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("e.g. Ubuntu 24.04 LTS")
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space4
-
-                    Text {
-                        text: qsTr("Badge")
-                        color: theme.textMuted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                    FlatInput {
-                        id: osBadgeField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("e.g. Recommended")
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.columnSpan: 2
-                    spacing: Style.space4
-
-                    Text {
-                        text: qsTr("Description")
-                        color: theme.textMuted
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font10
-                    }
-                    FlatInput {
-                        id: osDescriptionField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("Short description shown in the OS catalog")
-                    }
-                }
-            }
-
-            Text {
-                visible: app.osEditorError.length > 0
-                Layout.fillWidth: true
-                text: app.osEditorError
-                color: theme.dangerText
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space8
-                Item { Layout.fillWidth: true }
-
-                ActionButton {
-                    label: qsTr("Cancel")
-                    minWidth: 88
-                    onClicked: app.osEditorVisible = false
-                }
-
-                ActionButton {
-                    label: qsTr("Save OS")
-                    variant: "primary"
-                    minWidth: 108
-                    onClicked: app.submitOsEditor()
-                }
+            ActionButton {
+                label: qsTr("Save OS")
+                variant: "primary"
+                onClicked: app.submitOsEditor()
             }
         }
     }
@@ -211,23 +185,23 @@ ColumnLayout {
         delegate: Rectangle {
             required property var modelData
             Layout.fillWidth: true
-            height: 64
-            radius: Math.min(Style.radius5, theme.radius)
-            color: theme.surfaceInput
+            height: Style.listRowHeight
+            radius: Math.min(Style.radiusMd, theme.radius)
+            color: theme.surfaceCard
             border.width: Style.hairline
             border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Style.space12
-                anchors.rightMargin: Style.space12
-                spacing: Style.space10
+                anchors.leftMargin: Style.padCard
+                anchors.rightMargin: Style.padCard
+                spacing: Style.gap
 
                 Rectangle {
-                    width: 30
-                    height: 30
-                    radius: Style.radius3
-                    color: modelData.downloaded ? theme.successSurface : theme.surfaceCard
+                    width: Style.controlHeight
+                    height: Style.controlHeight
+                    radius: Math.min(Style.radiusMd, theme.radius)
+                    color: modelData.downloaded ? theme.successSurface : theme.surfaceInput
                     border.width: Style.hairline
                     border.color: modelData.downloaded ? theme.successBorder : theme.borderSubtle
 
@@ -236,13 +210,14 @@ ColumnLayout {
                         text: modelData.downloaded ? "✓" : "↓"
                         color: modelData.downloaded ? theme.successText : theme.accentText
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontTitle
                     }
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space1
+                    Layout.minimumWidth: 0
+                    spacing: Style.gapXs
 
                     Text {
                         Layout.fillWidth: true
@@ -250,7 +225,7 @@ ColumnLayout {
                         text: modelData.name
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
                     Text {
@@ -259,39 +234,35 @@ ColumnLayout {
                         text: modelData.id + "  ·  " + modelData.alias
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font9
+                        font.pixelSize: Style.fontCaption
                     }
                 }
 
                 TagBadge {
                     text: modelData.badge
                     tone: "accentQuiet"
-                    fillColor: theme.surfaceCard
-                    horizontalPadding: Style.space12
                 }
 
                 Text {
-                    Layout.preferredWidth: 100
+                    Layout.preferredWidth: Style.buttonMinWidth + Style.gap
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideRight
                     text: modelData.sizeText
                     color: modelData.downloaded ? theme.successText : theme.textMuted
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font9
+                    font.pixelSize: Style.fontCaption
                 }
 
                 ActionButton {
-                    implicitHeight: Style.controlHeightXs
+                    compact: true
                     label: qsTr("Edit")
-                    minWidth: 58
                     onClicked: app.beginEditOs(modelData)
                 }
 
                 ActionButton {
-                    implicitHeight: Style.controlHeightXs
+                    compact: true
                     label: qsTr("Remove")
                     variant: "danger"
-                    minWidth: 72
                     onClicked: app.removeOsEntry(modelData)
                 }
             }
@@ -300,7 +271,7 @@ ColumnLayout {
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space10
+        spacing: Style.gap
 
         Text {
             Layout.fillWidth: true
@@ -308,12 +279,11 @@ ColumnLayout {
             text: qsTr("Removing an entry only removes it from the catalog. Cached image files are kept until you remove them in OS Images.")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font10
+            font.pixelSize: Style.fontSmall
         }
 
         ActionButton {
             label: qsTr("Restore Defaults")
-            minWidth: 135
             onClicked: {
                 const error = backend.resetOsCatalog()
                 if (error.length > 0)

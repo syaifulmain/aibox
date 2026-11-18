@@ -10,9 +10,10 @@ ColumnLayout {
 
     readonly property string workspacePathText: workspacePathField.text
     readonly property string osStoragePathText: osStoragePathField.text
+    readonly property int formLabelWidth: Style.buttonMinWidth + Style.padModal
 
     Layout.fillWidth: true
-    spacing: Style.space12
+    spacing: Style.gap
 
     function setPaths(wsPath, osPath) {
         workspacePathField.text = wsPath
@@ -24,179 +25,103 @@ ColumnLayout {
         osStoragePathField.text = backend.osStoragePath
     }
 
-    // System root summary
-    Rectangle {
-        Layout.fillWidth: true
-        implicitHeight: sysRootInfoCol.implicitHeight + Style.cardPaddingSm * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("System root location")
+        contentSpacing: Style.gapSm
 
-        ColumnLayout {
-            id: sysRootInfoCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPaddingSm
-            spacing: Style.space4
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Root: %1  ·  Config: %2").arg(backend.systemPath).arg(backend.configFilePath)
+            color: theme.textMuted
+            font.family: Style.fontMono
+            font.pixelSize: Style.fontCaption
+            elide: Text.ElideMiddle
+        }
+    }
 
-            Text {
-                text: qsTr("System root location")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
-            Text {
+    Card {
+        title: qsTr("Workspace location")
+        contentSpacing: Style.gapMd
+
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("New environments share this host folder at %1. Existing environments keep their current shared folder.").arg(backend.containerWorkspacePath)
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+            wrapMode: Text.WordWrap
+        }
+
+        FormRow {
+            label: qsTr("Workspace path")
+            labelWidth: root.formLabelWidth
+            hint: qsTr("Default: %1").arg(backend.defaultWorkspaceBase)
+
+            FlatInput {
+                id: workspacePathField
                 Layout.fillWidth: true
-                text: qsTr("Root: %1  ·  Config: %2").arg(backend.systemPath).arg(backend.configFilePath)
-                color: theme.textMuted
-                font.family: Style.fontMono
-                font.pixelSize: Style.font10
-                elide: Text.ElideMiddle
+                mono: true
+                placeholder: backend.defaultWorkspaceBase
+            }
+
+            ActionButton {
+                label: qsTr("Browse...")
+                onClicked: workspaceFolderDialog.open()
+            }
+
+            ActionButton {
+                label: qsTr("Default")
+                onClicked: workspacePathField.text = backend.defaultWorkspaceBase
             }
         }
     }
 
-    // Workspace location
-    Rectangle {
-        Layout.fillWidth: true
-        implicitHeight: wsLocCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+    Card {
+        title: qsTr("OS image storage")
+        contentSpacing: Style.gapMd
 
-        ColumnLayout {
-            id: wsLocCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
-
-            Text {
-                text: qsTr("Workspace location")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("New environments share this host folder at %1. Existing environments keep their current shared folder.").arg(backend.containerWorkspacePath)
-                color: theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font10
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-
-                FlatInput {
-                    id: workspacePathField
-                    Layout.fillWidth: true
-                    placeholder: backend.defaultWorkspaceBase
-                }
-
-                ActionButton {
-                    label: qsTr("Browse...")
-                    minWidth: 94
-                    onClicked: workspaceFolderDialog.open()
-                }
-
-                ActionButton {
-                    label: qsTr("Default")
-                    minWidth: 84
-                    onClicked: workspacePathField.text = backend.defaultWorkspaceBase
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Default: %1").arg(backend.defaultWorkspaceBase)
-                color: theme.textMuted
-                font.family: Style.fontMono
-                font.pixelSize: Style.font9
-                elide: Text.ElideMiddle
-            }
+        Text {
+            Layout.fillWidth: true
+            text: qsTr("Downloaded OS images are also exported here. If the local Incus image is gone, AIBox imports the copy from this folder instead of downloading again.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontSmall
+            wrapMode: Text.WordWrap
         }
-    }
 
-    // OS image storage
-    Rectangle {
-        Layout.fillWidth: true
-        implicitHeight: osLocCardCol.implicitHeight + Style.cardPadding * 2
-        radius: Math.min(Style.radius6, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
+        FormRow {
+            label: qsTr("Storage path")
+            labelWidth: root.formLabelWidth
+            hint: qsTr("Default: %1").arg(backend.defaultOsStoragePath)
 
-        ColumnLayout {
-            id: osLocCardCol
-            anchors.fill: parent
-            anchors.margins: Style.cardPadding
-            spacing: Style.space8
-
-            Text {
-                text: qsTr("OS image storage")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-                font.weight: Font.Medium
-            }
-            Text {
+            FlatInput {
+                id: osStoragePathField
                 Layout.fillWidth: true
-                text: qsTr("Downloaded OS images are also exported here. If the local Incus image is gone, AIBox imports the copy from this folder instead of downloading again.")
-                color: theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font10
-                wrapMode: Text.WordWrap
+                mono: true
+                placeholder: backend.defaultOsStoragePath
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space10
-
-                FlatInput {
-                    id: osStoragePathField
-                    Layout.fillWidth: true
-                    placeholder: backend.defaultOsStoragePath
-                }
-
-                ActionButton {
-                    label: qsTr("Browse...")
-                    minWidth: 94
-                    onClicked: osStorageFolderDialog.open()
-                }
-
-                ActionButton {
-                    label: qsTr("Default")
-                    minWidth: 84
-                    onClicked: osStoragePathField.text = backend.defaultOsStoragePath
-                }
+            ActionButton {
+                label: qsTr("Browse...")
+                onClicked: osStorageFolderDialog.open()
             }
 
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Default: %1").arg(backend.defaultOsStoragePath)
-                color: theme.textMuted
-                font.family: Style.fontMono
-                font.pixelSize: Style.font9
-                elide: Text.ElideMiddle
+            ActionButton {
+                label: qsTr("Default")
+                onClicked: osStoragePathField.text = backend.defaultOsStoragePath
             }
         }
     }
 
     RowLayout {
         Layout.fillWidth: true
-        Layout.topMargin: Style.space2
-        spacing: Style.space10
+        Layout.topMargin: Style.gapXs
+        spacing: Style.gap
         Item { Layout.fillWidth: true }
 
         ActionButton {
             label: qsTr("Save Locations")
             variant: "primary"
-            minWidth: 150
             onClicked: root.app.saveGeneralSettings()
         }
     }
