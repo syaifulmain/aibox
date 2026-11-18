@@ -21,6 +21,7 @@ pub struct GoldenEnvGuard {
     old_home: Option<OsString>,
     old_xdg: Option<OsString>,
     old_loc: Option<OsString>,
+    old_tz: Option<OsString>,
 }
 
 impl GoldenEnvGuard {
@@ -29,15 +30,18 @@ impl GoldenEnvGuard {
         let old_home = env::var_os("HOME");
         let old_xdg = env::var_os("XDG_CONFIG_HOME");
         let old_loc = env::var_os("AIBOX_LOCATION_FILE");
+        let old_tz = env::var_os("TZ");
         env::set_var("HOME", "/tmp/aibox-golden-home");
         let _ = fs::create_dir_all("/tmp/aibox-golden-home");
         env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("AIBOX_LOCATION_FILE");
+        env::set_var("TZ", "UTC-7");
         Self {
             _lock: lock,
             old_home,
             old_xdg,
             old_loc,
+            old_tz,
         }
     }
 }
@@ -58,6 +62,11 @@ impl Drop for GoldenEnvGuard {
             env::set_var("AIBOX_LOCATION_FILE", v);
         } else {
             env::remove_var("AIBOX_LOCATION_FILE");
+        }
+        if let Some(v) = &self.old_tz {
+            env::set_var("TZ", v);
+        } else {
+            env::remove_var("TZ");
         }
     }
 }

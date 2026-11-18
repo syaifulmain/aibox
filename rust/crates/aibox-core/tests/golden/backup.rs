@@ -142,6 +142,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
 
 #[test]
 fn replay() {
+    let _env = common::GoldenEnvGuard::acquire();
     let work = "/tmp/aibox-golden-backup-work";
     let _ = fs::remove_dir_all(work);
     fs::create_dir_all(format!("{work}/tree/sub")).unwrap();
