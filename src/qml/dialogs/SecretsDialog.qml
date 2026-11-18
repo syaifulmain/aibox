@@ -17,7 +17,7 @@ ModalDialog {
     zOrder: 27
     size: "md"
     cardHeight: Math.min(parent.height - Style.modalGutter,
-                         340 + Math.min(rowCount, 7) * 54 + (envScope ? 36 : 0))
+                         296 + Math.min(rowCount, 7) * 52 + (envScope ? 40 : 0))
     onDismissed: app.secretsVisible = false
 
     function saveDraft() {
@@ -31,7 +31,6 @@ ModalDialog {
             app.secretFormError = ""
             app.secretNameDraft = ""
             app.secretValueDraft = ""
-            app.secretDraftShow = false
         }
     }
 
@@ -157,7 +156,6 @@ ModalDialog {
             delegate: Rectangle {
                 required property var modelData
                 readonly property bool isGlobal: modelData.scope !== "environment"
-                readonly property bool revealed: (app.secretRevealMap || {})[modelData.name] === true
                 readonly property bool assigned: secretsDialogRoot.envScope
                                                  ? modelData.assigned === true
                                                  : modelData.visibleInEnvironments === true
@@ -223,7 +221,7 @@ ModalDialog {
                     }
 
                     Text {
-                        text: revealed ? modelData.value : modelData.maskedValue
+                        text: modelData.maskedValue
                         color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontSmall
@@ -232,16 +230,13 @@ ModalDialog {
                     }
 
                     ActionButton {
-                        label: revealed ? qsTr("Hide") : qsTr("Show")
-                        onClicked: app.toggleSecretReveal(modelData.name)
-                    }
-
-                    ActionButton {
+                        compact: true
                         label: qsTr("Copy")
                         onClicked: secretsDialogRoot.copyRow(modelData)
                     }
 
                     ActionButton {
+                        compact: true
                         visible: canDelete
                         label: qsTr("Delete")
                         variant: "danger"
@@ -291,17 +286,12 @@ ModalDialog {
             FlatInput {
                 Layout.fillWidth: true
                 text: app.secretValueDraft
-                echoMode: app.secretDraftShow ? TextInput.Normal : TextInput.Password
+                echoMode: TextInput.Password
                 placeholder: qsTr("Secret value")
                 onTextChanged: {
                     if (text !== app.secretValueDraft)
                         app.secretValueDraft = text
                 }
-            }
-
-            ActionButton {
-                label: app.secretDraftShow ? qsTr("Hide") : qsTr("Show")
-                onClicked: app.secretDraftShow = !app.secretDraftShow
             }
         }
     }

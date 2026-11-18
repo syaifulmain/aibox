@@ -138,9 +138,7 @@ ApplicationWindow {
     property string secretsEnvName: ""
     property string secretNameDraft: ""
     property string secretValueDraft: ""
-    property bool secretDraftShow: false
     property string secretFormError: ""
-    property var secretRevealMap: ({})
 
     readonly property bool anyModalOpen: helpVisible || toolsVisible || envActionsVisible || createVisible || cloneVisible || wipeVisible || restoreDialogVisible || changeReviewVisible || secretsVisible || staleReportVisible || settingsVisible || historyVisible || egressVisible || portsVisible || mountsVisible || editQuotasVisible || backupsVisible || backend.firstRun
 
@@ -161,9 +159,7 @@ ApplicationWindow {
         win.secretsEnvName = ""
         win.secretNameDraft = ""
         win.secretValueDraft = ""
-        win.secretDraftShow = false
         win.secretFormError = ""
-        win.secretRevealMap = ({})
         backend.reloadSecrets()
         win.secretsVisible = true
     }
@@ -176,18 +172,10 @@ ApplicationWindow {
         win.secretsEnvName = name
         win.secretNameDraft = ""
         win.secretValueDraft = ""
-        win.secretDraftShow = false
         win.secretFormError = ""
-        win.secretRevealMap = ({})
         backend.reloadSecrets()
         backend.reloadEnvironmentSecrets(name)
         win.secretsVisible = true
-    }
-
-    function toggleSecretReveal(name) {
-        const next = Object.assign({}, win.secretRevealMap || {})
-        next[name] = !(next[name] === true)
-        win.secretRevealMap = next
     }
 
     function toggleEnvSecret(secretName) {

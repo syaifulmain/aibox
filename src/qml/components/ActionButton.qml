@@ -35,15 +35,16 @@ Rectangle {
     Layout.preferredHeight: implicitHeight
     Layout.preferredWidth: implicitWidth
     radius: Math.min(Style.radiusMd, theme.radius)
-    opacity: btn.disabled ? Style.opacityDisabled : 1.0
 
-    color: btn.isPrimary ? theme.accent
+    color: btn.disabled ? theme.surfaceInput
+         : btn.isPrimary ? theme.accent
          : btn.isDefault ? (btn.isHovered ? theme.surfaceRaised : theme.surfaceInput)
          : btn.tone === "danger" ? theme.dangerSurface
          : (btn.isHovered ? theme.surfaceSelected : theme.accentSurface)
 
-    border.width: btn.activeFocus || !btn.isPrimary ? Style.hairline : 0
+    border.width: btn.activeFocus || btn.disabled || !btn.isPrimary ? Style.hairline : 0
     border.color: btn.activeFocus ? theme.borderFocus
+                : btn.disabled ? theme.borderSubtle
                 : btn.isPrimary ? "transparent"
                 : btn.isDefault ? (btn.isHovered ? theme.borderStrong : theme.borderSubtle)
                 : btn.tone === "danger" ? (btn.isHovered ? theme.danger : theme.dangerBorder)

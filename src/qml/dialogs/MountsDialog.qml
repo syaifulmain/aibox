@@ -148,44 +148,38 @@ ModalDialog {
         }
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Style.padCard
-
-        SelectChip {
-            text: qsTr("Read-Only (Safe)")
-            selected: app.mountReadOnlyDraft
-            mono: false
-            compact: true
-            selectedTextColor: theme.textPrimary
-            onClicked: {
-                app.mountReadOnlyDraft = true
-                app.mountConfirmRwDraft = false
-            }
-        }
-
-        SelectChip {
-            text: qsTr("Read-Write")
-            selected: !app.mountReadOnlyDraft
-            mono: false
-            compact: true
-            selectedFill: theme.dangerSurface
-            selectedBorderColor: theme.dangerBorder
-            selectedTextColor: theme.dangerText
-            onClicked: app.mountReadOnlyDraft = false
-        }
-
-        CheckRow {
-            visible: !app.mountReadOnlyDraft
-            checked: app.mountConfirmRwDraft
-            danger: true
-            rowHeight: Style.controlHeightCompact
-            text: qsTr("Confirm: allow the container to modify files inside this host folder")
-            onToggled: app.mountConfirmRwDraft = !app.mountConfirmRwDraft
-        }
+    CheckRow {
+        visible: !app.mountReadOnlyDraft
+        checked: app.mountConfirmRwDraft
+        danger: true
+        rowHeight: Style.controlHeightCompact
+        text: qsTr("Confirm: allow the container to modify files inside this host folder")
+        onToggled: app.mountConfirmRwDraft = !app.mountConfirmRwDraft
     }
 
     DialogFooter {
+        leftActions: [
+            SelectChip {
+                text: qsTr("Read-Only (Safe)")
+                selected: app.mountReadOnlyDraft
+                mono: false
+                selectedTextColor: theme.textPrimary
+                onClicked: {
+                    app.mountReadOnlyDraft = true
+                    app.mountConfirmRwDraft = false
+                }
+            },
+            SelectChip {
+                text: qsTr("Read-Write")
+                selected: !app.mountReadOnlyDraft
+                mono: false
+                selectedFill: theme.dangerSurface
+                selectedBorderColor: theme.dangerBorder
+                selectedTextColor: theme.dangerText
+                onClicked: app.mountReadOnlyDraft = false
+            }
+        ]
+
         ActionButton {
             label: qsTr("Add Mount")
             variant: "primary"

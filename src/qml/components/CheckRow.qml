@@ -14,7 +14,8 @@ Rectangle {
     readonly property bool isHovered: rowMouse.containsMouse && !root.disabled
 
     Layout.fillWidth: true
-    height: rowHeight
+    implicitHeight: Math.max(root.rowHeight, checkText.implicitHeight + Style.padCard)
+    Layout.preferredHeight: implicitHeight
     radius: Math.min(Style.radiusMd, theme.radius)
     opacity: root.disabled ? Style.opacityDisabled : 1.0
     color: isHovered ? theme.surfaceRaised : theme.surfaceCard
@@ -48,7 +49,9 @@ Rectangle {
         }
 
         Text {
+            id: checkText
             Layout.fillWidth: true
+            wrapMode: Text.WordWrap
             text: root.text
             color: root.disabled ? theme.textDisabled : theme.textPrimary
             font.family: Style.fontSans

@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Disabled Primary Button Contrast & Dialog Polish (`ActionButton.qml`, `CheckRow.qml`, `SecretsDialog.qml`, `MountsDialog.qml`)
+
+- **Disabled button contrast (`src/qml/components/ActionButton.qml`):** Disabled buttons across all variants (including `primary` Save buttons) now render with `theme.surfaceInput`, `theme.borderSubtle` border, and `theme.textDisabled` label without double-dimming via `opacityDisabled`, keeping disabled primary labels legible on both light and dark themes.
+- **CheckRow wrapping (`src/qml/components/CheckRow.qml`):** Enabled `Text.WordWrap` and dynamic `implicitHeight` so long checkbox labels (such as workspace path confirmations in `WipeDialog`) wrap cleanly instead of overflowing the row border.
+- **Secrets & Mounts dialog layout (`src/qml/dialogs/SecretsDialog.qml`, `src/qml/dialogs/MountsDialog.qml`, `Main.qml`):** Tightened `SecretsDialog` `cardHeight` sizing, switched list row action buttons (`Copy`, `Delete`) to `compact: true`, and removed `Show`/`Hide` buttons and reveal state; moved `MountsDialog` `Read-Only (Safe)` / `Read-Write` chips into `DialogFooter.leftActions` so they align at the same `Style.controlHeight` on the same row as `Add Mount`.
+
 ### UI Standardization Phase 7 — QA & Lint (`qml_token_lint.rs`, `qml_smoke.rs`, `theme_matrix.rs`, `Style.qml`, `src/i18n/`)
 
 - **UI standardisation complete; token lint enforced.**

@@ -284,8 +284,6 @@
   "Manage global and per-environment secrets": "Administrér globale og miljøspecifikke hemmeligheder",
   "No secrets configured yet. Add one below.": "Ingen hemmeligheder konfigureret endnu. Tilføj én nedenfor.",
   "Global Secrets (%1)": "Globale hemmeligheder (%1)",
-  "Show": "Vis",
-  "Hide": "Skjul",
   "Copy": "Kopiér",
   "Could not copy secret '%1' to the clipboard.": "Kunne ikke kopiere hemmelighed '%1' til udklipsholderen.",
   "Paste Image": "Indsæt billede",
