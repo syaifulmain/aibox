@@ -84,7 +84,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
     "name": "dev",
     "type": "container",
     "status": "Stopped",
-    "config": {{ "user.aibox.autosnap": "true", "user.aibox.wssnap": "false" }},
+    "config": {{ "limits.cpu": "8", "user.aibox.autosnap": "true", "user.aibox.wssnap": "false" }},
     "expanded_devices": {{ "workspace": {{ "source": "{ws_base}/dev", "path": "/workspace" }} }},
     "snapshots": ["snap-1"]
   }},
@@ -92,7 +92,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
     "name": "tpl",
     "type": "container",
     "status": "Stopped",
-    "config": {{ "user.aibox.template": "true" }},
+    "config": {{ "limits.cpu": "8", "user.aibox.template": "true" }},
     "expanded_devices": {{}},
     "snapshots": []
   }}

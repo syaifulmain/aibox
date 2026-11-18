@@ -194,5 +194,6 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
 
 #[test]
 fn replay() {
+    let _env = common::GoldenEnvGuard::acquire();
     common::replay_jsonl("snapshot", dispatch);
 }
