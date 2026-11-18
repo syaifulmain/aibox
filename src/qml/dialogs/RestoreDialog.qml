@@ -6,8 +6,7 @@ ModalDialog {
     id: restoreDialogRoot
     property QtObject app: null
     open: app.restoreDialogVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 520)
-    contentSpacing: Style.space14
+    size: "sm"
     onDismissed: app.restoreDialogVisible = false
 
     ModalHeader {
@@ -18,7 +17,7 @@ ModalDialog {
 
     ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space8
+        spacing: Style.gapMd
 
         Repeater {
             model: [
@@ -29,32 +28,33 @@ ModalDialog {
             delegate: Rectangle {
                 required property var modelData
                 Layout.fillWidth: true
-                implicitHeight: 48
-                radius: Math.min(Style.radius4, theme.radius)
-                opacity: modelData.enabled ? 1.0 : 0.45
+                implicitHeight: restoreOptionRow.implicitHeight + Style.padCard * 2
+                radius: Math.min(Style.radiusMd, theme.radius)
+                opacity: modelData.enabled ? 1.0 : Style.opacityDisabled
                 color: app.restoreMode === modelData.id ? theme.surfaceSelected : theme.surfaceInput
                 border.width: Style.hairline
                 border.color: app.restoreMode === modelData.id ? theme.accentBorder : theme.borderSubtle
 
                 RowLayout {
+                    id: restoreOptionRow
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
-                    spacing: Style.space10
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.padCard
+                    spacing: Style.gap
 
                     // Radio indicator
                     Rectangle {
-                        width: 14
-                        height: 14
-                        radius: 7
+                        width: Style.padSection
+                        height: Style.padSection
+                        radius: width / 2
                         color: "transparent"
                         border.width: Style.hairline
                         border.color: app.restoreMode === modelData.id ? theme.accent : theme.textMuted
                         Rectangle {
                             anchors.centerIn: parent
-                            width: 8
-                            height: 8
-                            radius: 4
+                            width: Style.gapMd
+                            height: Style.gapMd
+                            radius: width / 2
                             visible: app.restoreMode === modelData.id
                             color: theme.accent
                         }
@@ -62,19 +62,21 @@ ModalDialog {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Style.space2
+                        spacing: Style.gapXs
                         Text {
                             text: modelData.title
                             color: theme.textPrimary
                             font.family: Style.fontSans
-                            font.pixelSize: Style.font12
+                            font.pixelSize: Style.fontBody
                             font.weight: Font.Medium
                         }
                         Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
                             text: modelData.desc
                             color: theme.textMuted
                             font.family: Style.fontSans
-                            font.pixelSize: Style.font11
+                            font.pixelSize: Style.fontSmall
                         }
                     }
                 }
@@ -92,8 +94,8 @@ ModalDialog {
     Rectangle {
         Layout.fillWidth: true
         visible: app.restoreMode !== "system"
-        implicitHeight: restoreNoteText.implicitHeight + Style.space16
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: restoreNoteText.implicitHeight + Style.padSection
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: theme.borderSubtle
@@ -101,7 +103,7 @@ ModalDialog {
         Text {
             id: restoreNoteText
             anchors.fill: parent
-            anchors.margins: Style.space8
+            anchors.margins: Style.gapMd
             wrapMode: Text.WordWrap
             lineHeight: 1.3
             text: (backend.selectedEnvironment.running || false)
@@ -109,25 +111,14 @@ ModalDialog {
                   : qsTr("A safety snapshot (pre-restore) of your current %1 will be created before swapping %1.").arg(backend.containerWorkspacePath)
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Style.space4
-        spacing: Style.space10
-        Item { Layout.fillWidth: true }
-
-        ActionButton {
-            label: qsTr("Cancel")
-            minWidth: 96
-            onClicked: app.restoreDialogVisible = false
-        }
-
+    DialogFooter {
         ActionButton {
             label: qsTr("Restore Snapshot")
-            variant: "accent"
+            variant: "primary"
             minWidth: 155
             onClicked: {
                 backend.restoreSnapshot(backend.selectedEnvironment.name || "", app.restoreSnapName, app.restoreMode)

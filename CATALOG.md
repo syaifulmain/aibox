@@ -88,6 +88,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ### Build Linker Selection Without Deprecated `ld.gold` Warning (`rust/crates/aibox-app/build.rs`, `pkgbuild/PKGBUILD`)
 * Updated `aibox-app/build.rs` to prefer `lld` or `mold` when installed and fall back to standard GNU `ld` (`bfd`) instead of allowing `qt-build-utils` to inject `-fuse-ld=gold`, eliminating the deprecated gold linker compiler warning on systems without `lld`. Added `lld` to `makedepends` in `pkgbuild/PKGBUILD`.
 
+### UI Standardization Phase 5 — Dialogs: single Close action, Cancel removed (`src/qml/dialogs/`, `rust/crates/aibox-app/cpp/shim/test_helpers.cpp`, `src/i18n/`)
+* **Single Modal Pattern (`src/qml/dialogs/*.qml`)**: Standardized all 17 modal dialogs to use `ModalDialog.size` (`sm`, `md`, `lg`) instead of numeric `cardWidth` expressions, replaced all deprecated `Style.*` tokens and numeric metric literals with semantic `Style.*` tokens (zero `qml_token_lint` findings under `dialogs/`), and adopted `DialogFooter`, `FormRow`, `CheckRow`, `SelectChip`, and `ToggleChip`.
+* **Cancel Removal**: Removed redundant `Cancel` buttons from `CloneDialog`, `WipeDialog`, `RestoreDialog`, `EditQuotasDialog`, and the inline confirmation bar in `StaleReportDialog` (whose `onClosed`/`onDismissed` handlers also reset `staleConfirmAction`), keeping `ModalHeader` Close, `Escape`, and scrim click as the unified close mechanism and preserving `Cancel Creation` in `CreateDialog` while a task is running.
+* **Modal Dismiss Verification (`rust/crates/aibox-app/cpp/shim/test_helpers.cpp`, `src/i18n/{en,da}.json`)**: Extended `qml_smoke` to verify that both `Escape` and scrim clicks close every modal dialog with zero QML warnings, and added `Add Port`, `Add Mount`, and `Include Workspace` translations to `en.json` and `da.json`.
+
 ### Settings Sidebar UI Polish (`src/qml/panels/SettingsPanel.qml`, `src/i18n/`)
 * Modernized the Settings modal sidebar with subtle category headers (`System`, `Environments`, `Interface`), hover feedback (`theme.surfaceRaised`), a left accent indicator pill on the active item (`theme.accent` + `theme.accentText`), `Up`/`Down` keyboard navigation, and a compact footer showing the active polarity and navigation hints.
 

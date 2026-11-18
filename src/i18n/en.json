@@ -94,5 +94,8 @@
   "Light mode": "Light mode",
   "ON": "ON",
   "OFF": "OFF",
-  "Cancel Task": "Cancel Task"
+  "Cancel Task": "Cancel Task",
+  "Add Port": "Add Port",
+  "Add Mount": "Add Mount",
+  "Include Workspace": "Include Workspace"
 }

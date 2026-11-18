@@ -25,7 +25,7 @@ Item {
         open: backend.firstRun
         scrimColor: theme.scrimStrong
         zOrder: 100
-        cardWidth: Math.min(parent.width - Style.modalGutter, Style.modalWidthMd)
+        size: "md"
         contentSpacing: Style.padCard
 
         readonly property string resolvedPreview: {

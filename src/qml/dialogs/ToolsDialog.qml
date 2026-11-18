@@ -9,8 +9,8 @@ ModalDialog {
     property QtObject app: null
     open: app.toolsVisible
     zOrder: 58
-    cardWidth: Math.min(parent.width - Style.modalGutter, 560)
-    contentSpacing: Style.space10
+    size: "sm"
+    contentSpacing: Style.gap
     onDismissed: app.toolsVisible = false
 
     function openTool(action) {

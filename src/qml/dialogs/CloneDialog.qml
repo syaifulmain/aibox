@@ -6,8 +6,7 @@ ModalDialog {
     id: cloneDialogRoot
     property QtObject app: null
     open: app.cloneVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 520)
-    contentSpacing: Style.space14
+    size: "sm"
     onDismissed: {
         if (!backend.busy)
             app.cloneVisible = false
@@ -19,18 +18,9 @@ ModalDialog {
         onClosed: app.cloneVisible = false
     }
 
-    ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Style.space6
-
-        Text {
-            Layout.fillWidth: true
-            text: qsTr("New Environment Name")
-            color: theme.textPrimary
-            font.family: Style.fontSans
-            font.pixelSize: Style.font12
-            font.weight: Font.Medium
-        }
+    FormRow {
+        label: qsTr("New Environment Name")
+        hint: qsTr("Shared at: %1/%2").arg(backend.workspaceBase).arg(app.cloneNewName.length > 0 ? app.cloneNewName : "<name>")
 
         FlatInput {
             id: cloneNameField
@@ -45,30 +35,9 @@ ModalDialog {
                 }
             }
         }
-
-        Text {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            text: qsTr("Shared at: %1/%2").arg(backend.workspaceBase).arg(app.cloneNewName.length > 0 ? app.cloneNewName : "<name>")
-            color: theme.textMuted
-            font.family: Style.fontMono
-            font.pixelSize: Style.font10
-            elide: Text.ElideMiddle
-        }
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Style.space4
-        spacing: Style.space10
-        Item { Layout.fillWidth: true }
-
-        ActionButton {
-            label: qsTr("Cancel")
-            minWidth: 96
-            onClicked: app.cloneVisible = false
-        }
-
+    DialogFooter {
         ActionButton {
             label: qsTr("Clone Environment")
             variant: "primary"

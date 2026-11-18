@@ -7,8 +7,8 @@ ModalDialog {
     id: changeReviewDialogRoot
     property QtObject app: null
     open: app.changeReviewVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 1020)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 680)
+    size: "lg"
+    cardHeight: Math.min(parent.height - Style.modalGutter, 680)
     onDismissed: app.changeReviewVisible = false
 
     ModalHeader {
@@ -29,27 +29,27 @@ ModalDialog {
     // Snapshot selector strip
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space8
+        spacing: Style.gapMd
 
         Text {
             text: qsTr("Snapshot:")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
 
         ScrollView {
             Layout.fillWidth: true
-            Layout.preferredHeight: 36
+            Layout.preferredHeight: Style.rowHeight
             clip: true
 
             RowLayout {
-                spacing: Style.space6
+                spacing: Style.gapSm
                 Repeater {
                     model: backend.selectedEnvironment.workspaceSnapshots || []
                     delegate: ActionButton {
                         required property string modelData
-                        implicitHeight: Style.controlHeightSm
+                        compact: true
                         label: modelData
                         variant: app.diffSnapName === modelData ? "accent" : ""
                         onClicked: {
@@ -70,7 +70,7 @@ ModalDialog {
     RowLayout {
         Layout.fillWidth: true
         visible: app.diffEditExcludes
-        spacing: Style.space10
+        spacing: Style.gap
 
         FlatInput {
             id: diffExcludesInput
@@ -100,21 +100,21 @@ ModalDialog {
     // Summary bar
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space12
+        spacing: Style.padCard
 
         Text {
             visible: app.diffSnapName.length === 0
             text: qsTr("No workspace Btrfs snapshots exist for this environment yet.")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
         Text {
             visible: app.diffSnapName.length > 0 && backend.diffLoading
             text: qsTr("Scanning workspace changes against '%1'...").arg(app.diffSnapName)
             color: theme.accentText
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
         Text {
             visible: app.diffSnapName.length > 0 && !backend.diffLoading && !(backend.diffSummary.error && backend.diffSummary.error.length > 0)
@@ -125,7 +125,7 @@ ModalDialog {
                   .arg(backend.diffSummary.totalCount || 0)
             color: theme.textPrimary
             font.family: Style.fontMono
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
 
         TagBadge {
@@ -133,10 +133,10 @@ ModalDialog {
             text: qsTr("RESULTS TRUNCATED (5000 MAX)")
             tone: "warning"
             fillColor: theme.surfaceInput
-            badgeHeight: Style.badgeHeightMd
-            badgeRadius: Style.radius2
-            textSize: Style.font10
-            horizontalPadding: Style.space12
+            badgeHeight: Style.badgeHeight
+            badgeRadius: Style.radiusSm
+            textSize: Style.fontCaption
+            horizontalPadding: Style.padCard
         }
 
         Item { Layout.fillWidth: true }
@@ -148,7 +148,7 @@ ModalDialog {
         text: app.diffActionError.length > 0 ? app.diffActionError : (backend.diffSummary.error || "")
         color: theme.dangerText
         font.family: Style.fontSans
-        font.pixelSize: Style.font12
+        font.pixelSize: Style.fontBody
         wrapMode: Text.WordWrap
     }
 
@@ -156,13 +156,13 @@ ModalDialog {
     RowLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: Style.space12
+        spacing: Style.padCard
 
         // Left pane: changed files
         Rectangle {
             Layout.preferredWidth: 370
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
@@ -173,38 +173,38 @@ ModalDialog {
                 text: qsTr("No workspace changes since '%1'.").arg(app.diffSnapName)
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
 
             ListView {
                 id: diffListView
                 anchors.fill: parent
-                anchors.margins: Style.space8
+                anchors.margins: Style.gapMd
                 clip: true
-                spacing: Style.space4
+                spacing: Style.gapSm
                 model: backend.diffEntries
 
                 delegate: Rectangle {
                     required property var modelData
                     readonly property bool isSelected: app.diffSelectedPath === (modelData.path || "")
                     width: diffListView.width
-                    height: 32
-                    radius: Math.min(Style.radius3, theme.radius)
+                    height: Style.controlHeightCompact
+                    radius: Math.min(Style.radiusSm, theme.radius)
                     color: isSelected ? theme.surfaceSelected : "transparent"
                     border.width: isSelected ? Style.hairline : 0
                     border.color: theme.accentBorder
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Style.space8
-                        anchors.rightMargin: Style.space8
-                        spacing: Style.space8
+                        anchors.leftMargin: Style.gapMd
+                        anchors.rightMargin: Style.gapMd
+                        spacing: Style.gapMd
 
                         Text {
                             text: modelData.status === "added" ? "+" : (modelData.status === "deleted" ? "-" : "~")
                             color: modelData.status === "added" ? theme.successText : (modelData.status === "deleted" ? theme.dangerText : theme.warningText)
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font12
+                            font.pixelSize: Style.fontBody
                             font.weight: Font.Bold
                         }
 
@@ -214,14 +214,14 @@ ModalDialog {
                             text: modelData.path || ""
                             color: theme.textPrimary
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font11
+                            font.pixelSize: Style.fontSmall
                         }
 
                         Text {
                             text: modelData.sizeText || ""
                             color: theme.textMuted
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font10
+                            font.pixelSize: Style.fontCaption
                         }
                     }
 
@@ -244,19 +244,19 @@ ModalDialog {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: Style.space10
-                spacing: Style.space8
+                anchors.margins: Style.gap
+                spacing: Style.gapMd
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space10
+                    spacing: Style.gap
 
                     Text {
                         Layout.fillWidth: true
@@ -266,11 +266,11 @@ ModalDialog {
                               : qsTr("Select a changed file to inspect its unified diff.")
                         color: backend.selectedDiffInfo.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
 
                     ActionButton {
-                        implicitHeight: Style.controlHeightSm
+                        compact: true
                         visible: app.diffSelectedPath.length > 0 && app.diffSelectedType !== "dir" && (app.diffSelectedStatus === "modified" || app.diffSelectedStatus === "deleted")
                         label: qsTr("Restore this file")
                         variant: "accent"
@@ -310,7 +310,7 @@ ModalDialog {
                                  : "")
                         color: backend.selectedDiffText.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                         background: null
                     }
                 }

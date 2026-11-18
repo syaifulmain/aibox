@@ -6,8 +6,8 @@ ModalDialog {
     id: helpOverlayRoot
     property QtObject app: null
     open: app.helpVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 480)
-    contentSpacing: Style.space10
+    size: "sm"
+    contentSpacing: Style.gap
     onDismissed: app.helpVisible = false
 
     ModalHeader {
@@ -44,12 +44,12 @@ ModalDialog {
         delegate: RowLayout {
             required property var modelData
             Layout.fillWidth: true
-            spacing: Style.space12
+            spacing: Style.padCard
 
             Rectangle {
-                width: 104
-                height: Style.controlHeightXxs
-                radius: Style.radius3
+                Layout.preferredWidth: Style.buttonMinWidth + Style.padSection
+                Layout.preferredHeight: Style.controlHeightCompact
+                radius: Math.min(Style.radiusSm, theme.radius)
                 color: theme.surfaceInput
                 border.width: Style.hairline
                 border.color: theme.borderSubtle
@@ -58,7 +58,7 @@ ModalDialog {
                     text: modelData.k
                     color: theme.accentText
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontCaption
                 }
             }
 
@@ -67,7 +67,7 @@ ModalDialog {
                 text: modelData.d
                 color: theme.textSecondary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
         }
     }

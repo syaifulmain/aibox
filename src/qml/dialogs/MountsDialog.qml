@@ -9,9 +9,27 @@ ModalDialog {
     open: app.mountsVisible
     zOrder: 88
     clipCard: true
-    cardWidth: Math.min(parent.width - Style.modalGutter, 760)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 560)
+    size: "md"
+    cardHeight: Math.min(parent.height - Style.modalGutter, Style.windowMinHeight)
     onDismissed: app.mountsVisible = false
+
+    function submitMount() {
+        const err = backend.addExtraMount(
+            backend.selectedEnvironment.name || "",
+            extraMountPathInput.text,
+            extraMountNameInput.text,
+            app.mountReadOnlyDraft,
+            app.mountConfirmRwDraft)
+        if (err.length > 0) {
+            app.extraMountError = err
+        } else {
+            app.extraMountError = ""
+            extraMountPathInput.text = ""
+            extraMountNameInput.text = ""
+            app.mountReadOnlyDraft = true
+            app.mountConfirmRwDraft = false
+        }
+    }
 
     ModalHeader {
         title: qsTr("Extra Host Mounts · %1").arg(backend.selectedEnvironment.name || "")
@@ -22,27 +40,96 @@ ModalDialog {
     Rectangle {
         visible: app.extraMountError.length > 0
         Layout.fillWidth: true
-        height: 36
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: mountErrTxt.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.dangerSurface
         border.width: Style.hairline
         border.color: theme.dangerBorder
         Text {
+            id: mountErrTxt
             anchors.fill: parent
-            anchors.leftMargin: Style.space12
-            anchors.rightMargin: Style.space12
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
+            anchors.margins: Style.padCard
+            wrapMode: Text.WordWrap
             text: app.extraMountError
             color: theme.dangerText
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
+        }
+    }
+
+    Rectangle {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        radius: Math.min(Style.radiusMd, theme.radius)
+        color: theme.surfaceInput
+        border.width: Style.hairline
+        border.color: theme.borderSubtle
+
+        Text {
+            anchors.centerIn: parent
+            visible: !backend.selectedEnvironment.extraMounts || backend.selectedEnvironment.extraMounts.length === 0
+            text: qsTr("No extra host mounts attached.")
+            color: theme.textMuted
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontBody
+        }
+
+        ListView {
+            id: mountsListView
+            anchors.fill: parent
+            anchors.margins: Style.gapMd
+            clip: true
+            spacing: Style.gapSm
+            model: backend.selectedEnvironment.extraMounts || []
+            delegate: Rectangle {
+                required property var modelData
+                width: mountsListView.width
+                implicitHeight: mountRow.implicitHeight + Style.padCard * 2
+                radius: Math.min(Style.radiusSm, theme.radius)
+                color: theme.surfaceCard
+                border.width: Style.hairline
+                border.color: theme.borderSubtle
+
+                RowLayout {
+                    id: mountRow
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.padCard
+                    spacing: Style.gap
+
+                    TagBadge {
+                        text: modelData.readonly ? "RO" : "RW"
+                        tone: modelData.readonly ? "success" : "danger"
+                        borderColor: modelData.readonly ? theme.successBorder : theme.dangerBorder
+                        textWeight: Font.Medium
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideMiddle
+                        text: (modelData.source || "") + "  →  " + (modelData.path || "")
+                        color: theme.textPrimary
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.fontBody
+                    }
+
+                    ActionButton {
+                        minWidth: 84
+                        label: qsTr("Remove")
+                        variant: "danger"
+                        disabled: backend.busy
+                        onClicked: backend.removeExtraMount(
+                            backend.selectedEnvironment.name || "", modelData.deviceName || "")
+                    }
+                }
+            }
         }
     }
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space10
+        spacing: Style.gap
 
         FlatInput {
             id: extraMountPathInput
@@ -61,195 +148,52 @@ ModalDialog {
             Layout.preferredWidth: 145
             placeholder: qsTr("Mount name (e.g. data)")
         }
-
-        ActionButton {
-            label: qsTr("+ Attach")
-            variant: "primary"
-            minWidth: 102
-            disabled: backend.busy
-            onClicked: {
-                const err = backend.addExtraMount(
-                    backend.selectedEnvironment.name || "",
-                    extraMountPathInput.text,
-                    extraMountNameInput.text,
-                    app.mountReadOnlyDraft,
-                    app.mountConfirmRwDraft)
-                if (err.length > 0) {
-                    app.extraMountError = err
-                } else {
-                    app.extraMountError = ""
-                    extraMountPathInput.text = ""
-                    extraMountNameInput.text = ""
-                    app.mountReadOnlyDraft = true
-                    app.mountConfirmRwDraft = false
-                }
-            }
-        }
     }
 
     RowLayout {
         Layout.fillWidth: true
-        spacing: Style.space12
+        spacing: Style.padCard
 
-        Rectangle {
-            height: Style.controlHeightSm
-            width: roModeTxt.implicitWidth + Style.space24
-            radius: Math.min(Style.radius4, theme.radius)
-            color: app.mountReadOnlyDraft ? theme.surfaceSelected : theme.surfaceInput
-            border.width: Style.hairline
-            border.color: app.mountReadOnlyDraft ? theme.accentBorder : theme.borderSubtle
-            Text {
-                id: roModeTxt
-                anchors.centerIn: parent
-                text: qsTr("Read-Only (Safe)")
-                color: app.mountReadOnlyDraft ? theme.textPrimary : theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    app.mountReadOnlyDraft = true
-                    app.mountConfirmRwDraft = false
-                }
+        SelectChip {
+            text: qsTr("Read-Only (Safe)")
+            selected: app.mountReadOnlyDraft
+            mono: false
+            compact: true
+            selectedTextColor: theme.textPrimary
+            onClicked: {
+                app.mountReadOnlyDraft = true
+                app.mountConfirmRwDraft = false
             }
         }
 
-        Rectangle {
-            height: Style.controlHeightSm
-            width: rwModeTxt.implicitWidth + Style.space24
-            radius: Math.min(Style.radius4, theme.radius)
-            color: !app.mountReadOnlyDraft ? theme.dangerSurface : theme.surfaceInput
-            border.width: Style.hairline
-            border.color: !app.mountReadOnlyDraft ? theme.dangerBorder : theme.borderSubtle
-            Text {
-                id: rwModeTxt
-                anchors.centerIn: parent
-                text: qsTr("Read-Write")
-                color: !app.mountReadOnlyDraft ? theme.dangerText : theme.textMuted
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-            }
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: app.mountReadOnlyDraft = false
-            }
+        SelectChip {
+            text: qsTr("Read-Write")
+            selected: !app.mountReadOnlyDraft
+            mono: false
+            compact: true
+            selectedFill: theme.dangerSurface
+            selectedBorderColor: theme.dangerBorder
+            selectedTextColor: theme.dangerText
+            onClicked: app.mountReadOnlyDraft = false
         }
 
-        Rectangle {
+        CheckRow {
             visible: !app.mountReadOnlyDraft
-            Layout.fillWidth: true
-            height: Style.controlHeightSm
-            radius: Math.min(Style.radius4, theme.radius)
-            color: theme.surfaceInput
-            border.width: Style.hairline
-            border.color: app.mountConfirmRwDraft ? theme.dangerBorder : theme.borderSubtle
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: Style.space10
-                anchors.rightMargin: Style.space10
-                spacing: Style.space8
-                Rectangle {
-                    width: 14
-                    height: 14
-                    radius: Style.radius3
-                    color: app.mountConfirmRwDraft ? theme.danger : "transparent"
-                    border.width: Style.hairline
-                    border.color: app.mountConfirmRwDraft ? theme.danger : theme.textMuted
-                    Text {
-                        anchors.centerIn: parent
-                        visible: app.mountConfirmRwDraft
-                        text: "✓"
-                        color: theme.onDanger
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.font10
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    text: qsTr("Confirm: allow the container to modify files inside this host folder")
-                    color: app.mountConfirmRwDraft ? theme.dangerText : theme.textMuted
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font11
-                }
-            }
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: app.mountConfirmRwDraft = !app.mountConfirmRwDraft
-            }
+            checked: app.mountConfirmRwDraft
+            danger: true
+            rowHeight: Style.controlHeightCompact
+            text: qsTr("Confirm: allow the container to modify files inside this host folder")
+            onToggled: app.mountConfirmRwDraft = !app.mountConfirmRwDraft
         }
     }
 
-    Rectangle {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        radius: Math.min(Style.radius4, theme.radius)
-        color: theme.surfaceInput
-        border.width: Style.hairline
-        border.color: theme.borderSubtle
-
-        Text {
-            anchors.centerIn: parent
-            visible: !backend.selectedEnvironment.extraMounts || backend.selectedEnvironment.extraMounts.length === 0
-            text: qsTr("No extra host mounts attached.")
-            color: theme.textMuted
-            font.family: Style.fontSans
-            font.pixelSize: Style.font12
-        }
-
-        ListView {
-            id: mountsListView
-            anchors.fill: parent
-            anchors.margins: Style.space8
-            clip: true
-            spacing: Style.space6
-            model: backend.selectedEnvironment.extraMounts || []
-            delegate: Rectangle {
-                required property var modelData
-                width: mountsListView.width
-                height: 48
-                radius: Math.min(Style.radius3, theme.radius)
-                color: theme.surfaceCard
-                border.width: Style.hairline
-                border.color: theme.borderSubtle
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
-                    spacing: Style.space10
-
-                    TagBadge {
-                        text: modelData.readonly ? "RO" : "RW"
-                        tone: modelData.readonly ? "success" : "danger"
-                        borderColor: modelData.readonly ? theme.successBorder : theme.dangerBorder
-                        textWeight: Font.Medium
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        elide: Text.ElideMiddle
-                        text: (modelData.source || "") + "  →  " + (modelData.path || "")
-                        color: theme.textPrimary
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.font12
-                    }
-
-                    ActionButton {
-                        minWidth: 84
-                        label: qsTr("Remove")
-                        variant: "danger"
-                        disabled: backend.busy
-                        onClicked: backend.removeExtraMount(
-                            backend.selectedEnvironment.name || "", modelData.deviceName || "")
-                    }
-                }
-            }
+    DialogFooter {
+        ActionButton {
+            label: qsTr("Add Mount")
+            variant: "primary"
+            minWidth: 112
+            disabled: backend.busy
+            onClicked: mountsOverlay.submitMount()
         }
     }
 

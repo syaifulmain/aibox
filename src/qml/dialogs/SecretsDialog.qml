@@ -15,8 +15,8 @@ ModalDialog {
 
     open: app.secretsVisible
     zOrder: 27
-    cardWidth: Math.min(parent.width - Style.modalGutter, 760)
-    cardHeight: Math.min(parent.height - Style.modalEdge,
+    size: "md"
+    cardHeight: Math.min(parent.height - Style.modalGutter,
                          340 + Math.min(rowCount, 7) * 54 + (envScope ? 36 : 0))
     onDismissed: app.secretsVisible = false
 
@@ -66,22 +66,22 @@ ModalDialog {
                  || (secretsDialogRoot.envScope ? backend.environmentSecretsError.length > 0
                                                 : backend.secretsError.length > 0)
         Layout.fillWidth: true
-        implicitHeight: secErrTxt.implicitHeight + Style.space14
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: secErrTxt.implicitHeight + Style.padSection
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.dangerSurface
         border.width: Style.hairline
         border.color: theme.dangerBorder
         Text {
             id: secErrTxt
             anchors.fill: parent
-            anchors.margins: Style.space7
+            anchors.margins: Style.gapMd
             text: app.secretFormError.length > 0
                   ? app.secretFormError
                   : (secretsDialogRoot.envScope ? backend.environmentSecretsError
                                                 : backend.secretsError)
             color: theme.dangerText
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
             wrapMode: Text.WordWrap
         }
     }
@@ -93,7 +93,7 @@ ModalDialog {
               : qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
         color: theme.textMuted
         font.family: Style.fontSans
-        font.pixelSize: Style.font11
+        font.pixelSize: Style.fontSmall
         font.weight: Font.Medium
     }
 
@@ -102,7 +102,7 @@ ModalDialog {
         text: qsTr("Global secrets are available to every environment. Their checkbox controls injection here; delete them in Tools → Secrets.")
         color: theme.textMuted
         font.family: Style.fontSans
-        font.pixelSize: Style.font11
+        font.pixelSize: Style.fontSmall
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
@@ -112,7 +112,7 @@ ModalDialog {
         text: qsTr("Checked secrets appear in every environment's Secrets dialog. Each environment controls its own injection checkbox there.")
         color: theme.textMuted
         font.family: Style.fontSans
-        font.pixelSize: Style.font11
+        font.pixelSize: Style.fontSmall
         wrapMode: Text.WordWrap
         Layout.fillWidth: true
     }
@@ -125,7 +125,7 @@ ModalDialog {
               : qsTr("No secrets configured yet. Add one below.")
         color: theme.textMuted
         font.family: Style.fontSans
-        font.pixelSize: Style.font11
+        font.pixelSize: Style.fontSmall
     }
 
     ScrollView {
@@ -135,11 +135,11 @@ ModalDialog {
 
         ListView {
             width: parent.width
-            spacing: Style.space8
+            spacing: Style.gapMd
             section.property: secretsDialogRoot.envScope ? "scope" : ""
             section.delegate: Item {
                 width: ListView.view.width
-                height: 26
+                height: Style.controlHeightCompact
 
                 Text {
                     anchors.left: parent.left
@@ -148,7 +148,7 @@ ModalDialog {
                                                     : qsTr("Global · managed in Tools")
                     color: theme.textMuted
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font10
+                    font.pixelSize: Style.fontCaption
                     font.weight: Font.Medium
                 }
             }
@@ -163,24 +163,25 @@ ModalDialog {
                                                  : modelData.visibleInEnvironments === true
                 readonly property bool canDelete: !secretsDialogRoot.envScope || !isGlobal
                 width: ListView.view.width
-                implicitHeight: 52
-                radius: Math.min(Style.radius4, theme.radius)
+                implicitHeight: secretRow.implicitHeight + Style.padCard * 2
+                radius: Math.min(Style.radiusMd, theme.radius)
                 color: theme.surfaceInput
                 border.width: Style.hairline
                 border.color: theme.borderSubtle
 
                 RowLayout {
+                    id: secretRow
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space10
-                    spacing: Style.space10
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.gap
+                    spacing: Style.gap
 
                     // Global manager: show or hide in environment dialogs.
                     // Environment scope: inject into this environment.
                     Rectangle {
-                        Layout.preferredWidth: 16
-                        Layout.preferredHeight: 16
-                        radius: Style.radius2
+                        Layout.preferredWidth: Style.padSection
+                        Layout.preferredHeight: Style.padSection
+                        radius: Style.radiusSm
                         color: assigned ? theme.accent : "transparent"
                         border.width: Style.hairline
                         border.color: assigned ? theme.accent : theme.borderSubtle
@@ -191,13 +192,13 @@ ModalDialog {
                             text: "x"
                             color: theme.onAccent
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font10
+                            font.pixelSize: Style.fontCaption
                             font.weight: Font.Bold
                         }
 
                         MouseArea {
                             anchors.fill: parent
-                            anchors.margins: -Style.space8
+                            anchors.margins: -Style.gapMd
                             enabled: !backend.busy
                             cursorShape: backend.busy ? Qt.ForbiddenCursor : Qt.PointingHandCursor
                             onClicked: {
@@ -215,9 +216,9 @@ ModalDialog {
                         text: modelData.name
                         color: theme.accentText
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
-                        Layout.preferredWidth: 220
+                        Layout.preferredWidth: 200
                         elide: Text.ElideRight
                     }
 
@@ -225,7 +226,7 @@ ModalDialog {
                         text: revealed ? modelData.value : modelData.maskedValue
                         color: theme.textPrimary
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                     }
@@ -263,7 +264,7 @@ ModalDialog {
     // Add / update secret form
     ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space8
+        spacing: Style.gapMd
 
         Text {
             text: secretsDialogRoot.envScope
@@ -271,14 +272,14 @@ ModalDialog {
                   : qsTr("Add or Update Secret (values are injected only at session start via tmpfs, never written to containers or backups):")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
         }
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: Style.space10
+            spacing: Style.gap
 
             FlatInput {
                 Layout.preferredWidth: 210
@@ -306,14 +307,16 @@ ModalDialog {
                 minWidth: 64
                 onClicked: app.secretDraftShow = !app.secretDraftShow
             }
+        }
+    }
 
-            ActionButton {
-                label: qsTr("Save Secret")
-                variant: "primary"
-                minWidth: 116
-                disabled: app.secretNameDraft.trim().length === 0
-                onClicked: secretsDialogRoot.saveDraft()
-            }
+    DialogFooter {
+        ActionButton {
+            label: qsTr("Save")
+            variant: "primary"
+            minWidth: 116
+            disabled: app.secretNameDraft.trim().length === 0
+            onClicked: secretsDialogRoot.saveDraft()
         }
     }
 }

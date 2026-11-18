@@ -6,8 +6,7 @@ ModalDialog {
     id: wipeDialogRoot
     property QtObject app: null
     open: app.wipeVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 500)
-    contentSpacing: Style.space14
+    size: "sm"
     borderColor: theme.dangerBorder
     onDismissed: app.wipeVisible = false
 
@@ -16,77 +15,36 @@ ModalDialog {
         onClosed: app.wipeVisible = false
     }
 
-    Text {
+    Rectangle {
         Layout.fillWidth: true
-        wrapMode: Text.WordWrap
-        lineHeight: 1.35
-        text: qsTr("This will permanently destroy the entire Linux OS container, installed packages, databases, and snapshots inside '%1' in 1 second. Your host OS remains untouched.").arg(backend.selectedEnvironment.name || "")
-        color: theme.textMuted
-        font.family: Style.fontSans
-        font.pixelSize: Style.font12
+        implicitHeight: wipeWarnText.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
+        color: theme.dangerSurface
+        border.width: Style.hairline
+        border.color: theme.dangerBorder
+
+        Text {
+            id: wipeWarnText
+            anchors.fill: parent
+            anchors.margins: Style.padCard
+            wrapMode: Text.WordWrap
+            lineHeight: 1.35
+            text: qsTr("This will permanently destroy the entire Linux OS container, installed packages, databases, and snapshots inside '%1' in 1 second. Your host OS remains untouched.").arg(backend.selectedEnvironment.name || "")
+            color: theme.dangerText
+            font.family: Style.fontSans
+            font.pixelSize: Style.fontBody
+        }
     }
 
     // Optional extra: remove the shared workspace as well.
-    Rectangle {
-        Layout.fillWidth: true
-        height: 38
-        radius: Math.min(Style.radius4, theme.radius)
-        color: app.deleteWorkspaceOnWipe ? theme.dangerSurface : theme.surfaceInput
-        border.width: Style.hairline
-        border.color: app.deleteWorkspaceOnWipe ? theme.dangerBorder : theme.borderSubtle
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: Style.space12
-            anchors.rightMargin: Style.space12
-            spacing: Style.space10
-
-            Rectangle {
-                width: 16
-                height: 16
-                radius: Style.radius3
-                color: app.deleteWorkspaceOnWipe ? theme.danger : "transparent"
-                border.width: Style.hairline
-                border.color: app.deleteWorkspaceOnWipe ? theme.danger : theme.textMuted
-                Text {
-                    anchors.centerIn: parent
-                    visible: app.deleteWorkspaceOnWipe
-                    text: "✓"
-                    color: theme.onDanger
-                    font.family: Style.fontMono
-                    font.pixelSize: Style.font11
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                elide: Text.ElideMiddle
-                text: qsTr("Also delete shared project files and workspace snapshots in %1").arg(backend.selectedEnvironment.workspacePath || "")
-                color: theme.textPrimary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font12
-            }
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: app.deleteWorkspaceOnWipe = !app.deleteWorkspaceOnWipe
-        }
+    CheckRow {
+        checked: app.deleteWorkspaceOnWipe
+        danger: true
+        text: qsTr("Also delete shared project files and workspace snapshots in %1").arg(backend.selectedEnvironment.workspacePath || "")
+        onToggled: app.deleteWorkspaceOnWipe = !app.deleteWorkspaceOnWipe
     }
 
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Style.space4
-        spacing: Style.space10
-        Item { Layout.fillWidth: true }
-
-        ActionButton {
-            label: qsTr("Cancel")
-            minWidth: 96
-            onClicked: app.wipeVisible = false
-        }
-
+    DialogFooter {
         ActionButton {
             label: qsTr("Wipe Environment Now")
             variant: "danger"

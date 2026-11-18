@@ -585,5 +585,8 @@
   "Dark mode": "Mørk tilstand",
   "Light mode": "Lys tilstand",
   "ON": "TIL",
-  "OFF": "FRA"
+  "OFF": "FRA",
+  "Add Port": "Tilføj port",
+  "Add Mount": "Tilføj montering",
+  "Include Workspace": "Inkludér arbejdsmappe"
 }

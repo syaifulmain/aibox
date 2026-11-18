@@ -8,9 +8,12 @@ ModalDialog {
     property QtObject app: null
     open: app.staleReportVisible
     zOrder: 28
-    cardWidth: Math.min(parent.width - Style.modalGutter, 860)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 640)
-    onDismissed: app.staleReportVisible = false
+    size: "lg"
+    cardHeight: Math.min(parent.height - Style.modalGutter, 640)
+    onDismissed: {
+        app.staleConfirmAction = ""
+        app.staleReportVisible = false
+    }
 
     ModalHeader {
         title: qsTr("Stale Environments & Disk Orphans")
@@ -21,7 +24,10 @@ ModalDialog {
                   .arg(backend.staleReport.unknownCount !== undefined ? backend.staleReport.unknownCount : 0)
                   .arg(backend.staleReport.orphanCount !== undefined ? backend.staleReport.orphanCount : 0)
         subtitleMono: true
-        onClosed: app.staleReportVisible = false
+        onClosed: {
+            app.staleConfirmAction = ""
+            app.staleReportVisible = false
+        }
 
         ActionButton {
             label: qsTr("Rescan")
@@ -38,19 +44,19 @@ ModalDialog {
     Rectangle {
         visible: app.staleActionError.length > 0
         Layout.fillWidth: true
-        implicitHeight: staleErrTxt.implicitHeight + Style.space14
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: staleErrTxt.implicitHeight + Style.padSection
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.dangerSurface
         border.width: Style.hairline
         border.color: theme.dangerBorder
         Text {
             id: staleErrTxt
             anchors.fill: parent
-            anchors.margins: Style.space7
+            anchors.margins: Style.gapMd
             text: app.staleActionError
             color: theme.dangerText
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
             wrapMode: Text.WordWrap
         }
     }
@@ -59,8 +65,8 @@ ModalDialog {
     Rectangle {
         visible: app.staleConfirmAction.length > 0
         Layout.fillWidth: true
-        implicitHeight: staleConfirmCol.implicitHeight + Style.space20
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: staleConfirmCol.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: app.staleConfirmAction === "export-wipe" ? theme.accentBorder : theme.dangerBorder
@@ -68,15 +74,15 @@ ModalDialog {
         ColumnLayout {
             id: staleConfirmCol
             anchors.fill: parent
-            anchors.margins: Style.space10
-            spacing: Style.space8
+            anchors.margins: Style.gap
+            spacing: Style.gapMd
 
             Text {
                 Layout.fillWidth: true
                 text: app.staleConfirmTitle
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
                 font.weight: Font.Medium
                 wrapMode: Text.WordWrap
             }
@@ -85,46 +91,20 @@ ModalDialog {
                 text: app.staleConfirmDetail
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
                 wrapMode: Text.WordWrap
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                spacing: Style.gap
 
-                Rectangle {
+                CheckRow {
                     visible: app.staleConfirmAction === "wipe" || app.staleConfirmAction === "export-wipe"
-                    height: Style.controlHeightSm
-                    width: staleWsDelRow.implicitWidth + Style.space16
-                    radius: Math.min(Style.radius4, theme.radius)
-                    color: app.staleConfirmDeleteWs ? theme.surfaceSelected : theme.surfaceCard
-                    border.width: Style.hairline
-                    border.color: app.staleConfirmDeleteWs ? theme.accentBorder : theme.borderSubtle
-
-                    RowLayout {
-                        id: staleWsDelRow
-                        anchors.centerIn: parent
-                        spacing: Style.space6
-                        Text {
-                            text: app.staleConfirmDeleteWs ? "[x]" : "[ ]"
-                            color: app.staleConfirmDeleteWs ? theme.accentText : theme.textMuted
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font11
-                        }
-                        Text {
-                            text: qsTr("Also delete host %1 files & snapshots").arg(backend.containerWorkspacePath)
-                            color: theme.textPrimary
-                            font.family: Style.fontSans
-                            font.pixelSize: Style.font11
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: app.staleConfirmDeleteWs = !app.staleConfirmDeleteWs
-                    }
+                    checked: app.staleConfirmDeleteWs
+                    rowHeight: Style.controlHeightCompact
+                    text: qsTr("Also delete host %1 files & snapshots").arg(backend.containerWorkspacePath)
+                    onToggled: app.staleConfirmDeleteWs = !app.staleConfirmDeleteWs
                 }
 
                 Item { Layout.fillWidth: true }
@@ -143,12 +123,6 @@ ModalDialog {
                         else
                             app.staleConfirmAction = ""
                     }
-                }
-
-                ActionButton {
-                    label: qsTr("Cancel")
-                    minWidth: 84
-                    onClicked: app.staleConfirmAction = ""
                 }
 
                 ActionButton {
@@ -198,13 +172,13 @@ ModalDialog {
 
         ColumnLayout {
             width: staleReportScroll.availableWidth
-            spacing: Style.space14
+            spacing: Style.padCard
 
             Text {
                 text: qsTr("Stale & Unknown Environments (%1)").arg((backend.staleReport.entries || []).length)
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font13
+                font.pixelSize: Style.fontBody
                 font.weight: Font.Medium
             }
 
@@ -213,7 +187,7 @@ ModalDialog {
                 text: qsTr("No environments have been unused for %1+ days (templates excluded).").arg(backend.staleReport.staleDays || backend.staleDays)
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
 
             Repeater {
@@ -221,8 +195,8 @@ ModalDialog {
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
-                    implicitHeight: staleEnvRow.implicitHeight + Style.space20
-                    radius: Math.min(Style.radius4, theme.radius)
+                    implicitHeight: staleEnvRow.implicitHeight + Style.padCard * 2
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: theme.surfaceInput
                     border.width: Style.hairline
                     border.color: modelData.status === "stale" ? theme.warningBorder : theme.borderSubtle
@@ -230,20 +204,20 @@ ModalDialog {
                     RowLayout {
                         id: staleEnvRow
                         anchors.fill: parent
-                        anchors.margins: Style.space10
-                        spacing: Style.space12
+                        anchors.margins: Style.gap
+                        spacing: Style.padCard
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space4
+                            spacing: Style.gapSm
 
                             RowLayout {
-                                spacing: Style.space8
+                                spacing: Style.gapMd
 
                                 Rectangle {
-                                    width: 8
-                                    height: 8
-                                    radius: 4
+                                    width: Style.gapMd
+                                    height: Style.gapMd
+                                    radius: width / 2
                                     color: modelData.running ? theme.success : theme.textMuted
                                 }
 
@@ -251,7 +225,7 @@ ModalDialog {
                                     text: modelData.name || ""
                                     color: theme.textPrimary
                                     font.family: Style.fontMono
-                                    font.pixelSize: Style.font13
+                                    font.pixelSize: Style.fontBody
                                     font.weight: Font.Medium
                                 }
 
@@ -259,17 +233,17 @@ ModalDialog {
                                     text: modelData.status === "stale" ? qsTr("STALE") : qsTr("UNKNOWN")
                                     tone: modelData.status === "stale" ? "warning" : "neutral"
                                     fillColor: theme.surfaceCard
-                                    badgeHeight: Style.badgeHeightMd
-                                    badgeRadius: Style.radius3
-                                    textSize: Style.font10
-                                    horizontalPadding: Style.space12
+                                    badgeHeight: Style.badgeHeight
+                                    badgeRadius: Style.radiusSm
+                                    textSize: Style.fontCaption
+                                    horizontalPadding: Style.padCard
                                 }
 
                                 Text {
                                     text: (modelData.osName || "") + " · " + (modelData.lastUsedDisplay || "")
                                     color: theme.textMuted
                                     font.family: Style.fontSans
-                                    font.pixelSize: Style.font11
+                                    font.pixelSize: Style.fontSmall
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                 }
@@ -285,7 +259,7 @@ ModalDialog {
                                           .arg(modelData.totalFootprintDisplay || "0 KB")
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                                 elide: Text.ElideRight
                             }
                         }
@@ -340,7 +314,7 @@ ModalDialog {
                 text: qsTr("Orphaned Folders, Snapshots & Backups (%1)").arg((backend.staleReport.orphans || []).length)
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font13
+                font.pixelSize: Style.fontBody
                 font.weight: Font.Medium
             }
 
@@ -349,7 +323,7 @@ ModalDialog {
                 text: qsTr("No orphaned workspace folders, workspace snapshot directories, or unpaired backup workspace archives found.")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
 
             Repeater {
@@ -357,8 +331,8 @@ ModalDialog {
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
-                    implicitHeight: orphanRow.implicitHeight + Style.space20
-                    radius: Math.min(Style.radius4, theme.radius)
+                    implicitHeight: orphanRow.implicitHeight + Style.padCard * 2
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: theme.surfaceInput
                     border.width: Style.hairline
                     border.color: theme.borderSubtle
@@ -366,21 +340,21 @@ ModalDialog {
                     RowLayout {
                         id: orphanRow
                         anchors.fill: parent
-                        anchors.margins: Style.space10
-                        spacing: Style.space10
+                        anchors.margins: Style.gap
+                        spacing: Style.gap
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space3
+                            spacing: Style.gapXs
 
                             RowLayout {
-                                spacing: Style.space8
+                                spacing: Style.gapMd
 
                                 Text {
                                     text: modelData.name || ""
                                     color: theme.textPrimary
                                     font.family: Style.fontMono
-                                    font.pixelSize: Style.font12
+                                    font.pixelSize: Style.fontBody
                                     font.weight: Font.Medium
                                 }
 
@@ -388,18 +362,18 @@ ModalDialog {
                                     text: modelData.kindLabel || modelData.kind || ""
                                     tone: "neutral"
                                     fillColor: theme.surfaceCard
-                                    badgeHeight: Style.badgeHeightMd
-                                    badgeRadius: Style.radius3
-                                    textSize: Style.font10
+                                    badgeHeight: Style.badgeHeight
+                                    badgeRadius: Style.radiusSm
+                                    textSize: Style.fontCaption
                                 }
 
                                 TagBadge {
                                     text: modelData.sizeDisplay || "0 KB"
                                     tone: "accent"
                                     fillColor: theme.surfaceCard
-                                    badgeHeight: Style.badgeHeightMd
-                                    badgeRadius: Style.radius3
-                                    textSize: Style.font10
+                                    badgeHeight: Style.badgeHeight
+                                    badgeRadius: Style.radiusSm
+                                    textSize: Style.fontCaption
                                 }
                             }
 
@@ -408,7 +382,7 @@ ModalDialog {
                                 text: modelData.path || ""
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                                 elide: Text.ElideMiddle
                             }
                         }

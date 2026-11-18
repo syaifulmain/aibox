@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QGuiApplication>
 #include <QImage>
+#include <QKeyEvent>
+#include <QMouseEvent>
 #include <QMutex>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
@@ -261,6 +263,56 @@ int aibox_test_qml_smoke_with_theme(const char *theme_dir, char *err_buf, int er
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
                     win->setProperty(prop, false);
                     QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+                }
+
+                // Verify Esc and scrim click close every modal dialog.
+                const char *modals[] = {
+                    "helpVisible",
+                    "toolsVisible",
+                    "envActionsVisible",
+                    "createVisible",
+                    "cloneVisible",
+                    "wipeVisible",
+                    "staleReportVisible",
+                    "historyVisible",
+                    "egressVisible",
+                    "portsVisible",
+                    "mountsVisible",
+                    "editQuotasVisible",
+                    "backupsVisible",
+                    "restoreDialogVisible",
+                    "changeReviewVisible",
+                    "secretsVisible",
+                };
+                for (const char *prop : modals) {
+                    win->setProperty(prop, true);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    QKeyEvent escPress(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+                    QKeyEvent escRelease(QEvent::KeyRelease, Qt::Key_Escape, Qt::NoModifier);
+                    QCoreApplication::sendEvent(win, &escPress);
+                    QCoreApplication::sendEvent(win, &escRelease);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    if (win->property(prop).toBool()) {
+                        copy_to_buf(QStringLiteral("Escape did not close modal: %1").arg(QString::fromLatin1(prop)), err_buf, err_buf_len);
+                        rc = 1;
+                        win->setProperty(prop, false);
+                        break;
+                    }
+
+                    win->setProperty(prop, true);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    const QPointF scrimPt(2.0, 2.0);
+                    QMouseEvent scrimPress(QEvent::MouseButtonPress, scrimPt, scrimPt, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QMouseEvent scrimRelease(QEvent::MouseButtonRelease, scrimPt, scrimPt, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    QCoreApplication::sendEvent(win, &scrimPress);
+                    QCoreApplication::sendEvent(win, &scrimRelease);
+                    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                    if (win->property(prop).toBool()) {
+                        copy_to_buf(QStringLiteral("Scrim click did not close modal: %1").arg(QString::fromLatin1(prop)), err_buf, err_buf_len);
+                        rc = 1;
+                        win->setProperty(prop, false);
+                        break;
+                    }
                 }
             }
         }

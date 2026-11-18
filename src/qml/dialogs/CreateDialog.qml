@@ -8,9 +8,8 @@ ModalDialog {
     id: createDialogRoot
     property QtObject app: null
     open: app.createVisible
-    cardWidth: Math.min(parent.width - Style.modalGutter, 680)
-    cardHeight: Math.min(parent.height - Style.modalEdge, contentHeight + Style.modalPadding * 2)
-    padding: Style.modalPadding
+    size: "md"
+    cardHeight: Math.min(parent.height - Style.modalGutter, contentHeight + Style.padModal * 2)
     onDismissed: {
         if (!backend.busy)
             app.createVisible = false
@@ -35,22 +34,21 @@ ModalDialog {
     Rectangle {
         visible: backend.errorMessage.length > 0 && !backend.busy
         Layout.fillWidth: true
-        height: 36
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: createErrTxt.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.dangerSurface
         border.width: Style.hairline
         border.color: theme.dangerBorder
 
         Text {
+            id: createErrTxt
             anchors.fill: parent
-            anchors.leftMargin: Style.space12
-            anchors.rightMargin: Style.space12
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
+            anchors.margins: Style.padCard
+            wrapMode: Text.WordWrap
             text: backend.errorMessage
             color: theme.dangerText
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
     }
 
@@ -70,38 +68,13 @@ ModalDialog {
         ColumnLayout {
             id: createFormContent
             width: createFormScroll.availableWidth
-            spacing: Style.space12
+            spacing: Style.padCard
 
-            // Project name and resulting shared path
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.space6
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space10
-
-                    Text {
-                        text: qsTr("Project / Environment Name")
-                        color: theme.textPrimary
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font12
-                        font.weight: Font.Medium
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        horizontalAlignment: Text.AlignRight
-                        text: qsTr("Shared at: %1/%2")
-                              .arg(app.newEnvSharedPath.trim().length > 0 ? app.newEnvSharedPath.trim() : backend.workspaceBase)
-                              .arg(app.newEnvName.length > 0 ? app.newEnvName : "<name>")
-                        color: theme.textMuted
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.font11
-                        elide: Text.ElideMiddle
-                    }
-                }
+            FormRow {
+                label: qsTr("Project / Environment Name")
+                hint: qsTr("Shared at: %1/%2")
+                      .arg(app.newEnvSharedPath.trim().length > 0 ? app.newEnvSharedPath.trim() : backend.workspaceBase)
+                      .arg(app.newEnvName.length > 0 ? app.newEnvName : "<name>")
 
                 FlatInput {
                     id: createNameField
@@ -112,44 +85,29 @@ ModalDialog {
                 }
             }
 
-            // Optional custom shared folder location (defaults to the configured base)
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.space6
+            FormRow {
+                label: qsTr("Shared Folder Location (optional)")
 
-                Text {
-                    text: qsTr("Shared Folder Location (optional)")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font12
-                    font.weight: Font.Medium
+                FlatInput {
+                    id: createSharedPathField
+                    Layout.fillWidth: true
+                    placeholder: qsTr("Default: %1").arg(backend.workspaceBase)
+                    text: app.newEnvSharedPath
+                    onTextChanged: app.newEnvSharedPath = text
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space8
+                ActionButton {
+                    label: qsTr("Browse...")
+                    minWidth: 94
+                    onClicked: createSharedFolderDialog.open()
+                }
 
-                    FlatInput {
-                        id: createSharedPathField
-                        Layout.fillWidth: true
-                        placeholder: qsTr("Default: %1").arg(backend.workspaceBase)
-                        text: app.newEnvSharedPath
-                        onTextChanged: app.newEnvSharedPath = text
-                    }
-
-                    ActionButton {
-                        label: qsTr("Browse...")
-                        minWidth: 94
-                        onClicked: createSharedFolderDialog.open()
-                    }
-
-                    ActionButton {
-                        label: qsTr("Default")
-                        minWidth: 84
-                        onClicked: {
-                            app.newEnvSharedPath = ""
-                            createSharedPathField.text = ""
-                        }
+                ActionButton {
+                    label: qsTr("Default")
+                    minWidth: 84
+                    onClicked: {
+                        app.newEnvSharedPath = ""
+                        createSharedPathField.text = ""
                     }
                 }
             }
@@ -158,7 +116,7 @@ ModalDialog {
             RowLayout {
                 visible: backend.templates.length > 0
                 Layout.fillWidth: true
-                spacing: Style.space8
+                spacing: Style.gapMd
 
                 Repeater {
                     model: [
@@ -172,7 +130,7 @@ ModalDialog {
                         text: modelData.label
                         selected: app.createFromTemplate === modelData.fromTpl
                         mono: false
-                        textSize: Style.font12
+                        textSize: Style.fontBody
                         mediumWhenSelected: true
                         selectedTextColor: theme.textPrimary
                         chipHeight: Style.controlHeight
@@ -189,21 +147,21 @@ ModalDialog {
             ColumnLayout {
                 visible: app.createFromTemplate && backend.templates.length > 0
                 Layout.fillWidth: true
-                spacing: Style.space6
+                spacing: Style.gapSm
 
                 Text {
                     text: qsTr("Select Template")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                     font.weight: Font.Medium
                 }
 
                 GridLayout {
                     Layout.fillWidth: true
                     columns: 2
-                    columnSpacing: Style.space8
-                    rowSpacing: Style.space8
+                    columnSpacing: Style.gapMd
+                    rowSpacing: Style.gapMd
 
                     Repeater {
                         model: backend.templates
@@ -224,19 +182,19 @@ ModalDialog {
             ColumnLayout {
                 visible: !app.createFromTemplate
                 Layout.fillWidth: true
-                spacing: Style.space6
+                spacing: Style.gapSm
 
                 Text {
                     text: qsTr("Environment Capability Preset")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                     font.weight: Font.Medium
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space8
+                    spacing: Style.gapMd
 
                     Repeater {
                         model: backend.presets
@@ -258,21 +216,21 @@ ModalDialog {
             ColumnLayout {
                 visible: !app.createFromTemplate
                 Layout.fillWidth: true
-                spacing: Style.space6
+                spacing: Style.gapSm
 
                 Text {
                     text: qsTr("Linux Distribution")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                     font.weight: Font.Medium
                 }
 
                 GridLayout {
                     Layout.fillWidth: true
                     columns: 4
-                    columnSpacing: Style.space8
-                    rowSpacing: Style.space8
+                    columnSpacing: Style.gapMd
+                    rowSpacing: Style.gapMd
 
                     Repeater {
                         model: backend.osCatalog
@@ -280,29 +238,30 @@ ModalDialog {
                             required property var modelData
                             readonly property bool selected: app.newEnvOsId === modelData.id
                             Layout.fillWidth: true
-                            height: 46
-                            radius: Math.min(Style.radius4, theme.radius)
+                            implicitHeight: osCardCol.implicitHeight + Style.gapMd * 2
+                            radius: Math.min(Style.radiusMd, theme.radius)
                             color: selected ? theme.surfaceSelected : theme.surfaceInput
                             border.width: Style.hairline
                             border.color: selected ? theme.accentBorder : theme.borderSubtle
 
                             ColumnLayout {
+                                id: osCardCol
                                 anchors.centerIn: parent
-                                spacing: Style.space2
+                                spacing: Style.gapXs
 
                                 Text {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: modelData.id
                                     color: selected ? theme.textPrimary : theme.textSecondary
                                     font.family: Style.fontMono
-                                    font.pixelSize: Style.font12
+                                    font.pixelSize: Style.fontBody
                                 }
                                 Text {
                                     Layout.alignment: Qt.AlignHCenter
                                     text: modelData.downloaded ? qsTr("✓ Cached") : modelData.badge
                                     color: modelData.downloaded ? theme.successText : theme.textMuted
                                     font.family: Style.fontSans
-                                    font.pixelSize: Style.font10
+                                    font.pixelSize: Style.fontCaption
                                 }
                             }
 
@@ -319,22 +278,22 @@ ModalDialog {
             // Disk, RAM and CPU quotas
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space16
+                spacing: Style.padSection
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         text: qsTr("Disk Quota")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
 
                     RowLayout {
-                        spacing: Style.space6
+                        spacing: Style.gapSm
 
                         Repeater {
                             model: backend.diskOptions
@@ -353,18 +312,18 @@ ModalDialog {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         text: qsTr("RAM Limit")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
 
                     RowLayout {
-                        spacing: Style.space6
+                        spacing: Style.gapSm
 
                         Repeater {
                             model: backend.ramOptions
@@ -382,18 +341,18 @@ ModalDialog {
                 }
 
                 ColumnLayout {
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         text: qsTr("CPU Cores")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
 
                     RowLayout {
-                        spacing: Style.space6
+                        spacing: Style.gapSm
 
                         Repeater {
                             model: backend.cpuOptions
@@ -414,22 +373,22 @@ ModalDialog {
             // Runaway limits (processes and disk I/O)
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space16
+                spacing: Style.padSection
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         text: qsTr("Process Limit (Container)")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
 
                     RowLayout {
-                        spacing: Style.space6
+                        spacing: Style.gapSm
 
                         Repeater {
                             model: backend.processLimitOptions
@@ -440,7 +399,7 @@ ModalDialog {
                                 text: modelData
                                 selected: app.newEnvProcLimit === modelData
                                 stretchText: true
-                                chipHeight: 30
+                                compact: true
                                 onClicked: app.newEnvProcLimit = modelData
                             }
                         }
@@ -449,18 +408,18 @@ ModalDialog {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         text: qsTr("Disk I/O Limit (Read / Write)")
                         color: theme.textPrimary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                         font.weight: Font.Medium
                     }
 
                     RowLayout {
-                        spacing: Style.space6
+                        spacing: Style.gapSm
 
                         Repeater {
                             model: backend.ioLimitOptions
@@ -471,7 +430,7 @@ ModalDialog {
                                 text: modelData
                                 selected: app.newEnvIoLimit === modelData
                                 stretchText: true
-                                chipHeight: 30
+                                compact: true
                                 onClicked: app.newEnvIoLimit = modelData
                             }
                         }
@@ -484,8 +443,8 @@ ModalDialog {
                 readonly property string warnMsg: app.createVisible ? backend.poolWarningForCreate(app.newEnvDisk) : ""
                 visible: warnMsg.length > 0
                 Layout.fillWidth: true
-                implicitHeight: createPoolWarnTxt.implicitHeight + Style.space16
-                radius: Math.min(Style.radius4, theme.radius)
+                implicitHeight: createPoolWarnTxt.implicitHeight + Style.padSection
+                radius: Math.min(Style.radiusMd, theme.radius)
                 color: theme.warningSurface
                 border.width: Style.hairline
                 border.color: theme.warningBorder
@@ -493,26 +452,22 @@ ModalDialog {
                 Text {
                     id: createPoolWarnTxt
                     anchors.fill: parent
-                    anchors.margins: Style.space8
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
+                    anchors.margins: Style.gapMd
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.padCard
                     wrapMode: Text.WordWrap
                     text: parent.warnMsg
                     color: theme.warningText
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontSmall
                 }
             }
         }
     }
 
-    // Dialog footer
-    RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Style.space4
+    // Dialog footer (creation form)
+    DialogFooter {
         visible: !backend.busy
-        spacing: Style.space10
-        Item { Layout.fillWidth: true }
 
         ActionButton {
             label: app.createFromTemplate ? qsTr("Create from Template") : qsTr("Create Environment")
@@ -541,7 +496,7 @@ ModalDialog {
     ColumnLayout {
         Layout.fillWidth: true
         visible: backend.busy
-        spacing: Style.space14
+        spacing: Style.padCard
 
         RowLayout {
             Layout.fillWidth: true
@@ -552,23 +507,23 @@ ModalDialog {
                 text: backend.taskStage
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font13
+                font.pixelSize: Style.fontBody
             }
 
             Text {
                 text: backend.taskProgress + "%"
                 color: theme.accentText
                 font.family: Style.fontMono
-                font.pixelSize: Style.font13
+                font.pixelSize: Style.fontBody
             }
         }
 
         MeterBar {
             Layout.fillWidth: true
-            implicitHeight: 8
+            implicitHeight: Style.gapMd
             value: backend.taskProgress
             trackColor: theme.surfaceTrack
-            minFillWidth: Style.space4
+            minFillWidth: Style.gapSm
             showAtZero: true
             animationMs: 150
         }
@@ -576,23 +531,23 @@ ModalDialog {
         // Live terminal log output
         Rectangle {
             Layout.fillWidth: true
-            height: 44
-            radius: Math.min(Style.radius4, theme.radius)
+            height: Style.controlHeight + Style.gap
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Style.space12
-                anchors.rightMargin: Style.space12
-                spacing: Style.space8
+                anchors.leftMargin: Style.padCard
+                anchors.rightMargin: Style.padCard
+                spacing: Style.gapMd
 
                 Text {
                     text: "$"
                     color: theme.accentText
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontSmall
                 }
 
                 Text {
@@ -601,22 +556,18 @@ ModalDialog {
                     text: backend.taskLog
                     color: theme.textMuted
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontSmall
                 }
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-
-            Text {
+        DialogFooter {
+            leftActions: Text {
                 text: qsTr("Creation is locked while an operation is running.")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font11
+                font.pixelSize: Style.fontSmall
             }
-
-            Item { Layout.fillWidth: true }
 
             ActionButton {
                 label: qsTr("Cancel Creation")

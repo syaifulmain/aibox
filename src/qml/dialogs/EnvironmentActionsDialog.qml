@@ -8,8 +8,8 @@ ModalDialog {
     property QtObject app: null
     open: app.envActionsVisible
     zOrder: 57
-    cardWidth: Math.min(parent.width - Style.modalGutter, 560)
-    contentSpacing: Style.space10
+    size: "sm"
+    contentSpacing: Style.gap
     onDismissed: app.envActionsVisible = false
 
     readonly property var env: backend.selectedEnvironment || ({})

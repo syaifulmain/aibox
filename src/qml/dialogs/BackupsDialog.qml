@@ -8,8 +8,8 @@ ModalDialog {
     property QtObject app: null
     open: app.backupsVisible
     zOrder: 62
-    cardWidth: Math.min(parent.width - Style.modalGutter, 780)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 600)
+    size: "md"
+    cardHeight: Math.min(parent.height - Style.modalGutter, 600)
     onDismissed: app.backupsVisible = false
 
     ModalHeader {
@@ -23,29 +23,29 @@ ModalDialog {
     Rectangle {
         visible: app.backupError.length > 0
         Layout.fillWidth: true
-        implicitHeight: bErrTxt.implicitHeight + Style.space14
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: bErrTxt.implicitHeight + Style.padSection
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.dangerSurface
         border.width: Style.hairline
         border.color: theme.dangerBorder
         Text {
             id: bErrTxt
             anchors.fill: parent
-            anchors.margins: Style.space7
+            anchors.margins: Style.gapMd
             text: app.backupError
             color: theme.dangerText
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
             wrapMode: Text.WordWrap
         }
     }
 
-    // Export selected environment
+    // Export selected environment summary
     Rectangle {
         id: exportCard
         Layout.fillWidth: true
-        implicitHeight: exportCol.implicitHeight + Style.space20
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: exportCol.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: theme.borderSubtle
@@ -57,71 +57,32 @@ ModalDialog {
         ColumnLayout {
             id: exportCol
             anchors.fill: parent
-            anchors.margins: Style.space10
-            spacing: Style.space8
+            anchors.margins: Style.padCard
+            spacing: Style.gapXs
 
-            RowLayout {
+            Text {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                Layout.minimumWidth: 0
+                text: (backend.selectedEnvironment && backend.selectedEnvironment.name)
+                      ? qsTr("Export '%1'").arg(backend.selectedEnvironment.name)
+                      : qsTr("No environment selected to export")
+                color: theme.textPrimary
+                font.family: Style.fontSans
+                font.pixelSize: Style.fontBody
+                font.weight: Font.Medium
+                elide: Text.ElideMiddle
+            }
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    spacing: Style.space2
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        text: (backend.selectedEnvironment && backend.selectedEnvironment.name)
-                              ? qsTr("Export '%1'").arg(backend.selectedEnvironment.name)
-                              : qsTr("No environment selected to export")
-                        color: theme.textPrimary
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font13
-                        font.weight: Font.Medium
-                        elide: Text.ElideMiddle
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        text: qsTr("Est. size: %1  •  Free: %2")
-                              .arg(exportCard.spaceInfo.estimatedDisplay || "—")
-                              .arg(exportCard.spaceInfo.availableDisplay || "—")
-                        color: exportCard.spaceInfo.ok ? theme.textMuted : theme.dangerText
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.font11
-                        elide: Text.ElideRight
-                    }
-                }
-
-                // Spacer keeps the action buttons on the right edge. A nested
-                // layout alone does not stretch the row.
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Style.space1
-                }
-
-                ActionButton {
-                    label: app.backupIncludeWorkspace ? qsTr("Include Workspace: ON") : qsTr("Include Workspace: OFF")
-                    minWidth: 168
-                    onClicked: app.backupIncludeWorkspace = !app.backupIncludeWorkspace
-                }
-
-                ActionButton {
-                    label: qsTr("Export Backup")
-                    variant: "primary"
-                    minWidth: 130
-                    disabled: backend.busy || !(backend.selectedEnvironment && backend.selectedEnvironment.name) || !exportCard.spaceInfo.ok
-                    onClicked: {
-                        const err = backend.exportEnvironment(backend.selectedEnvironment.name, app.backupIncludeWorkspace)
-                        if (err.length > 0) {
-                            app.backupError = err
-                        } else {
-                            app.backupsVisible = false
-                        }
-                    }
-                }
+            Text {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: qsTr("Est. size: %1  •  Free: %2")
+                      .arg(exportCard.spaceInfo.estimatedDisplay || "—")
+                      .arg(exportCard.spaceInfo.availableDisplay || "—")
+                color: exportCard.spaceInfo.ok ? theme.textMuted : theme.dangerText
+                font.family: Style.fontMono
+                font.pixelSize: Style.fontSmall
+                elide: Text.ElideRight
             }
         }
     }
@@ -130,14 +91,14 @@ ModalDialog {
         text: qsTr("Saved Backup Archives (%1)").arg(backend.backupArchives.length)
         color: theme.textMuted
         font.family: Style.fontSans
-        font.pixelSize: Style.font11
+        font.pixelSize: Style.fontSmall
         font.weight: Font.Medium
     }
 
     Rectangle {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        radius: Math.min(Style.radius4, theme.radius)
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: theme.borderSubtle
@@ -148,38 +109,39 @@ ModalDialog {
             text: qsTr("No backup archives found in %1").arg(backend.backupsDirPath)
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
         }
 
         ListView {
             anchors.fill: parent
-            anchors.margins: Style.space6
+            anchors.margins: Style.gapSm
             clip: true
-            spacing: Style.space6
+            spacing: Style.gapSm
             model: backend.backupArchives
             delegate: Rectangle {
                 required property var modelData
                 width: ListView.view.width
-                height: 48
-                radius: Math.min(Style.radius3, theme.radius)
+                implicitHeight: backupRow.implicitHeight + Style.padCard * 2
+                radius: Math.min(Style.radiusSm, theme.radius)
                 color: theme.surfaceCard
                 border.width: Style.hairline
                 border.color: app.importBackupFile === (modelData.filePath || "") ? theme.accentBorder : theme.borderSubtle
 
                 RowLayout {
+                    id: backupRow
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space12
-                    anchors.rightMargin: Style.space12
-                    spacing: Style.space10
+                    anchors.leftMargin: Style.padCard
+                    anchors.rightMargin: Style.padCard
+                    spacing: Style.gap
 
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        spacing: Style.space2
+                        spacing: Style.gapXs
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space8
+                            spacing: Style.gapMd
 
                             Text {
                                 Layout.fillWidth: true
@@ -187,7 +149,7 @@ ModalDialog {
                                 text: modelData.fileName || ""
                                 color: theme.textPrimary
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font11
+                                font.pixelSize: Style.fontSmall
                                 elide: Text.ElideMiddle
                             }
 
@@ -204,7 +166,7 @@ ModalDialog {
                                   .arg(modelData.createdAt || "")
                             color: theme.textMuted
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font10
+                            font.pixelSize: Style.fontCaption
                         }
                     }
 
@@ -234,8 +196,8 @@ ModalDialog {
     // Import backup form
     Rectangle {
         Layout.fillWidth: true
-        implicitHeight: importCol.implicitHeight + Style.space20
-        radius: Math.min(Style.radius4, theme.radius)
+        implicitHeight: importCol.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: theme.borderSubtle
@@ -243,18 +205,18 @@ ModalDialog {
         ColumnLayout {
             id: importCol
             anchors.fill: parent
-            anchors.margins: Style.space12
-            spacing: Style.space10
+            anchors.margins: Style.padCard
+            spacing: Style.gap
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                spacing: Style.gap
 
                 Text {
                     text: qsTr("Import Archive:")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                     Layout.preferredWidth: 102
                 }
 
@@ -279,13 +241,13 @@ ModalDialog {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Style.space10
+                spacing: Style.gap
 
                 Text {
                     text: qsTr("New Env Name:")
                     color: theme.textPrimary
                     font.family: Style.fontSans
-                    font.pixelSize: Style.font12
+                    font.pixelSize: Style.fontBody
                     Layout.preferredWidth: 102
                 }
 
@@ -301,7 +263,6 @@ ModalDialog {
 
                 ActionButton {
                     label: qsTr("Import Backup")
-                    variant: "primary"
                     minWidth: 132
                     disabled: backend.busy || app.importBackupFile.trim().length === 0 || app.importNewName.trim().length === 0
                     onClicked: {
@@ -312,6 +273,29 @@ ModalDialog {
                             app.backupsVisible = false
                         }
                     }
+                }
+            }
+        }
+    }
+
+    DialogFooter {
+        leftActions: ToggleChip {
+            label: qsTr("Include Workspace")
+            checked: app.backupIncludeWorkspace
+            onToggled: app.backupIncludeWorkspace = !app.backupIncludeWorkspace
+        }
+
+        ActionButton {
+            label: qsTr("Export Backup")
+            variant: "primary"
+            minWidth: 130
+            disabled: backend.busy || !(backend.selectedEnvironment && backend.selectedEnvironment.name) || !exportCard.spaceInfo.ok
+            onClicked: {
+                const err = backend.exportEnvironment(backend.selectedEnvironment.name, app.backupIncludeWorkspace)
+                if (err.length > 0) {
+                    app.backupError = err
+                } else {
+                    app.backupsVisible = false
                 }
             }
         }

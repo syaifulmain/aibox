@@ -9,9 +9,9 @@ ModalDialog {
     open: app.historyVisible
     zOrder: 85
     clipCard: true
-    cardWidth: Math.min(parent.width - Style.modalGutter, 980)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 620)
-    contentSpacing: Style.space14
+    size: "lg"
+    cardHeight: Math.min(parent.height - Style.modalGutter, 620)
+    contentSpacing: Style.padCard
     onDismissed: app.historyVisible = false
 
     ModalHeader {
@@ -27,8 +27,8 @@ ModalDialog {
                 { label: qsTr("Sessions (%1)").arg(backend.recordedSessions.length), value: 1 }
             ]
             currentValue: app.historyTab
-            textSize: Style.font11
-            itemPadding: Style.space14
+            textSize: Style.fontSmall
+            itemPadding: Style.padCard
             onSelected: function (value) {
                 app.historyTab = value
                 if (value === 1) {
@@ -38,28 +38,6 @@ ModalDialog {
                 }
             }
         }
-
-        ActionButton {
-            visible: app.historyTab === 0
-            label: qsTr("Clear")
-            variant: "danger"
-            minWidth: 80
-            disabled: backend.operationHistory.length === 0
-            onClicked: {
-                backend.clearOperationHistory()
-                app.selectedHistoryId = ""
-                app.selectedHistoryLog = ""
-            }
-        }
-
-        ActionButton {
-            visible: app.historyTab === 1
-            label: qsTr("Replay")
-            variant: "primary"
-            minWidth: 88
-            disabled: !app.selectedSessionHasTiming
-            onClicked: backend.replayRecordedSession(app.selectedSessionLogPath, app.selectedSessionTimingPath)
-        }
     }
 
     // Tasks tab
@@ -67,13 +45,13 @@ ModalDialog {
         visible: app.historyTab === 0
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: Style.space14
+        spacing: Style.padCard
 
         // Left pane: history entries
         Rectangle {
             Layout.preferredWidth: 360
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
@@ -84,23 +62,23 @@ ModalDialog {
                 text: qsTr("No recorded operations yet.")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
 
             ListView {
                 id: historyListView
                 anchors.fill: parent
-                anchors.margins: Style.space8
+                anchors.margins: Style.gapMd
                 clip: true
-                spacing: Style.space6
+                spacing: Style.gapSm
                 model: backend.operationHistory
 
                 delegate: Rectangle {
                     required property var modelData
                     readonly property bool selected: app.selectedHistoryId === (modelData.id || "")
                     width: historyListView.width
-                    height: histItemCol.implicitHeight + Style.space16
-                    radius: Math.min(Style.radius4, theme.radius)
+                    height: histItemCol.implicitHeight + Style.padSection
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: selected ? theme.surfaceSelected : theme.surfaceCard
                     border.width: Style.hairline
                     border.color: selected ? theme.accentBorder : theme.borderSubtle
@@ -108,12 +86,12 @@ ModalDialog {
                     ColumnLayout {
                         id: histItemCol
                         anchors.fill: parent
-                        anchors.margins: Style.space8
-                        spacing: Style.space4
+                        anchors.margins: Style.gapMd
+                        spacing: Style.gapSm
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space6
+                            spacing: Style.gapSm
 
                             TagBadge {
                                 text: modelData.status === "failed"
@@ -141,7 +119,7 @@ ModalDialog {
                                 text: modelData.envName || ""
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                             }
 
                             Text {
@@ -152,7 +130,7 @@ ModalDialog {
                                       : ""
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                             }
                         }
 
@@ -162,7 +140,7 @@ ModalDialog {
                             text: modelData.description || ""
                             color: theme.textPrimary
                             font.family: Style.fontSans
-                            font.pixelSize: Style.font12
+                            font.pixelSize: Style.fontBody
                         }
 
                         Text {
@@ -171,7 +149,7 @@ ModalDialog {
                             text: modelData.timestamp || (modelData.startedAt || "").replace("T", " ")
                             color: theme.textMuted
                             font.family: Style.fontMono
-                            font.pixelSize: Style.font10
+                            font.pixelSize: Style.fontCaption
                         }
                     }
 
@@ -191,14 +169,14 @@ ModalDialog {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
 
             ScrollView {
                 anchors.fill: parent
-                anchors.margins: Style.space10
+                anchors.margins: Style.gap
                 clip: true
 
                 TextArea {
@@ -210,7 +188,7 @@ ModalDialog {
                           : qsTr("Select an operation to inspect its log output.")
                     color: app.selectedHistoryLog.length > 0 ? theme.textPrimary : theme.textMuted
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontSmall
                     background: null
                 }
             }
@@ -222,42 +200,42 @@ ModalDialog {
         visible: app.historyTab === 1
         Layout.fillWidth: true
         Layout.fillHeight: true
-        spacing: Style.space14
+        spacing: Style.padCard
 
         Rectangle {
             Layout.preferredWidth: 340
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
 
             Text {
                 anchors.centerIn: parent
-                width: parent.width - Style.space24
+                width: parent.width - Style.padModal
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 visible: backend.recordedSessions.length === 0
                 text: qsTr("No recorded interactive sessions yet. Enable Session Recording in Settings -> Safety or per environment.")
                 color: theme.textMuted
                 font.family: Style.fontSans
-                font.pixelSize: Style.font12
+                font.pixelSize: Style.fontBody
             }
 
             ListView {
                 id: sessionsListView
                 anchors.fill: parent
-                anchors.margins: Style.space8
+                anchors.margins: Style.gapMd
                 clip: true
-                spacing: Style.space6
+                spacing: Style.gapSm
                 model: backend.recordedSessions
 
                 delegate: Rectangle {
                     required property var modelData
                     readonly property bool selected: app.selectedSessionId === (modelData.id || "")
                     width: sessionsListView.width
-                    height: sessItemCol.implicitHeight + Style.space16
-                    radius: Math.min(Style.radius4, theme.radius)
+                    height: sessItemCol.implicitHeight + Style.padSection
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: selected ? theme.surfaceSelected : theme.surfaceCard
                     border.width: Style.hairline
                     border.color: selected ? theme.accentBorder : theme.borderSubtle
@@ -265,18 +243,18 @@ ModalDialog {
                     ColumnLayout {
                         id: sessItemCol
                         anchors.fill: parent
-                        anchors.margins: Style.space8
-                        spacing: Style.space4
+                        anchors.margins: Style.gapMd
+                        spacing: Style.gapSm
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space6
+                            spacing: Style.gapSm
 
                             Text {
                                 text: modelData.envName || ""
                                 color: theme.textPrimary
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font12
+                                font.pixelSize: Style.fontBody
                                 font.weight: Font.Medium
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
@@ -286,13 +264,13 @@ ModalDialog {
                                 text: modelData.sizeDisplay || ""
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                             }
 
                             Rectangle {
-                                height: Style.badgeHeightMd
-                                width: 22
-                                radius: Style.radius3
+                                height: Style.badgeHeight
+                                width: Style.badgeHeight
+                                radius: Style.radiusSm
                                 color: delSessMouse.containsMouse ? theme.dangerSurface : theme.surfaceInput
                                 border.width: Style.hairline
                                 border.color: delSessMouse.containsMouse ? theme.dangerBorder : theme.borderSubtle
@@ -302,7 +280,7 @@ ModalDialog {
                                     text: "x"
                                     color: delSessMouse.containsMouse ? theme.dangerText : theme.textMuted
                                     font.family: Style.fontMono
-                                    font.pixelSize: Style.font10
+                                    font.pixelSize: Style.fontCaption
                                 }
 
                                 MouseArea {
@@ -326,7 +304,7 @@ ModalDialog {
 
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space6
+                            spacing: Style.gapSm
 
                             Text {
                                 Layout.fillWidth: true
@@ -334,7 +312,7 @@ ModalDialog {
                                 text: modelData.timestamp || ""
                                 color: theme.textMuted
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                             }
 
                             Text {
@@ -342,7 +320,7 @@ ModalDialog {
                                 text: qsTr("TIMED")
                                 color: theme.accentText
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font9
+                                font.pixelSize: Style.fontCaption
                             }
                         }
                     }
@@ -360,14 +338,14 @@ ModalDialog {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Math.min(Style.radius4, theme.radius)
+            radius: Math.min(Style.radiusMd, theme.radius)
             color: theme.surfaceInput
             border.width: Style.hairline
             border.color: theme.borderSubtle
 
             ScrollView {
                 anchors.fill: parent
-                anchors.margins: Style.space10
+                anchors.margins: Style.gap
                 clip: true
 
                 TextArea {
@@ -379,10 +357,34 @@ ModalDialog {
                           : qsTr("Select a recorded session to view ANSI-stripped terminal output (200 KB cap).")
                     color: app.selectedSessionText.length > 0 ? theme.textPrimary : theme.textMuted
                     font.family: Style.fontMono
-                    font.pixelSize: Style.font11
+                    font.pixelSize: Style.fontSmall
                     background: null
                 }
             }
+        }
+    }
+
+    DialogFooter {
+        ActionButton {
+            visible: app.historyTab === 0
+            label: qsTr("Clear")
+            variant: "danger"
+            minWidth: 80
+            disabled: backend.operationHistory.length === 0
+            onClicked: {
+                backend.clearOperationHistory()
+                app.selectedHistoryId = ""
+                app.selectedHistoryLog = ""
+            }
+        }
+
+        ActionButton {
+            visible: app.historyTab === 1
+            label: qsTr("Replay")
+            variant: "primary"
+            minWidth: 88
+            disabled: !app.selectedSessionHasTiming
+            onClicked: backend.replayRecordedSession(app.selectedSessionLogPath, app.selectedSessionTimingPath)
         }
     }
 }

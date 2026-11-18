@@ -8,8 +8,8 @@ ModalDialog {
     open: app.egressVisible
     zOrder: 86
     clipCard: true
-    cardWidth: Math.min(parent.width - Style.modalGutter, 780)
-    cardHeight: Math.min(parent.height - Style.modalEdge, 560)
+    size: "md"
+    cardHeight: Math.min(parent.height - Style.modalGutter, Style.windowMinHeight)
     onDismissed: app.egressVisible = false
 
     ModalHeader {
@@ -27,44 +27,44 @@ ModalDialog {
     // Table header
     RowLayout {
         Layout.fillWidth: true
-        Layout.leftMargin: Style.space10
-        Layout.rightMargin: Style.space10
-        spacing: Style.space10
+        Layout.leftMargin: Style.gap
+        Layout.rightMargin: Style.gap
+        spacing: Style.gap
 
         Text {
             Layout.fillWidth: true
             text: qsTr("Destination IP")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
         Text {
             Layout.preferredWidth: 72
             text: qsTr("Proto")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
         Text {
             Layout.preferredWidth: 72
             text: qsTr("Port")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
         Text {
             Layout.preferredWidth: 64
             text: qsTr("Hits")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
         Text {
             Layout.preferredWidth: 88
             text: qsTr("Last Seen")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font11
+            font.pixelSize: Style.fontSmall
         }
         Item { Layout.preferredWidth: 96 }
     }
@@ -72,7 +72,7 @@ ModalDialog {
     Rectangle {
         Layout.fillWidth: true
         Layout.fillHeight: true
-        radius: Math.min(Style.radius4, theme.radius)
+        radius: Math.min(Style.radiusMd, theme.radius)
         color: theme.surfaceInput
         border.width: Style.hairline
         border.color: theme.borderSubtle
@@ -83,71 +83,71 @@ ModalDialog {
             text: qsTr("No egress entries captured yet. Enable 'Record: ON' on the environment and generate traffic.")
             color: theme.textMuted
             font.family: Style.fontSans
-            font.pixelSize: Style.font12
+            font.pixelSize: Style.fontBody
             horizontalAlignment: Text.AlignHCenter
-            width: parent.width - Style.space20 * 2
+            width: parent.width - Style.padModal * 2
             wrapMode: Text.WordWrap
         }
 
         ListView {
             id: egressListView
             anchors.fill: parent
-            anchors.margins: Style.space8
+            anchors.margins: Style.gapMd
             clip: true
-            spacing: Style.space6
+            spacing: Style.gapSm
             model: backend.egressLogs
             delegate: Rectangle {
                 required property var modelData
                 width: egressListView.width
-                height: 36
-                radius: Math.min(Style.radius3, theme.radius)
+                height: Style.rowHeight
+                radius: Math.min(Style.radiusSm, theme.radius)
                 color: theme.surfaceCard
                 border.width: Style.hairline
                 border.color: theme.borderSubtle
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space10
-                    anchors.rightMargin: Style.space8
-                    spacing: Style.space10
+                    anchors.leftMargin: Style.gap
+                    anchors.rightMargin: Style.gapMd
+                    spacing: Style.gap
 
                     Text {
                         Layout.fillWidth: true
                         text: modelData.dstIp || ""
                         color: theme.textPrimary
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font12
+                        font.pixelSize: Style.fontBody
                     }
                     Text {
                         Layout.preferredWidth: 72
                         text: modelData.proto || ""
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
                     Text {
                         Layout.preferredWidth: 72
                         text: modelData.port || "—"
                         color: theme.textPrimary
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
                     Text {
                         Layout.preferredWidth: 64
                         text: String(modelData.count || 0)
                         color: theme.accentText
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
                     Text {
                         Layout.preferredWidth: 88
                         text: modelData.lastSeen || "—"
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font11
+                        font.pixelSize: Style.fontSmall
                     }
                     ActionButton {
-                        implicitHeight: Style.controlHeightXxs
+                        compact: true
                         minWidth: 92
                         label: qsTr("+ Allow")
                         disabled: backend.busy
