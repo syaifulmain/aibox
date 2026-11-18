@@ -60,14 +60,25 @@ ModalDialog {
         // CONFIGURATION SIDEBAR
         // ------------------------------------------------------
         Rectangle {
+            id: sidebar
             Layout.preferredWidth: 232
             Layout.fillHeight: true
             color: theme.surfaceSidebar
+            activeFocusOnTab: true
+
+            Keys.onUpPressed: function(event) {
+                app.settingsSection = Math.max(0, app.settingsSection - 1)
+                event.accepted = true
+            }
+            Keys.onDownPressed: function(event) {
+                app.settingsSection = Math.min(5, app.settingsSection + 1)
+                event.accepted = true
+            }
 
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: Style.space16
-                spacing: Style.space6
+                spacing: Style.space4
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -101,63 +112,135 @@ ModalDialog {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.topMargin: Style.space8
-                    Layout.bottomMargin: Style.space6
+                    Layout.bottomMargin: Style.space4
                     height: Style.hairline
                     color: theme.borderSubtle
                 }
 
                 Repeater {
                     model: [
-                        { title: qsTr("Locations"), detail: qsTr("Workspace & OS images") },
-                        { title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth") },
-                        { title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove") },
-                        { title: qsTr("Create Options"), detail: qsTr("Presets & quotas") },
-                        { title: qsTr("Safety"), detail: qsTr("Auto-snapshots") },
-                        { title: qsTr("Appearance"), detail: qsTr("Theme mode & contrast") }
+                        { group: qsTr("System"), title: qsTr("Locations"), detail: qsTr("Workspace & OS images") },
+                        { group: "", title: qsTr("Storage Pool"), detail: qsTr("Incus capacity & growth") },
+                        { group: qsTr("Environments"), title: qsTr("OS Catalog"), detail: qsTr("Add, edit, remove") },
+                        { group: "", title: qsTr("Create Options"), detail: qsTr("Presets & quotas") },
+                        { group: "", title: qsTr("Safety"), detail: qsTr("Auto-snapshots") },
+                        { group: qsTr("Interface"), title: qsTr("Appearance"), detail: qsTr("Theme mode & contrast") }
                     ]
 
-                    delegate: Rectangle {
+                    delegate: ColumnLayout {
                         required property var modelData
                         required property int index
+                        readonly property bool active: app.settingsSection === index
+
                         Layout.fillWidth: true
-                        height: Style.menuRowHeight
-                        radius: Math.min(Style.radius5, theme.radius)
-                        color: app.settingsSection === index ? theme.surfaceSelected : "transparent"
-                        border.width: app.settingsSection === index ? Style.hairline : 0
-                        border.color: theme.accentBorder
+                        spacing: Style.space4
 
-                        ColumnLayout {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: Style.space12
-                            anchors.rightMargin: Style.space12
-                            spacing: Style.space1
-
-                            Text {
-                                text: modelData.title
-                                color: app.settingsSection === index ? theme.textPrimary : theme.textSecondary
-                                font.family: Style.fontSans
-                                font.pixelSize: Style.font12
-                                font.weight: app.settingsSection === index ? Font.Medium : Font.Normal
-                            }
-                            Text {
-                                text: modelData.detail
-                                color: theme.textMuted
-                                font.family: Style.fontSans
-                                font.pixelSize: Style.font10
-                            }
+                        Text {
+                            visible: modelData.group.length > 0
+                            Layout.fillWidth: true
+                            Layout.topMargin: index === 0 ? Style.space2 : Style.space8
+                            Layout.leftMargin: Style.space10
+                            text: modelData.group.toUpperCase()
+                            color: theme.textMuted
+                            font.family: Style.fontSans
+                            font.pixelSize: Style.font10
+                            font.weight: Font.Medium
+                            font.letterSpacing: 0.8
                         }
 
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: app.settingsSection = index
+                        Rectangle {
+                            id: navItem
+                            Layout.fillWidth: true
+                            height: Style.menuRowHeight
+                            radius: Math.min(Style.radius5, theme.radius)
+                            color: active ? theme.surfaceSelected
+                                 : (navMouse.containsMouse ? theme.surfaceRaised : "transparent")
+
+                            Behavior on color {
+                                enabled: !theme.reduceMotion
+                                ColorAnimation { duration: 120 }
+                            }
+
+                            Rectangle {
+                                visible: active
+                                anchors.left: parent.left
+                                anchors.leftMargin: Style.space4
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Style.space3
+                                height: 22
+                                radius: Style.radius2
+                                color: theme.accent
+                            }
+
+                            ColumnLayout {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Style.space14
+                                anchors.rightMargin: Style.space12
+                                spacing: Style.space1
+
+                                Text {
+                                    text: modelData.title
+                                    color: active ? theme.accentText
+                                         : (navMouse.containsMouse ? theme.textPrimary : theme.textSecondary)
+                                    font.family: Style.fontSans
+                                    font.pixelSize: Style.font12
+                                    font.weight: active ? Font.Medium : Font.Normal
+                                }
+                                Text {
+                                    text: modelData.detail
+                                    color: theme.textMuted
+                                    font.family: Style.fontSans
+                                    font.pixelSize: Style.font10
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                            }
+
+                            MouseArea {
+                                id: navMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    sidebar.forceActiveFocus()
+                                    app.settingsSection = index
+                                }
+                            }
                         }
                     }
                 }
 
                 Item { Layout.fillHeight: true }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: Style.hairline
+                    color: theme.borderSubtle
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Style.space4
+                    spacing: Style.space6
+
+                    Text {
+                        text: theme.isDark ? qsTr("Dark mode") : qsTr("Light mode")
+                        color: theme.textMuted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: "↑/↓ · Esc"
+                        color: theme.textMuted
+                        font.family: Style.fontMono
+                        font.pixelSize: Style.font10
+                    }
+                }
             }
         }
 

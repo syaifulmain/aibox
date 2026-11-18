@@ -86,5 +86,10 @@
   "Save Appearance": "Save Appearance",
   "Appearance preferences saved.": "Appearance preferences saved.",
   "Toggle theme token debug overlay": "Toggle theme token debug overlay",
-  "Custom / Unmapped": "Custom / Unmapped"
+  "Custom / Unmapped": "Custom / Unmapped",
+  "System": "System",
+  "Environments": "Environments",
+  "Interface": "Interface",
+  "Dark mode": "Dark mode",
+  "Light mode": "Light mode"
 }

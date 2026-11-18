@@ -580,5 +580,10 @@
   "Save Appearance": "Gem udseende",
   "Appearance preferences saved.": "Udseendeindstillinger gemt.",
   "Toggle theme token debug overlay": "Skift fejlfindingslag for tematokens",
-  "Custom / Unmapped": "Tilpasset / ikke kortlagt"
+  "Custom / Unmapped": "Tilpasset / ikke kortlagt",
+  "System": "System",
+  "Environments": "Miljøer",
+  "Interface": "Grænseflade",
+  "Dark mode": "Mørk tilstand",
+  "Light mode": "Lys tilstand"
 }

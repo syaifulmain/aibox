@@ -63,6 +63,9 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Settings Sidebar UI Polish (`src/qml/panels/SettingsPanel.qml`, `src/i18n/`)
+* Modernized the Settings modal sidebar with subtle category headers (`System`, `Environments`, `Interface`), hover feedback (`theme.surfaceRaised`), a left accent indicator pill on the active item (`theme.accent` + `theme.accentText`), `Up`/`Down` keyboard navigation, and a compact footer showing the active polarity and navigation hints.
+
 ### Adaptive Theme Polish — Surface Contrast for Default `ActionButton` and `ResourceMeterCard` (`src/qml/components/`)
 * Updated default `ActionButton` (e.g. `More Actions`) and `ResourceMeterCard` (`Disk Usage`, `Memory Usage`, `CPU Usage`) resting fill from `theme.surfaceCard` to `theme.surfaceInput` so they visually separate from the surrounding `EnvironmentInspector` `theme.surfaceCard` surface in both light and dark modes.
 
