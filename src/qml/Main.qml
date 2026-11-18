@@ -7,6 +7,7 @@ AppState {
     dialogHostRef: dialogHost
 
     ShortcutMap {
+        id: shortcutMap
         app: win
         mainContent: mainContent
     }
@@ -49,6 +50,8 @@ AppState {
 
     Item {
         anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: shortcutMap.handleEscape()
         LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
         LayoutMirroring.childrenInherit: true
 

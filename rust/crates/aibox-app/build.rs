@@ -46,6 +46,18 @@ fn main() {
         cpp_dir.join("shim/translator_shim.cpp"),
     ];
 
+    for src in &cpp_sources {
+        println!("cargo::rerun-if-changed={}", src.display());
+    }
+    println!(
+        "cargo::rerun-if-changed={}",
+        root_dir.join("src/qml").display()
+    );
+    println!(
+        "cargo::rerun-if-changed={}",
+        root_dir.join("src/i18n").display()
+    );
+
     let include_dev_gallery = env::var("PROFILE").as_deref() == Ok("debug")
         || env::var_os("CARGO_FEATURE_DEV_GALLERY").is_some();
 

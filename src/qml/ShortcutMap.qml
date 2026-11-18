@@ -17,59 +17,61 @@ Item {
         onActivated: shortcutMap.app.themeDebugVisible = !shortcutMap.app.themeDebugVisible
     }
 
+    function handleEscape() {
+        const app = shortcutMap.app
+        if (backend.firstRun) {
+            return
+        } else if (app.helpVisible) {
+            app.helpVisible = false
+        } else if (app.toolsVisible) {
+            app.toolsVisible = false
+        } else if (app.envActionsVisible) {
+            app.envActionsVisible = false
+        } else if (app.portsVisible) {
+            app.portsVisible = false
+        } else if (app.mountsVisible) {
+            app.mountsVisible = false
+        } else if (app.editQuotasVisible) {
+            app.editQuotasVisible = false
+        } else if (app.backupsVisible) {
+            app.backupsVisible = false
+        } else if (app.egressVisible) {
+            app.egressVisible = false
+        } else if (app.historyVisible) {
+            app.historyVisible = false
+        } else if (app.settingsVisible) {
+            if (app.settingsSection === 2 && app.osEditorVisible)
+                app.osEditorVisible = false
+            else if (app.settingsSection === 1 && app.poolResizeConfirmVisible)
+                app.poolResizeConfirmVisible = false
+            else
+                app.settingsVisible = false
+        } else if (app.createVisible) {
+            app.createVisible = false
+        } else if (app.cloneVisible) {
+            app.cloneVisible = false
+        } else if (app.wipeVisible) {
+            app.wipeVisible = false
+        } else if (app.restoreDialogVisible) {
+            app.restoreDialogVisible = false
+        } else if (app.changeReviewVisible) {
+            app.changeReviewVisible = false
+        } else if (app.secretsVisible) {
+            app.secretsVisible = false
+        } else if (app.staleReportVisible) {
+            if (app.staleConfirmAction.length > 0)
+                app.staleConfirmAction = ""
+            else
+                app.staleReportVisible = false
+        } else {
+            backend.clearError()
+        }
+    }
+
     Shortcut {
         sequence: "Escape"
         context: Qt.ApplicationShortcut
-        onActivated: {
-            const app = shortcutMap.app
-            if (backend.firstRun) {
-                return
-            } else if (app.helpVisible) {
-                app.helpVisible = false
-            } else if (app.toolsVisible) {
-                app.toolsVisible = false
-            } else if (app.envActionsVisible) {
-                app.envActionsVisible = false
-            } else if (app.portsVisible) {
-                app.portsVisible = false
-            } else if (app.mountsVisible) {
-                app.mountsVisible = false
-            } else if (app.editQuotasVisible) {
-                app.editQuotasVisible = false
-            } else if (app.backupsVisible) {
-                app.backupsVisible = false
-            } else if (app.egressVisible) {
-                app.egressVisible = false
-            } else if (app.historyVisible) {
-                app.historyVisible = false
-            } else if (app.settingsVisible) {
-                if (app.settingsSection === 2 && app.osEditorVisible)
-                    app.osEditorVisible = false
-                else if (app.settingsSection === 1 && app.poolResizeConfirmVisible)
-                    app.poolResizeConfirmVisible = false
-                else
-                    app.settingsVisible = false
-            } else if (app.createVisible) {
-                app.createVisible = false
-            } else if (app.cloneVisible) {
-                app.cloneVisible = false
-            } else if (app.wipeVisible) {
-                app.wipeVisible = false
-            } else if (app.restoreDialogVisible) {
-                app.restoreDialogVisible = false
-            } else if (app.changeReviewVisible) {
-                app.changeReviewVisible = false
-            } else if (app.secretsVisible) {
-                app.secretsVisible = false
-            } else if (app.staleReportVisible) {
-                if (app.staleConfirmAction.length > 0)
-                    app.staleConfirmAction = ""
-                else
-                    app.staleReportVisible = false
-            } else {
-                backend.clearError()
-            }
-        }
+        onActivated: shortcutMap.handleEscape()
     }
     Shortcut {
         sequence: "A"
