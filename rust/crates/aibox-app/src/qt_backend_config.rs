@@ -38,7 +38,7 @@ impl qobject::Backend {
         };
         let paths = match res {
             Ok(p) => p,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
 
         let sys_changed = paths.system_path != self.engine.paths.system_path;
@@ -148,7 +148,7 @@ impl qobject::Backend {
             &default_os,
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
 
         let prev_ws = self.engine.config.workspace_base.clone();
@@ -215,7 +215,7 @@ impl qobject::Backend {
             &desc_s,
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
 
         {
@@ -252,7 +252,7 @@ impl qobject::Backend {
         let id_s = id.to_string();
         let next_cfg = match remove_os_entry(&self.engine.config, &id_s) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();
@@ -311,7 +311,7 @@ impl qobject::Backend {
             &cpu_csv.to_string(),
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();
@@ -347,7 +347,7 @@ impl qobject::Backend {
             &subtitle.to_string(),
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();
@@ -400,7 +400,7 @@ impl qobject::Backend {
         }
         let next_cfg = match save_auto_snapshot_settings(&self.engine.config, enabled, keep_count) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         let mut env_updated = false;
         {
@@ -448,7 +448,7 @@ impl qobject::Backend {
             auto_stop,
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         let mut env_updated = false;
         {
@@ -484,7 +484,7 @@ impl qobject::Backend {
         }
         let next_cfg = match save_idle_stop_settings(&self.engine.config, minutes) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();
@@ -510,7 +510,7 @@ impl qobject::Backend {
         }
         let next_cfg = match save_stale_settings(&self.engine.config, days) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();
@@ -605,7 +605,7 @@ impl qobject::Backend {
             reduce_motion,
         ) {
             Ok(c) => c,
-            Err(e) => return QString::from(e.as_str()),
+            Err(e) => return QString::from(e.to_string().as_str()),
         };
         {
             let mut rust = self.as_mut().rust_mut();

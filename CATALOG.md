@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Config: Typed `ConfigError`, Schema Versioning & Split Settings (`rust/crates/aibox-core/src/config/`)
+
+- **Typed error (`config/error.rs`):** Added `ConfigError` (`thiserror`) with `Io(#[from] IoError)`, `Parse { path, source }`, and `Invalid { field, reason }` variants, replacing `Result<_, String>` across `config/model.rs` and `config/settings/`. Boundary callers in `aibox-app` (`qt_backend*.rs`) and `golden.rs` convert `ConfigError` to `String`/`QString`.
+- **Schema versioning & migration (`config/model.rs`):** Added `CURRENT_SCHEMA_VERSION = 2`, `Config::schema_version`, and sequential `migrate_v1_to_v2` during `apply_object`. Added `load_checked` and `load_from_str_checked` for structured parse/IO error reporting while `load`, `load_from_str`, and `Engine::new` fall back to defaults on broken or truncated configs.
+- **No-op write avoidance (`config/model.rs`):** `save` and `save_json_str` compare formatted JSON bytes against the existing file via `write_json_if_changed` and skip `atomic_write` when unchanged.
+- **Split settings (`config/settings/`):** Split `settings.rs` into `settings/mod.rs`, `settings/locations.rs`, `settings/catalog.rs`, and `settings/safety.rs`, re-exporting all public items from `config::settings`.
+- **Tests:** Added unit tests for `ConfigError` formatting, broken/truncated config fallback, v1-to-v2 schema migration, and skipping disk writes when config content is unchanged.
+
 ### Core Utilities: Typed File Errors, Durable Atomic Writes & Regex-Free Path Sanitizing (`rust/crates/aibox-core/src/util/`)
 
 - **Shared error type (`util/error.rs`):** Added `IoError` (`thiserror`), which records the failed operation, path, and `io::Error` cause, so domain error types can wrap it via `#[from]`. A `From<IoError> for String` conversion keeps existing `Result<_, String>` callers working.

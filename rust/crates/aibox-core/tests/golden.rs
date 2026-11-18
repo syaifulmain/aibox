@@ -2155,7 +2155,7 @@ fn dispatch_settings(
                 };
                 let err = config::settings::complete_first_run(&req).unwrap_err();
                 json!({
-                    "error": err.replace(work_dir, "/tmp/aibox-golden-settings-work"),
+                    "error": err.to_string().replace(work_dir, "/tmp/aibox-golden-settings-work"),
                 })
             }
         }
@@ -2183,14 +2183,14 @@ fn dispatch_settings(
                 let os = format!("{work_dir}/save-settings/os-new");
                 let err = config::settings::save_settings(cfg, &blocking, &os, "", "").unwrap_err();
                 json!({
-                    "error": err.replace(work_dir, "/tmp/aibox-golden-settings-work"),
+                    "error": err.to_string().replace(work_dir, "/tmp/aibox-golden-settings-work"),
                 })
             } else {
                 let ws = format!("{work_dir}/save-settings/ws-new");
                 let blocking = format!("{work_dir}/blocking-file");
                 let err = config::settings::save_settings(cfg, &ws, &blocking, "", "").unwrap_err();
                 json!({
-                    "error": err.replace(work_dir, "/tmp/aibox-golden-settings-work"),
+                    "error": err.to_string().replace(work_dir, "/tmp/aibox-golden-settings-work"),
                 })
             }
         }
@@ -2221,7 +2221,7 @@ fn dispatch_settings(
                 }
                 Err(err) => {
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
-                    json!({ "error": err, "configJson": saved })
+                    json!({ "error": err.to_string(), "configJson": saved })
                 }
             }
         }
@@ -2239,7 +2239,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::resetOsCatalog" => {
@@ -2272,7 +2272,7 @@ fn dispatch_settings(
                 }
                 Err(err) => {
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
-                    json!({ "error": err, "configJson": saved })
+                    json!({ "error": err.to_string(), "configJson": saved })
                 }
             }
         }
@@ -2289,7 +2289,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::resetCreateOptions" => {
@@ -2319,7 +2319,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::saveWatchdogSettings" => {
@@ -2336,7 +2336,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::saveIdleStopSettings" => {
@@ -2350,7 +2350,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::saveStaleSettings" => {
@@ -2362,7 +2362,7 @@ fn dispatch_settings(
                     let saved = fs::read_to_string(&*cfg_path).unwrap_or_default();
                     json!({ "error": "", "configJson": saved })
                 }
-                Err(err) => json!({ "error": err }),
+                Err(err) => json!({ "error": err.to_string() }),
             }
         }
         "Backend::saveSessionRecordingSettings" => {

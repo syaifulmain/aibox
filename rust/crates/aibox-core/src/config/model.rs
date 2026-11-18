@@ -11,9 +11,22 @@ use crate::config::defaults::{
     default_cpu_options, default_diff_excludes, default_disk_options, default_os_entries,
     default_presets, default_ram_options, OsEntry, Preset,
 };
+use crate::config::error::ConfigError;
+use crate::util::error::IoError;
 use crate::util::json::{to_json_compact, to_json_indented};
 use crate::util::paths::{atomic_write, normalized_path};
 use crate::util::size::{validated_cpu_options, validated_size_options};
+
+/// Current configuration schema version.
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+
+fn default_schema_version() -> u32 {
+    CURRENT_SCHEMA_VERSION
+}
+
+fn is_current_schema_version(v: &u32) -> bool {
+    *v == CURRENT_SCHEMA_VERSION
+}
 
 fn default_theme_mode_override() -> String {
     "auto".to_string()
@@ -31,6 +44,11 @@ fn is_false(v: &bool) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub version: i32,
+    #[serde(
+        default = "default_schema_version",
+        skip_serializing_if = "is_current_schema_version"
+    )]
+    pub schema_version: u32,
     pub first_run_completed: bool,
     pub workspace_base: String,
     pub os_storage_path: String,
@@ -71,6 +89,7 @@ impl Config {
     pub fn new_defaults(default_workspace_base: &str, default_os_storage_path: &str) -> Self {
         Self {
             version: 1,
+            schema_version: CURRENT_SCHEMA_VERSION,
             first_run_completed: false,
             workspace_base: default_workspace_base.to_string(),
             os_storage_path: default_os_storage_path.to_string(),
@@ -176,12 +195,45 @@ fn json_strings(arr: &[Value]) -> Vec<String> {
     values
 }
 
+fn detect_schema_version(obj: &Map<String, Value>) -> u32 {
+    obj.get("schemaVersion")
+        .and_then(json_val_to_int)
+        .filter(|&v| v > 0)
+        .map(|v| v as u32)
+        .unwrap_or(1)
+}
+
+/// Migrates a v1 configuration JSON object (without `schemaVersion` or with `schemaVersion: 1`)
+/// to v2 in place.
+pub fn migrate_v1_to_v2(obj: &mut Map<String, Value>) {
+    obj.entry("version".to_string())
+        .or_insert_with(|| Value::from(1));
+    obj.entry("themeModeOverride".to_string())
+        .or_insert_with(|| Value::from("auto"));
+    obj.entry("highContrast".to_string())
+        .or_insert_with(|| Value::from(false));
+    obj.entry("reduceMotion".to_string())
+        .or_insert_with(|| Value::from(false));
+    obj.insert("schemaVersion".to_string(), Value::from(2));
+}
+
+fn migrate_object(obj: &mut Map<String, Value>) -> u32 {
+    let mut version = detect_schema_version(obj);
+    if version < 2 {
+        migrate_v1_to_v2(obj);
+        version = 2;
+    }
+    version
+}
+
 fn apply_object(
-    obj: &Map<String, Value>,
+    obj: &mut Map<String, Value>,
     default_workspace_base: &str,
     default_os_storage_path: &str,
 ) -> Config {
+    let schema_version = migrate_object(obj);
     let mut cfg = Config::new_defaults(default_workspace_base, default_os_storage_path);
+    cfg.schema_version = schema_version;
 
     cfg.first_run_completed = obj
         .get("firstRunCompleted")
@@ -456,6 +508,7 @@ fn apply_object(
 
     const KNOWN_KEYS: &[&str] = &[
         "version",
+        "schemaVersion",
         "firstRunCompleted",
         "workspaceBase",
         "osStoragePath",
@@ -483,7 +536,7 @@ fn apply_object(
         "highContrast",
         "reduceMotion",
     ];
-    for (k, v) in obj {
+    for (k, v) in obj.iter() {
         if !KNOWN_KEYS.contains(&k.as_str()) {
             cfg.extra.insert(k.clone(), v.clone());
         }
@@ -493,52 +546,107 @@ fn apply_object(
     cfg
 }
 
-/// Loads and normalizes a config from a JSON string.
+fn load_from_str_checked_with_path(
+    json_str: &str,
+    path: &Path,
+    default_workspace_base: &str,
+    default_os_storage_path: &str,
+) -> Result<Config, ConfigError> {
+    let val = serde_json::from_str::<Value>(json_str).map_err(|e| ConfigError::parse(path, e))?;
+    match val {
+        Value::Object(mut obj) => Ok(apply_object(
+            &mut obj,
+            default_workspace_base,
+            default_os_storage_path,
+        )),
+        _ => Err(ConfigError::invalid(
+            "root",
+            "config root must be a JSON object",
+        )),
+    }
+}
+
+/// Loads and normalizes a config from a JSON string, returning a structured error on failure.
+pub fn load_from_str_checked(
+    json_str: &str,
+    default_workspace_base: &str,
+    default_os_storage_path: &str,
+) -> Result<Config, ConfigError> {
+    load_from_str_checked_with_path(
+        json_str,
+        Path::new("<memory>"),
+        default_workspace_base,
+        default_os_storage_path,
+    )
+}
+
+/// Loads and normalizes a config from a JSON string, falling back to defaults on error.
 pub fn load_from_str(
     json_str: &str,
     default_workspace_base: &str,
     default_os_storage_path: &str,
 ) -> Config {
-    match serde_json::from_str::<Value>(json_str) {
-        Ok(Value::Object(obj)) => {
-            apply_object(&obj, default_workspace_base, default_os_storage_path)
-        }
-        _ => Config::new_defaults(default_workspace_base, default_os_storage_path),
-    }
+    load_from_str_checked(json_str, default_workspace_base, default_os_storage_path)
+        .unwrap_or_else(|_| Config::new_defaults(default_workspace_base, default_os_storage_path))
 }
 
-/// Loads and normalizes `config.json` from `path`.
+/// Loads and normalizes `config.json` from `path`, returning a structured error on failure.
+pub fn load_checked(
+    path: &str,
+    default_workspace_base: &str,
+    default_os_storage_path: &str,
+) -> Result<Config, ConfigError> {
+    let path_ref = Path::new(path);
+    let contents = fs::read_to_string(path_ref).map_err(|e| IoError::new("read", path_ref, e))?;
+    load_from_str_checked_with_path(
+        &contents,
+        path_ref,
+        default_workspace_base,
+        default_os_storage_path,
+    )
+}
+
+/// Loads and normalizes `config.json` from `path`, falling back to defaults on error.
 pub fn load(path: &str, default_workspace_base: &str, default_os_storage_path: &str) -> Config {
-    match fs::read_to_string(path) {
-        Ok(contents) => load_from_str(&contents, default_workspace_base, default_os_storage_path),
-        Err(_) => Config::new_defaults(default_workspace_base, default_os_storage_path),
+    load_checked(path, default_workspace_base, default_os_storage_path)
+        .unwrap_or_else(|_| Config::new_defaults(default_workspace_base, default_os_storage_path))
+}
+
+fn write_json_if_changed(path: &Path, val: &Value) -> Result<(), ConfigError> {
+    let json_text = to_json_indented(val).map_err(|e| {
+        ConfigError::invalid("config", format!("failed to format config JSON: {e}"))
+    })?;
+    if fs::read(path).ok().as_deref() == Some(json_text.as_bytes()) {
+        return Ok(());
     }
+    atomic_write(path, json_text.as_bytes())?;
+    Ok(())
 }
 
-/// Saves `config` atomically to `path` in Qt-compatible indented JSON format.
-pub fn save(path: &str, config: &Config) -> Result<(), String> {
-    let val = serde_json::to_value(config)
-        .map_err(|e| format!("failed to convert config to JSON: {e}"))?;
-    let json_text =
-        to_json_indented(&val).map_err(|e| format!("failed to format config JSON: {e}"))?;
-    atomic_write(Path::new(path), json_text.as_bytes()).map_err(String::from)
+/// Saves `config` atomically to `path` in Qt-compatible indented JSON format, skipping the write
+/// if the on-disk content is already identical.
+pub fn save(path: &str, config: &Config) -> Result<(), ConfigError> {
+    let val = serde_json::to_value(config).map_err(|e| {
+        ConfigError::invalid("config", format!("failed to convert config to JSON: {e}"))
+    })?;
+    write_json_if_changed(Path::new(path), &val)
 }
 
-/// Saves a JSON config string atomically to `path` in Qt-compatible indented JSON format.
-pub fn save_json_str(path: &str, json_str: &str) -> Result<(), String> {
-    let val: Value =
-        serde_json::from_str(json_str).map_err(|e| format!("invalid config JSON: {e}"))?;
-    let json_text =
-        to_json_indented(&val).map_err(|e| format!("failed to format config JSON: {e}"))?;
-    atomic_write(Path::new(path), json_text.as_bytes()).map_err(String::from)
+/// Saves a JSON config string atomically to `path` in Qt-compatible indented JSON format,
+/// skipping the write if the on-disk content is already identical.
+pub fn save_json_str(path: &str, json_str: &str) -> Result<(), ConfigError> {
+    let path_ref = Path::new(path);
+    let val: Value = serde_json::from_str(json_str).map_err(|e| ConfigError::parse(path_ref, e))?;
+    write_json_if_changed(path_ref, &val)
 }
 
 /// Normalizes a config JSON string and returns compact JSON (for FFI).
-pub fn normalize_json_str(json_str: &str) -> Result<String, String> {
+pub fn normalize_json_str(json_str: &str) -> Result<String, ConfigError> {
     let mut cfg: Config =
-        serde_json::from_str(json_str).map_err(|e| format!("invalid config JSON: {e}"))?;
+        serde_json::from_str(json_str).map_err(|e| ConfigError::parse("<memory>", e))?;
     cfg.normalize_defaults();
-    to_json_compact(&cfg).map_err(|e| format!("failed to serialize config: {e}"))
+    to_json_compact(&cfg)
+        .map_err(|e| ConfigError::invalid("config", format!("failed to serialize config: {e}")))
 }
 
 #[cfg(test)]
@@ -616,6 +724,108 @@ mod tests {
         assert!(reloaded.first_run_completed);
         assert_eq!(reloaded.extra.get("customPluginFlag"), Some(&json!(true)));
         assert_eq!(reloaded.extra.get("extraNested"), Some(&json!({"a": 1})));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn broken_and_truncated_config_returns_structured_error_and_falls_back_to_defaults() {
+        let tmp = env::temp_dir().join(format!("aibox-cfg-broken-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let cfg_path = tmp.join("config.json");
+        let cfg_path_str = cfg_path.to_string_lossy().into_owned();
+
+        // Truncated JSON on disk.
+        let truncated = r#"{ "version": 1, "firstRunCompleted": true, "workspaceBase": "/tmp/"#;
+        fs::write(&cfg_path, truncated).unwrap();
+
+        let err = load_checked(&cfg_path_str, "/tmp/ws", "/tmp/os").unwrap_err();
+        assert!(matches!(err, ConfigError::Parse { .. }));
+        assert!(err.to_string().contains(&cfg_path_str));
+
+        // Non-object root returns ConfigError::Invalid.
+        let arr_err = load_from_str_checked("[1, 2, 3]", "/tmp/ws", "/tmp/os").unwrap_err();
+        assert!(matches!(
+            arr_err,
+            ConfigError::Invalid { field: "root", .. }
+        ));
+
+        // Fallback load still returns valid defaults so the app starts cleanly.
+        let fallback = load(&cfg_path_str, "/tmp/ws", "/tmp/os");
+        assert_eq!(fallback, Config::new_defaults("/tmp/ws", "/tmp/os"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn schema_migrates_from_v1_and_preserves_v2() {
+        // v1 fixture: no schemaVersion key, legacy fields only.
+        let v1_implicit = r#"{
+            "version": 1,
+            "firstRunCompleted": true,
+            "workspaceBase": "/tmp/v1-ws",
+            "osStoragePath": "/tmp/v1-os",
+            "staleDays": 60
+        }"#;
+        let cfg_v1 = load_from_str_checked(v1_implicit, "/tmp/ws", "/tmp/os").expect("v1 loads");
+        assert_eq!(cfg_v1.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(cfg_v1.first_run_completed);
+        assert_eq!(cfg_v1.workspace_base, "/tmp/v1-ws");
+        assert_eq!(cfg_v1.stale_days, 60);
+        assert_eq!(cfg_v1.theme_mode_override, "auto");
+        assert!(!cfg_v1.extra.contains_key("schemaVersion"));
+
+        // Explicit schemaVersion: 1 fixture.
+        let v1_explicit = r#"{
+            "version": 1,
+            "schemaVersion": 1,
+            "firstRunCompleted": false,
+            "idleStopMinutes": 45
+        }"#;
+        let cfg_v1_exp =
+            load_from_str_checked(v1_explicit, "/tmp/ws", "/tmp/os").expect("v1 explicit");
+        assert_eq!(cfg_v1_exp.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(cfg_v1_exp.idle_stop_minutes, 45);
+
+        // v2 fixture: already at current schema version.
+        let v2 = r#"{
+            "version": 1,
+            "schemaVersion": 2,
+            "firstRunCompleted": true,
+            "themeModeOverride": "dark",
+            "highContrast": true
+        }"#;
+        let cfg_v2 = load_from_str_checked(v2, "/tmp/ws", "/tmp/os").expect("v2 loads");
+        assert_eq!(cfg_v2.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(cfg_v2.theme_mode_override, "dark");
+        assert!(cfg_v2.high_contrast);
+    }
+
+    #[test]
+    fn save_skips_disk_write_when_content_is_unchanged() {
+        let tmp = env::temp_dir().join(format!("aibox-cfg-noop-save-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let cfg_path = tmp.join("config.json");
+        let cfg_path_str = cfg_path.to_string_lossy().into_owned();
+
+        let mut cfg = Config::new_defaults("/tmp/ws", "/tmp/os");
+        save(&cfg_path_str, &cfg).unwrap();
+        let mtime_first = fs::metadata(&cfg_path).unwrap().modified().unwrap();
+
+        // Sleep briefly so any rewrite would produce a strictly newer timestamp.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        save(&cfg_path_str, &cfg).unwrap();
+        let mtime_second = fs::metadata(&cfg_path).unwrap().modified().unwrap();
+        assert_eq!(mtime_first, mtime_second);
+
+        // Mutating a field must trigger an actual rewrite.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        cfg.stale_days = 90;
+        save(&cfg_path_str, &cfg).unwrap();
+        let mtime_third = fs::metadata(&cfg_path).unwrap().modified().unwrap();
+        assert!(mtime_third > mtime_second);
 
         let _ = fs::remove_dir_all(&tmp);
     }

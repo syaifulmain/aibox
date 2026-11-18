@@ -1410,6 +1410,7 @@ impl qobject::Backend {
 
     pub(crate) fn save_config(&self) -> Result<(), String> {
         aibox_core::config::model::save(&self.engine.paths.config_file_path, &self.engine.config)
+            .map_err(|e| e.to_string())
     }
 
     pub(crate) fn set_status_message(mut self: Pin<&mut Self>, msg: &str) {

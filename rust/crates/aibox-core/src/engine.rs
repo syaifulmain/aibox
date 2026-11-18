@@ -91,11 +91,21 @@ pub struct Engine {
 impl Engine {
     pub fn new(path_override: Option<&str>, project_mode: bool, cwd: &str) -> Self {
         let mut paths = ResolvedPaths::resolve(path_override, project_mode, cwd);
-        let config = model::load(
-            &paths.config_file_path,
-            &paths.workspace_base,
-            &paths.os_storage_path,
-        );
+        let config = if Path::new(&paths.config_file_path).exists() {
+            match model::load_checked(
+                &paths.config_file_path,
+                &paths.workspace_base,
+                &paths.os_storage_path,
+            ) {
+                Ok(cfg) => cfg,
+                Err(err) => {
+                    eprintln!("warning: {err}; using default configuration");
+                    Config::new_defaults(&paths.workspace_base, &paths.os_storage_path)
+                }
+            }
+        } else {
+            Config::new_defaults(&paths.workspace_base, &paths.os_storage_path)
+        };
         paths.workspace_base = config.workspace_base.clone();
         paths.os_storage_path = config.os_storage_path.clone();
 
