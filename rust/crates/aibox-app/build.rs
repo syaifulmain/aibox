@@ -46,6 +46,9 @@ fn main() {
         cpp_dir.join("shim/translator_shim.cpp"),
     ];
 
+    let include_dev_gallery = env::var("PROFILE").as_deref() == Ok("debug")
+        || env::var_os("CARGO_FEATURE_DEV_GALLERY").is_some();
+
     let mut builder = CxxQtBuilder::new()
         .qt_module("Gui")
         .qt_module("Qml")
@@ -59,11 +62,17 @@ fn main() {
         .file("src/qt_translator.rs")
         .cpp_files(cpp_sources.iter());
 
+    if include_dev_gallery {
+        builder = builder.qrc(root_dir.join("src/dev_resources.qrc"));
+    }
+
+    let source_dir_define = format!("\"{}\"", root_dir.display());
     // SAFETY: We only configure C++17 and include paths for the Qt C++ shims.
     unsafe {
-        builder = builder.cc_builder(|cc| {
+        builder = builder.cc_builder(move |cc| {
             cc.std("c++17");
             cc.include(&cpp_dir);
+            cc.define("AIBOX_SOURCE_DIR", source_dir_define.as_str());
         });
     }
 

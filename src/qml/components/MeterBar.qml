@@ -30,8 +30,8 @@ Rectangle {
         }
 
         Behavior on width {
-            enabled: root.animationMs > 0
-            NumberAnimation { duration: root.animationMs }
+            enabled: !theme.reduceMotion && root.animationMs > 0
+            NumberAnimation { duration: theme.reduceMotion ? 0 : root.animationMs }
         }
     }
 }

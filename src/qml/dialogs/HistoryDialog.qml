@@ -70,12 +70,29 @@ ModalDialog {
                 anchors.fill: parent
                 anchors.margins: Style.gapMd
                 clip: true
+                reuseItems: true
                 spacing: Style.gapSm
                 model: backend.operationHistory
 
                 delegate: Rectangle {
+                    id: historyItem
                     required property var modelData
                     readonly property bool selected: app.selectedHistoryId === (modelData.id || "")
+                    readonly property string statusText: modelData.status === "failed"
+                                                         ? qsTr("FAILED")
+                                                         : (modelData.status === "cancelled" ? qsTr("CANCELLED") : qsTr("OK"))
+                    readonly property string statusTone: modelData.status === "failed"
+                                                         ? "danger"
+                                                         : (modelData.status === "cancelled" ? "warning" : "success")
+                    readonly property color statusBorder: modelData.status === "failed"
+                                                          ? theme.dangerBorder
+                                                          : (modelData.status === "cancelled" ? theme.warningBorder : theme.successBorder)
+                    readonly property string durationText: modelData.durationMs !== undefined
+                                                           ? (modelData.durationMs >= 1000
+                                                              ? (Math.round(modelData.durationMs / 100) / 10) + "s"
+                                                              : modelData.durationMs + "ms")
+                                                           : ""
+                    readonly property string timestampText: modelData.timestamp || (modelData.startedAt || "").replace("T", " ")
                     width: historyListView.width
                     height: histItemCol.implicitHeight + Style.padSection
                     radius: Math.min(Style.radiusMd, theme.radius)
@@ -94,15 +111,9 @@ ModalDialog {
                             spacing: Style.gapSm
 
                             TagBadge {
-                                text: modelData.status === "failed"
-                                      ? qsTr("FAILED")
-                                      : (modelData.status === "cancelled" ? qsTr("CANCELLED") : qsTr("OK"))
-                                tone: modelData.status === "failed"
-                                      ? "danger"
-                                      : (modelData.status === "cancelled" ? "warning" : "success")
-                                borderColor: modelData.status === "failed"
-                                             ? theme.dangerBorder
-                                             : (modelData.status === "cancelled" ? theme.warningBorder : theme.successBorder)
+                                text: historyItem.statusText
+                                tone: historyItem.statusTone
+                                borderColor: historyItem.statusBorder
                                 textWeight: Font.Medium
                             }
 
@@ -123,11 +134,7 @@ ModalDialog {
                             }
 
                             Text {
-                                text: modelData.durationMs !== undefined
-                                      ? (modelData.durationMs >= 1000
-                                         ? (Math.round(modelData.durationMs / 100) / 10) + "s"
-                                         : modelData.durationMs + "ms")
-                                      : ""
+                                text: historyItem.durationText
                                 color: theme.textMuted
                                 font.family: Style.fontMono
                                 font.pixelSize: Style.fontCaption
@@ -146,7 +153,7 @@ ModalDialog {
                         Text {
                             Layout.fillWidth: true
                             elide: Text.ElideRight
-                            text: modelData.timestamp || (modelData.startedAt || "").replace("T", " ")
+                            text: historyItem.timestampText
                             color: theme.textMuted
                             font.family: Style.fontMono
                             font.pixelSize: Style.fontCaption
@@ -229,10 +236,12 @@ ModalDialog {
                 anchors.fill: parent
                 anchors.margins: Style.gapMd
                 clip: true
+                reuseItems: true
                 spacing: Style.gapSm
                 model: backend.recordedSessions
 
                 delegate: Rectangle {
+                    id: historyItem
                     required property var modelData
                     readonly property bool selected: app.selectedSessionId === (modelData.id || "")
                     width: sessionsListView.width

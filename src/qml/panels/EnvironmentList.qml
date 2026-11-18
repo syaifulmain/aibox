@@ -16,7 +16,7 @@ Rectangle {
 
     Behavior on color {
         enabled: !theme.reduceMotion
-        ColorAnimation { duration: 150 }
+        ColorAnimation { duration: theme.reduceMotion ? 0 : 150 }
     }
 
     ColumnLayout {
@@ -33,6 +33,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            reuseItems: true
             spacing: Style.gap
             model: backend.environments
 
@@ -47,6 +48,9 @@ Rectangle {
                 readonly property real diskRatio: (modelData.diskQuotaBytes || 0) > 0
                                                  ? (modelData.diskUsageBytes || 0) / modelData.diskQuotaBytes
                                                  : 0
+                readonly property string usageSummary: app.sizePair(modelData.diskUsage, modelData.diskLimit)
+                                                      + "  ·  "
+                                                      + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
                 readonly property string networkLabel: modelData.networkMode === "offline"
                                                        ? qsTr("NET OFF")
                                                        : (modelData.networkMode === "allowlist"
@@ -109,9 +113,7 @@ Rectangle {
                             spacing: Style.gap
 
                             Text {
-                                text: app.sizePair(modelData.diskUsage, modelData.diskLimit)
-                                      + "  ·  "
-                                      + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
+                                text: envRow.usageSummary
                                 color: envRow.diskRatio >= 0.9 ? theme.dangerText
                                      : (envRow.diskRatio >= 0.75 ? theme.warningText : theme.textMuted)
                                 font.family: Style.fontMono

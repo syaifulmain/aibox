@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QGuiApplication>
 #include <QImage>
 #include <QJsonArray>
@@ -100,6 +101,17 @@ QQuickItem *find_visible_close_button(QQuickItem *item) {
             return found;
     }
     return nullptr;
+}
+
+QUrl gallery_qml_url() {
+    if (QFile::exists(QStringLiteral(":/dev/ComponentGallery.qml")))
+        return QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml"));
+#ifdef AIBOX_SOURCE_DIR
+    return QUrl::fromLocalFile(QStringLiteral(AIBOX_SOURCE_DIR)
+                               + QStringLiteral("/src/qml/dev/ComponentGallery.qml"));
+#else
+    return QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml"));
+#endif
 }
 
 } // namespace
@@ -555,7 +567,7 @@ int aibox_test_render_theme_matrix(const char *theme_dir, const char *out_dir, c
             aibox_set_context_property(&galleryEngine, QStringLiteral("translator"), &translatorState);
             aibox_set_context_property(&galleryEngine, QStringLiteral("theme"), &theme);
             aibox_set_context_property(&galleryEngine, QStringLiteral("backend"), &backend);
-            galleryEngine.load(QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml")));
+            galleryEngine.load(gallery_qml_url());
             if (galleryEngine.rootObjects().isEmpty()) {
                 copy_to_buf(QStringLiteral("Failed to load qrc:/dev/ComponentGallery.qml"), err_buf, err_buf_len);
                 rc = 1;
@@ -606,7 +618,7 @@ int aibox_test_gallery_theme_matrix(const char *theme_dirs_newline_sep, char *er
         aibox_set_context_property(&engine, QStringLiteral("translator"), &translatorState);
         aibox_set_context_property(&engine, QStringLiteral("theme"), &theme);
         aibox_set_context_property(&engine, QStringLiteral("backend"), &backend);
-        engine.load(QUrl(QStringLiteral("qrc:/dev/ComponentGallery.qml")));
+        engine.load(gallery_qml_url());
 
         if (engine.rootObjects().isEmpty()) {
             copy_to_buf(QStringLiteral("Failed to load qrc:/dev/ComponentGallery.qml"), err_buf, err_buf_len);

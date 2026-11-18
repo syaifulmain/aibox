@@ -1,7 +1,9 @@
 <RCC>
     <qresource prefix="/">
         <file alias="Main.qml">qml/Main.qml</file>
-        <file alias="dev/ComponentGallery.qml">qml/dev/ComponentGallery.qml</file>
+        <file alias="AppState.qml">qml/AppState.qml</file>
+        <file alias="ShortcutMap.qml">qml/ShortcutMap.qml</file>
+        <file alias="DialogHost.qml">qml/DialogHost.qml</file>
         <file alias="components/qmldir">qml/components/qmldir</file>
         <file alias="components/Style.qml">qml/components/Style.qml</file>
         <file alias="components/FlatInput.qml">qml/components/FlatInput.qml</file>
@@ -30,6 +32,9 @@
         <file alias="dialogs/ChangeReviewDialog.qml">qml/dialogs/ChangeReviewDialog.qml</file>
         <file alias="dialogs/CloneDialog.qml">qml/dialogs/CloneDialog.qml</file>
         <file alias="dialogs/CreateDialog.qml">qml/dialogs/CreateDialog.qml</file>
+        <file alias="dialogs/create/WorkspaceSection.qml">qml/dialogs/create/WorkspaceSection.qml</file>
+        <file alias="dialogs/create/OsPickerSection.qml">qml/dialogs/create/OsPickerSection.qml</file>
+        <file alias="dialogs/create/ResourceSection.qml">qml/dialogs/create/ResourceSection.qml</file>
         <file alias="dialogs/EditQuotasDialog.qml">qml/dialogs/EditQuotasDialog.qml</file>
         <file alias="dialogs/EgressDialog.qml">qml/dialogs/EgressDialog.qml</file>
         <file alias="dialogs/EnvironmentActionsDialog.qml">qml/dialogs/EnvironmentActionsDialog.qml</file>

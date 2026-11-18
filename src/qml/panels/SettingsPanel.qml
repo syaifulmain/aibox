@@ -165,7 +165,7 @@ ModalDialog {
 
                             Behavior on color {
                                 enabled: !theme.reduceMotion
-                                ColorAnimation { duration: 120 }
+                                ColorAnimation { duration: theme.reduceMotion ? 0 : 120 }
                             }
 
                             Rectangle {

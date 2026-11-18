@@ -23,6 +23,9 @@ name = "qml_smoke"
 path = "tests/qml_smoke.rs"
 harness = false
 
+[features]
+dev-gallery = []
+
 [dependencies]
 aibox-core = { path = "../aibox-core" }
 cxx = "1"
