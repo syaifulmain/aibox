@@ -5,23 +5,13 @@ import "../components"
 
 // Right pane of the Environments tab: inspector header, actions, resource
 // cards, workspace access and the embedded network/snapshot sections.
-Rectangle {
+Item {
     id: root
     property QtObject app: null
     property string cpuExpandedEnv: ""
     readonly property bool cpuExpanded: cpuExpandedEnv.length > 0
                                          && cpuExpandedEnv === (backend.selectedEnvironment.name || "")
     readonly property string snapshotNameText: snapshotsCard.snapshotNameText
-
-    color: theme.surfaceCard
-    radius: theme.radius
-    border.width: Style.hairline
-    border.color: theme.borderSubtle
-
-    Behavior on color {
-        enabled: !theme.reduceMotion
-        ColorAnimation { duration: 150 }
-    }
 
     // Per-core load shown inside the expanded CPU card, two columns of cores.
     Component {
@@ -82,7 +72,6 @@ Rectangle {
     ScrollView {
         id: inspectorScroll
         anchors.fill: parent
-        anchors.margins: Style.space20
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 

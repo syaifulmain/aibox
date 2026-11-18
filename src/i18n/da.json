@@ -8,6 +8,7 @@
   "Refresh": "Opdater",
   "+ New Environment": "+ Nyt miljø",
   "Cancel": "Annuller",
+  "Cancel Task": "Annuller opgave",
   "Dismiss": "Luk",
   "No Isolated Environments Yet": "Ingen isolerede miljøer endnu",
   "Create a clean Linux OS container or VM for your next AI, Desktop, or Mobile project. Give AI full root access inside, share files via %1, and wipe it in 1 second when done.": "Opret en ren Linux OS-container eller VM til dit næste AI-, desktop- eller mobilprojekt. Giv AI fuld root-adgang, del filer via %1, og slet det på 1 sekund.",

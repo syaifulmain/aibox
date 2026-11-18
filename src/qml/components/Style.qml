@@ -124,6 +124,14 @@ QtObject {
     readonly property int modalWidthLg: 960
 
     // ------------------------------------------------------------------
+    // Window defaults
+    // ------------------------------------------------------------------
+    readonly property int windowWidth: 1080
+    readonly property int windowHeight: 720
+    readonly property int windowMinWidth: 960
+    readonly property int windowMinHeight: 560
+
+    // ------------------------------------------------------------------
     // Card and content insets
     // ------------------------------------------------------------------
     readonly property int cardPadding: 14 // deprecated, remove in phase 7

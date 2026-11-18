@@ -16,8 +16,8 @@ Item {
     // --------------------------------------------------------------
     RowLayout {
         anchors.fill: parent
-        anchors.margins: Style.space20
-        spacing: Style.space16
+        anchors.margins: Style.padSection
+        spacing: Style.padSection
         visible: mainContentRoot.app.activeTab === 0
 
         // Empty state

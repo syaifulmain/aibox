@@ -12,28 +12,28 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Style.space20
-        anchors.rightMargin: Style.space20
-        spacing: Style.space16
+        anchors.leftMargin: Style.padSection
+        anchors.rightMargin: Style.padSection
+        spacing: Style.padSection
 
         // App brand
         RowLayout {
-            spacing: Style.space10
+            spacing: Style.gap
 
-            BrandMark { markSize: 28 }
+            BrandMark { markSize: Style.controlHeight }
 
             Text {
                 text: qsTr("AIBox")
                 color: theme.textPrimary
                 font.family: Style.fontSans
-                font.pixelSize: Style.font15
+                font.pixelSize: Style.fontTitle
                 font.weight: Font.Medium
             }
         }
 
         // Main tab switcher
         SegmentedTabs {
-            Layout.leftMargin: Style.space12
+            Layout.leftMargin: Style.padCard
             Layout.alignment: Qt.AlignVCenter
             tabs: [
                 { label: qsTr("%n Environments", "", backend.environments.length), key: "1", value: 0 },
@@ -47,12 +47,11 @@ Rectangle {
         Item { Layout.fillWidth: true }
 
         RowLayout {
-            spacing: Style.space10
+            spacing: Style.gap
             Layout.alignment: Qt.AlignVCenter
 
             ActionButton {
                 label: qsTr("Tools")
-                minWidth: 92
                 disabled: backend.firstRun
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: app.toolsVisible = true
@@ -72,7 +71,6 @@ Rectangle {
 
             ActionButton {
                 label: qsTr("Refresh")
-                minWidth: 96
                 disabled: backend.busy
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: backend.refresh()
@@ -88,7 +86,6 @@ Rectangle {
             ActionButton {
                 label: qsTr("+ New Environment")
                 variant: "primary"
-                minWidth: 165
                 disabled: backend.busy
                 Layout.alignment: Qt.AlignVCenter
                 onClicked: app.openCreateDialog("")

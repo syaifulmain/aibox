@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import "components"
 import "dialogs"
@@ -9,10 +8,10 @@ import "panels"
 
 ApplicationWindow {
     id: win
-    width: 1080
-    height: 720
-    minimumWidth: 960
-    minimumHeight: 560
+    width: Style.windowWidth
+    height: Style.windowHeight
+    minimumWidth: Style.windowMinWidth
+    minimumHeight: Style.windowMinHeight
     visible: true
     title: qsTr("AIBox")
     color: theme.surfaceCanvas
@@ -432,16 +431,9 @@ ApplicationWindow {
         }
     }
 
-    function submitFirstRun() {
-        const error = backend.completeFirstRun(firstRunPathField.text)
-        if (error.length > 0) {
-            win.firstRunError = error
-        } else {
-            win.firstRunError = ""
-            firstRunPathField.text = backend.systemPath
-            settingsPanel.setPaths(backend.workspaceBase, backend.osStoragePath)
-            win.activeTab = 0
-        }
+    function onFirstRunCompleted() {
+        settingsPanel.setPaths(backend.workspaceBase, backend.osStoragePath)
+        win.activeTab = 0
     }
 
     function beginAddOs() {
@@ -922,190 +914,8 @@ ApplicationWindow {
         // ======================================================================
         // MODAL 5: FIRST-RUN SYSTEM STORAGE SETUP
         // ======================================================================
-        ModalDialog {
-            id: firstRunOverlay
-            open: backend.firstRun
-            scrimColor: theme.scrimStrong
-            zOrder: 100
-            cardWidth: Math.min(parent.width - Style.modalGutter, 600)
-            contentSpacing: Style.space14
-
-            readonly property string resolvedPreview: {
-                const raw = firstRunPathField.text.trim()
-                const base = raw.length > 0 ? raw : backend.defaultSystemPath
-                return base.length > 1 && base.endsWith("/") ? base.slice(0, -1) : base
-            }
-
-            onVisibleChanged: {
-                if (visible) {
-                    win.firstRunError = ""
-                    firstRunPathField.text = backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Style.space12
-
-                BrandMark {
-                    markSize: 40
-                    markRadius: Style.radius6
-                    textSize: Style.font14
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    spacing: Style.space2
-
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("Welcome to AIBox")
-                        color: theme.textPrimary
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font18
-                        font.weight: Font.Medium
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        text: qsTr("Choose where AIBox stores its system data, shared workspaces, OS images, and backups. You can keep the default or pick a custom location.")
-                        color: theme.textSecondary
-                        font.family: Style.fontSans
-                        font.pixelSize: Style.font11
-                    }
-                }
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                height: Style.hairline
-                color: theme.borderSubtle
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Style.space8
-
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("System Storage Location")
-                    color: theme.textPrimary
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font12
-                    font.weight: Font.Medium
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space10
-
-                    FlatInput {
-                        id: firstRunPathField
-                        Layout.fillWidth: true
-                        text: backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
-                        placeholder: backend.defaultSystemPath
-                        onAccepted: win.submitFirstRun()
-                    }
-
-                    ActionButton {
-                        label: qsTr("Browse...")
-                        minWidth: 96
-                        onClicked: firstRunFolderDialog.open()
-                    }
-
-                    ActionButton {
-                        label: qsTr("Default")
-                        minWidth: 84
-                        onClicked: firstRunPathField.text = backend.defaultSystemPath
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: previewGrid.implicitHeight + Style.space20
-                    radius: Math.min(Style.radius4, theme.radius)
-                    color: theme.surfaceInput
-                    border.width: Style.hairline
-                    border.color: theme.borderSubtle
-
-                    ColumnLayout {
-                        id: previewGrid
-                        anchors.fill: parent
-                        anchors.margins: Style.space10
-                        spacing: Style.space4
-
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            elide: Text.ElideMiddle
-                            text: qsTr("Workspaces:  %1/workspaces").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.textMuted
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font10
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            elide: Text.ElideMiddle
-                            text: qsTr("OS Images:   %1/os-images").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.textMuted
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font10
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            elide: Text.ElideMiddle
-                            text: qsTr("State & Cfg: %1/state, config.json").arg(firstRunOverlay.resolvedPreview)
-                            color: theme.textMuted
-                            font.family: Style.fontMono
-                            font.pixelSize: Style.font10
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                visible: win.firstRunError.length > 0
-                Layout.fillWidth: true
-                implicitHeight: firstRunErrTxt.implicitHeight + Style.space14
-                radius: Math.min(Style.radius4, theme.radius)
-                color: theme.dangerSurface
-                border.width: Style.hairline
-                border.color: theme.dangerBorder
-                Text {
-                    id: firstRunErrTxt
-                    anchors.fill: parent
-                    anchors.margins: Style.space7
-                    wrapMode: Text.WordWrap
-                    text: win.firstRunError
-                    color: theme.dangerText
-                    font.family: Style.fontSans
-                    font.pixelSize: Style.font11
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Style.space4
-                spacing: Style.space10
-                Item { Layout.fillWidth: true }
-
-                ActionButton {
-                    label: qsTr("Continue")
-                    variant: "primary"
-                    minWidth: 128
-                    onClicked: win.submitFirstRun()
-                }
-            }
-        }
-
-        FolderDialog {
-            id: firstRunFolderDialog
-            title: qsTr("Choose AIBox System Storage Location")
-            currentFolder: backend.pathToUrl(firstRunPathField.text.trim().length > 0 ? firstRunPathField.text.trim() : backend.defaultSystemPath)
-            onAccepted: firstRunPathField.text = backend.localPath(selectedFolder)
+        FirstRunDialog {
+            app: win
         }
 
         // ======================================================================

@@ -21,21 +21,11 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Style.space12
-        spacing: Style.space10
+        anchors.margins: Style.padCard
+        spacing: Style.gap
 
-        RowLayout {
-            Layout.fillWidth: true
-
-            Text {
-                text: qsTr("Environments")
-                color: theme.textSecondary
-                font.family: Style.fontSans
-                font.pixelSize: Style.font11
-                font.weight: Font.Medium
-            }
-
-            Item { Layout.fillWidth: true }
+        SectionHeader {
+            title: qsTr("Environments")
         }
 
         ListView {
@@ -43,7 +33,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: Style.space6
+            spacing: Style.gap
             model: backend.environments
 
             delegate: Item {
@@ -65,7 +55,7 @@ Rectangle {
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: Math.min(Style.radius4, theme.radius)
+                    radius: Math.min(Style.radiusMd, theme.radius)
                     color: envRow.selected
                            ? theme.surfaceSelected
                            : (envRowMouse.containsMouse ? theme.surfaceRaised : theme.surfaceInput)
@@ -76,18 +66,18 @@ Rectangle {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Style.space12
-                        spacing: Style.space7
+                        anchors.margins: Style.padCard
+                        spacing: Style.gapMd
 
                         // State dot, name, badges
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space8
+                            spacing: Style.gapMd
 
                             Rectangle {
-                                width: 8
-                                height: 8
-                                radius: 4
+                                width: Style.gapMd
+                                height: Style.gapMd
+                                radius: Style.radiusMd
                                 color: modelData.running ? theme.success : theme.textMuted
                             }
 
@@ -97,7 +87,7 @@ Rectangle {
                                 text: modelData.name
                                 color: theme.textPrimary
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font13
+                                font.pixelSize: Style.fontBody
                                 font.weight: Font.Medium
                             }
 
@@ -116,16 +106,16 @@ Rectangle {
                         // Disk and memory usage, network endpoint
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Style.space12
+                            spacing: Style.gap
 
                             Text {
                                 text: app.sizePair(modelData.diskUsage, modelData.diskLimit)
                                       + "  ·  "
                                       + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
                                 color: envRow.diskRatio >= 0.9 ? theme.dangerText
-                                     : (envRow.diskRatio >= 0.75 ? theme.warningText : theme.textSecondary)
+                                     : (envRow.diskRatio >= 0.75 ? theme.warningText : theme.textMuted)
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                                 Layout.alignment: Qt.AlignVCenter
                             }
 
@@ -137,7 +127,7 @@ Rectangle {
                                 text: envRow.networkLabel
                                 color: modelData.networkMode === "offline" ? theme.dangerText : theme.accentText
                                 font.family: Style.fontMono
-                                font.pixelSize: Style.font10
+                                font.pixelSize: Style.fontCaption
                                 Layout.alignment: Qt.AlignVCenter
                             }
                         }
@@ -157,28 +147,25 @@ Rectangle {
         }
 
         // Storage pool summary
-        Rectangle {
+        Item {
             visible: backend.poolInfo.valid || false
             Layout.fillWidth: true
-            implicitHeight: poolSidebarCol.implicitHeight + Style.space12
-            radius: Math.min(Style.radius4, theme.radius)
-            color: theme.surfaceInput
-            border.width: Style.hairline
-            border.color: backend.poolInfo.alertLevel === 2
-                          ? theme.dangerBorder
-                          : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
+            implicitHeight: poolCard.implicitHeight
 
-            ColumnLayout {
-                id: poolSidebarCol
+            Card {
+                id: poolCard
                 anchors.fill: parent
-                anchors.margins: Style.space6
-                anchors.leftMargin: Style.space10
-                anchors.rightMargin: Style.space10
-                spacing: Style.space4
+                showHeader: false
+                fillColor: theme.surfaceInput
+                borderColor: backend.poolInfo.alertLevel === 2
+                             ? theme.dangerBorder
+                             : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
+                cardPadding: Style.padCard
+                contentSpacing: Style.gapSm
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space8
+                    spacing: Style.gapMd
 
                     Text {
                         Layout.fillWidth: true
@@ -186,7 +173,7 @@ Rectangle {
                         text: qsTr("Storage Pool")
                         color: theme.textSecondary
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontSmall
                     }
 
                     Text {
@@ -197,7 +184,7 @@ Rectangle {
                                ? theme.dangerText
                                : (backend.poolInfo.alertLevel === 1 ? theme.warningText : theme.accentText)
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                         font.weight: Font.Medium
                     }
 
@@ -205,15 +192,14 @@ Rectangle {
                         text: qsTr("Manage")
                         color: theme.accentText
                         font.family: Style.fontSans
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontSmall
                     }
                 }
 
                 MeterBar {
                     Layout.fillWidth: true
-                    implicitHeight: 3
                     value: backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0
-                    minFillWidth: Style.space4
+                    minFillWidth: Style.gapSm
                     fillColor: backend.poolInfo.alertLevel === 2
                                ? theme.danger
                                : (backend.poolInfo.alertLevel === 1 ? theme.warning : theme.accent)
@@ -221,7 +207,7 @@ Rectangle {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Style.space6
+                    spacing: Style.gapSm
 
                     Text {
                         Layout.fillWidth: true
@@ -231,7 +217,7 @@ Rectangle {
                                   .arg(backend.poolInfo.totalText || "0 MiB")
                         color: theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                     }
 
                     Text {
@@ -240,7 +226,7 @@ Rectangle {
                         text: qsTr("Allocated %1").arg(backend.poolInfo.allocatedText || "0 MiB")
                         color: (backend.poolInfo.overcommitted || false) ? theme.warningText : theme.textMuted
                         font.family: Style.fontMono
-                        font.pixelSize: Style.font10
+                        font.pixelSize: Style.fontCaption
                     }
                 }
             }

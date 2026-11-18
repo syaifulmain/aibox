@@ -33,6 +33,7 @@
         <file alias="dialogs/EditQuotasDialog.qml">qml/dialogs/EditQuotasDialog.qml</file>
         <file alias="dialogs/EgressDialog.qml">qml/dialogs/EgressDialog.qml</file>
         <file alias="dialogs/EnvironmentActionsDialog.qml">qml/dialogs/EnvironmentActionsDialog.qml</file>
+        <file alias="dialogs/FirstRunDialog.qml">qml/dialogs/FirstRunDialog.qml</file>
         <file alias="dialogs/HelpOverlay.qml">qml/dialogs/HelpOverlay.qml</file>
         <file alias="dialogs/HistoryDialog.qml">qml/dialogs/HistoryDialog.qml</file>
         <file alias="dialogs/MountsDialog.qml">qml/dialogs/MountsDialog.qml</file>
