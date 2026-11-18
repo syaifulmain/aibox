@@ -6,7 +6,7 @@ arch=('x86_64' 'aarch64')
 license=('MIT')
 options=('!debug')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland' 'xdg-desktop-portal' 'incus' 'acl' 'util-linux')
-makedepends=('cargo' 'qt6-base' 'qt6-declarative' 'gcc')
+makedepends=('cargo' 'qt6-base' 'qt6-declarative' 'gcc' 'lld')
 source=()
 sha256sums=()
 

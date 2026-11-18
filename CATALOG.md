@@ -63,6 +63,9 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Build Linker Selection Without Deprecated `ld.gold` Warning (`rust/crates/aibox-app/build.rs`, `pkgbuild/PKGBUILD`)
+* Updated `aibox-app/build.rs` to prefer `lld` or `mold` when installed and fall back to standard GNU `ld` (`bfd`) instead of allowing `qt-build-utils` to inject `-fuse-ld=gold`, eliminating the deprecated gold linker compiler warning on systems without `lld`. Added `lld` to `makedepends` in `pkgbuild/PKGBUILD`.
+
 ### Settings Sidebar UI Polish (`src/qml/panels/SettingsPanel.qml`, `src/i18n/`)
 * Modernized the Settings modal sidebar with subtle category headers (`System`, `Environments`, `Interface`), hover feedback (`theme.surfaceRaised`), a left accent indicator pill on the active item (`theme.accent` + `theme.accentText`), `Up`/`Down` keyboard navigation, and a compact footer showing the active polarity and navigation hints.
 

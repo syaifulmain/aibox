@@ -1,8 +1,36 @@
-use std::path::PathBuf;
+use std::{env, path::PathBuf, process::Command};
 
 use cxx_qt_build::CxxQtBuilder;
 
+/// Avoid `qt-build-utils` falling back to `-fuse-ld=gold`, which is deprecated
+/// in GNU binutils and triggers a compiler warning on every link step. Prefer
+/// `lld` or `mold` when available on the host; otherwise keep the standard GNU
+/// `ld` (`bfd`) linker by marking `-fuse-ld` as already configured for this
+/// build script process.
+fn configure_linker() {
+    let flags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+    if flags.contains("-fuse-ld") {
+        return;
+    }
+
+    let has_tool = |cmd: &str| Command::new(cmd).arg("--help").output().is_ok();
+    if has_tool("lld") {
+        println!("cargo::rustc-link-arg=-fuse-ld=lld");
+    } else if has_tool("mold") {
+        println!("cargo::rustc-link-arg=-fuse-ld=mold");
+    }
+
+    let updated = if flags.is_empty() {
+        "-C\x1flink-arg=-fuse-ld=bfd".to_string()
+    } else {
+        format!("{flags}\x1f-C\x1flink-arg=-fuse-ld=bfd")
+    };
+    env::set_var("CARGO_ENCODED_RUSTFLAGS", updated);
+}
+
 fn main() {
+    configure_linker();
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root_dir = manifest_dir
         .join("../../..")
