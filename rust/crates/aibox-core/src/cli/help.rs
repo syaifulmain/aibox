@@ -42,6 +42,10 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] diff <env> [snap] [--json]\n\n\
              Show /home/workspace file changes compared against a snapshot (default: latest).\n"
         }
+        Command::Theme => {
+            "Usage: aibox theme dump [path] [--json]\n\n\
+             Print derived semantic theme tokens and WCAG contrast ratios.\n"
+        }
         Command::Help | Command::None => {
             "Usage: aibox [--project <dir>] <command> [options]\n\n\
              Commands:\n\

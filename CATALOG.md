@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Adaptive Theme M1 — Core Palette & Color Math (`aibox-core`)
+* **Theme Module Split (`rust/crates/aibox-core/src/theme/`)**: Replaced `theme.rs` with `theme/{mod.rs, color.rs, parse.rs, palette.rs}` while preserving all existing `ThemeColors` and `parse_colors` behavior.
+* **Color Math & Contrast Guard (`theme/color.rs`)**: Added `Rgb`, `Oklab`, WCAG 2.x `relative_luminance` and `contrast_ratio`, perceptual `to_oklab` / `from_oklab`, `mix`, `oklab_delta_e`, `is_near_gray`, and binary-search `ensure_contrast`.
+* **Extended Omarchy Parsing (`theme/parse.rs`)**: Added `read_string_key` for `mode = "light"|"dark"` (with luminance fallback), light-mode defaults (`ThemeColors::default_light`), and parsing for `darker_background`, `light_foreground`, `bright_foreground`, `dark_foreground`, `selection`, `muted`, `orange`, `cyan`, `blue`, and `magenta`.
+* **Semantic Palette Derivation (`theme/palette.rs`)**: Added `MixRatios`, `Palette`, `derive_palette`, `load_palette`, `Palette::tokens`, and `Palette::format_dump` for surfaces, borders, text, accent/status families (`accent`, `danger`, `success`, `warning`, `info`), and overlays/selection.
+* **CLI Debug Command (`rust/crates/aibox-core/src/cli/`)**: Added `aibox theme dump [path] [--json]` to print derived tokens and WCAG contrast ratios.
+* **Fixtures & Tests (`rust/crates/aibox-core/tests/fixtures/themes/`)**: Copied all 23 Omarchy `colors.toml` themes (MIT) and added unit, contrast-contract property, and Tokyo Night OKLab parity tests.
+
 ### Rust Migration P19 — Cleanup, Documentation, and Release (`0.3.0`)
 * **Architecture Decision**: Core rewritten in Rust (`aibox-core`); QML unchanged (`src/qml/`); `cxx-qt` binding (`aibox-app`) with tiny C++ shims (`rust/crates/aibox-app/cpp/shim/`).
 * **Dead Code & FFI Removal (`rust/crates/aibox-ffi`, `src/cpp/`)**: Removed `rust/crates/aibox-ffi`, `src/cpp/rust_bridge.h`, and leftover C++ files (`cli.{h,cpp}`, `theme.{h,cpp}`, `translator.{h,cpp}`). Moved `main.cpp` and `shim/` into `rust/crates/aibox-app/cpp/`, passing `version` and `project_dir` directly from `aibox_app::run_main()` to `aibox_gui_main()`.

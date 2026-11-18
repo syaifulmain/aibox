@@ -26,6 +26,7 @@ pub enum Command {
     Snapshots,
     Restore,
     Diff,
+    Theme,
 }
 
 impl Command {
@@ -43,6 +44,7 @@ impl Command {
             Command::Snapshots => "snapshots",
             Command::Restore => "restore",
             Command::Diff => "diff",
+            Command::Theme => "theme",
         }
     }
 }
@@ -58,6 +60,7 @@ pub struct ParsedArgs {
     pub env_name: String,
     pub snapshot_name: String,
     pub exec_command: Vec<String>,
+    pub theme_path: String,
     pub json_output: bool,
     pub fix: bool,
     pub system_only: bool,
@@ -77,6 +80,7 @@ impl Default for ParsedArgs {
             env_name: String::new(),
             snapshot_name: String::new(),
             exec_command: Vec::new(),
+            theme_path: String::new(),
             json_output: false,
             fix: false,
             system_only: false,
@@ -745,5 +749,38 @@ mod tests {
             std::env::remove_var("PATH");
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_theme_dump_prints_tokens_and_json() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes")
+            .join("catppuccin-latte.toml");
+        let fixture_str = fixture.to_string_lossy().to_string();
+
+        let p = parse_args(&svec(&["theme", "dump", &fixture_str]));
+        assert!(p.valid);
+        assert_eq!(p.command, Command::Theme);
+        assert_eq!(p.theme_path, fixture_str);
+
+        let runner = StubRunner::new("[]".to_string());
+        let mut io = TestCliIo::new();
+        let rc = execute_with(&p, &mut io, &runner, "/tmp");
+        assert_eq!(rc, 0);
+        let text = String::from_utf8_lossy(&io.stdout);
+        assert!(text.contains("mode: light"));
+        assert!(text.contains("surfaceCard"));
+        assert!(text.contains("vs card:"));
+
+        let p_json = parse_args(&svec(&["theme", "dump", &fixture_str, "--json"]));
+        assert!(p_json.valid);
+        let mut io_json = TestCliIo::new();
+        let rc_json = execute_with(&p_json, &mut io_json, &runner, "/tmp");
+        assert_eq!(rc_json, 0);
+        let val: serde_json::Value = serde_json::from_slice(&io_json.stdout).expect("valid json");
+        assert_eq!(val["isDark"], false);
+        assert!(val["surfaceCard"].as_str().is_some());
     }
 }

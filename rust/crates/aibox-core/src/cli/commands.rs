@@ -979,6 +979,10 @@ pub fn execute_with(
         return run_check(parsed, io, runner);
     }
 
+    if parsed.command == Command::Theme {
+        return run_theme_dump(parsed, io);
+    }
+
     let path_override = if parsed.project_dir.is_empty() {
         None
     } else {
@@ -996,6 +1000,29 @@ pub fn execute_with(
         Command::Snapshots => run_snapshots(&mut engine, parsed, io, runner),
         Command::Restore => run_restore(&mut engine, parsed, io, runner),
         Command::Diff => run_diff(&mut engine, parsed, io, runner),
-        Command::Check | Command::Help | Command::None => 2,
+        Command::Check | Command::Help | Command::None | Command::Theme => 2,
     }
+}
+
+fn run_theme_dump(parsed: &ParsedArgs, io: &mut dyn CliIo) -> i32 {
+    let theme_dir = if !parsed.theme_path.is_empty() {
+        std::path::PathBuf::from(&parsed.theme_path)
+    } else if let Ok(env_dir) = std::env::var("AIBOX_THEME_DIR") {
+        if !env_dir.trim().is_empty() {
+            std::path::PathBuf::from(env_dir)
+        } else {
+            crate::util::paths::home_dir().join(".config/omarchy/current")
+        }
+    } else {
+        crate::util::paths::home_dir().join(".config/omarchy/current")
+    };
+
+    let palette = crate::theme::load_palette(&theme_dir);
+    if parsed.json_output {
+        let out = serde_json::to_string_pretty(&palette).unwrap_or_else(|_| "{}".to_string());
+        io.write_stdout(format!("{out}\n").as_bytes());
+    } else {
+        io.write_stdout(palette.format_dump().as_bytes());
+    }
+    0
 }

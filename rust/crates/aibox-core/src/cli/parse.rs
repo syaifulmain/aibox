@@ -14,6 +14,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "snapshots" => Command::Snapshots,
         "restore" => Command::Restore,
         "diff" => Command::Diff,
+        "theme" => Command::Theme,
         _ => Command::None,
     }
 }
@@ -178,7 +179,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     if saw_json
         && !matches!(
             parsed.command,
-            Command::List | Command::Check | Command::Snapshots | Command::Diff
+            Command::List | Command::Check | Command::Snapshots | Command::Diff | Command::Theme
         )
     {
         return make_usage_error("--json is not supported for this command.", parsed.command);
@@ -261,6 +262,14 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             parsed.env_name = positionals[0].clone();
             if positionals.len() == 2 {
                 parsed.snapshot_name = positionals[1].clone();
+            }
+        }
+        Command::Theme => {
+            if positionals.first().map(|s| s.as_str()) != Some("dump") || positionals.len() > 2 {
+                return make_usage_error("Expected 'dump [path]'.", Command::Theme);
+            }
+            if positionals.len() == 2 {
+                parsed.theme_path = positionals[1].clone();
             }
         }
         Command::None | Command::Help => {}
