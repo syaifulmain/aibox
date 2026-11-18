@@ -381,7 +381,11 @@ pub fn derive_palette_with_options(raw: &ThemeColors, opts: PaletteOptions) -> P
     let text_min = if opts.high_contrast { 7.0 } else { 4.5 };
     let text_primary = ensure_contrast(fg_raw, card, 7.0);
     let text_secondary = ensure_contrast(fg_secondary_raw, card, text_min);
-    let text_muted = ensure_contrast(fg_muted_raw, card, text_min);
+    let text_muted = ensure_contrast(
+        ensure_contrast(fg_muted_raw, card, text_min),
+        surface_sidebar,
+        text_min,
+    );
     let text_disabled = mix(text_muted, card, ratios.text_disabled);
 
     // Accent & Status
@@ -892,5 +896,41 @@ mod tests {
             assert_contrast(fixture, "chart3", rgb(&p.chart_3), card, 3.0);
             assert_contrast(fixture, "chart4", rgb(&p.chart_4), card, 3.0);
         }
+    }
+
+    #[test]
+    fn text_muted_meets_contrast_against_card_and_sidebar_across_all_fixtures() {
+        let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("themes");
+
+        let mut count = 0;
+        for entry in fs::read_dir(&fixtures_dir).expect("fixtures dir") {
+            let path = entry.expect("entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                continue;
+            }
+            count += 1;
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let p = load_palette(&path);
+            let muted = rgb(&p.text_muted);
+
+            assert_contrast(
+                &name,
+                "textMuted vs surfaceCard",
+                muted,
+                rgb(&p.surface_card),
+                4.5,
+            );
+            assert_contrast(
+                &name,
+                "textMuted vs surfaceSidebar",
+                muted,
+                rgb(&p.surface_sidebar),
+                4.5,
+            );
+        }
+        assert_eq!(count, 23, "expected all 23 Omarchy theme fixtures");
     }
 }

@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Design tokens: semantic scale introduced (`Style.qml`, `palette.rs`, `qml_token_lint.rs`, `ComponentGallery.qml`)
+* **Semantic Design Tokens (`src/qml/components/Style.qml`)**: Introduced semantic typography (`fontCaption`, `fontSmall`, `fontBody`, `fontTitle`, `fontHeading`, `fontDisplay`), spacing (`gapXs`, `gapSm`, `gapMd`, `gap`, `padCard`, `padSection`, `padModal`), corner radius (`radiusSm`, `radiusMd`, `radiusLg`), control/button (`controlHeightCompact`, `buttonMinWidth`), and modal width (`modalWidthSm`, `modalWidthMd`, `modalWidthLg`) tokens. Existing numeric tokens retain their values and are marked `// deprecated, remove in phase 7` so visual appearance stays unchanged during incremental migration.
+* **Muted Text Contrast Verification (`rust/crates/aibox-core/src/theme/palette.rs`)**: Added `text_muted_meets_contrast_against_card_and_sidebar_across_all_fixtures` verifying `textMuted` >= 4.5:1 against both `surfaceCard` and `surfaceSidebar` across all 23 Omarchy theme fixtures.
+* **Report-Mode QML Token Lint (`rust/crates/aibox-app/tests/qml_token_lint.rs`)**: Added `qml_token_lint` integration test in report mode logging deprecated `Style.*` token usages and numeric metric literals per QML file without failing the build.
+* **Component Gallery Token Scale (`src/qml/dev/ComponentGallery.qml`)**: Added a **Token Scale** page displaying the new typography, spacing, and radius tokens.
+
 ### Build Linker Selection Without Deprecated `ld.gold` Warning (`rust/crates/aibox-app/build.rs`, `pkgbuild/PKGBUILD`)
 * Updated `aibox-app/build.rs` to prefer `lld` or `mold` when installed and fall back to standard GNU `ld` (`bfd`) instead of allowing `qt-build-utils` to inject `-fuse-ld=gold`, eliminating the deprecated gold linker compiler warning on systems without `lld`. Added `lld` to `makedepends` in `pkgbuild/PKGBUILD`.
 
