@@ -1,9 +1,12 @@
 //! Auto-snapshot naming, interval checks, pruning, and shell snippet generation.
 
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use std::collections::{BTreeSet, HashSet};
+
+use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeZone};
 
 use crate::snapshot::workspace::{
     workspace_delete_snapshot_snippet, workspace_snapshot_dir, workspace_snapshot_snippet,
+    workspace_unchanged_since_last_snapshot,
 };
 use crate::util::shell::shell_quote;
 
@@ -82,6 +85,112 @@ pub fn auto_snapshots_to_prune(snapshots: &[String], keep_count: i32) -> Vec<Str
     autos.into_iter().take(drop_count).map(|(_, n)| n).collect()
 }
 
+/// Tiered retention policy for auto-snapshots (recent + daily + weekly buckets).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    /// Always keep the N newest auto-snapshots regardless of age.
+    pub keep_recent: usize,
+    /// Keep 1 auto-snapshot per calendar day for up to `keep_daily` distinct days.
+    pub keep_daily: usize,
+    /// Keep 1 auto-snapshot per ISO week for up to `keep_weekly` distinct weeks.
+    pub keep_weekly: usize,
+}
+
+impl RetentionPolicy {
+    /// Builds a policy keeping `keep_recent` recent, `7` daily, and `4` weekly snapshots.
+    pub fn tiered(keep_recent: i32) -> Self {
+        Self {
+            keep_recent: keep_recent.max(0) as usize,
+            keep_daily: 7,
+            keep_weekly: 4,
+        }
+    }
+}
+
+/// Returns oldest `auto-*` snapshot names to prune under a tiered recent/daily/weekly policy.
+///
+/// Manual snapshots (without `auto-` prefix) are never pruned. For each day/week bucket within
+/// the retention window, the newest snapshot in that bucket is kept.
+pub fn auto_snapshots_to_prune_tiered(
+    snapshots: &[String],
+    policy: RetentionPolicy,
+    now_epoch: i64,
+) -> Vec<String> {
+    let mut autos: Vec<(i64, Option<DateTime<Local>>, String)> = snapshots
+        .iter()
+        .filter(|s| is_auto_snapshot_name(s))
+        .map(|s| {
+            let dt = parse_auto_snapshot_timestamp(s);
+            let epoch = dt.map(|d| d.timestamp()).unwrap_or(0);
+            (epoch, dt, s.clone())
+        })
+        .collect();
+
+    if autos.is_empty() {
+        return Vec::new();
+    }
+
+    // Sort newest-first so we greedily keep the latest snapshot in each bucket.
+    autos.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.2.cmp(&a.2)));
+
+    let now_dt = Local
+        .timestamp_opt(now_epoch, 0)
+        .earliest()
+        .unwrap_or_else(Local::now);
+    let today = now_dt.date_naive();
+
+    let mut kept: HashSet<String> = HashSet::new();
+    let mut daily_buckets: BTreeSet<NaiveDate> = BTreeSet::new();
+    let mut weekly_buckets: BTreeSet<(i32, u32)> = BTreeSet::new();
+
+    for (idx, (_epoch, dt_opt, name)) in autos.iter().enumerate() {
+        if idx < policy.keep_recent {
+            kept.insert(name.clone());
+            continue;
+        }
+        let Some(dt) = dt_opt else {
+            continue;
+        };
+        let date = dt.date_naive();
+        let age_days = (today - date).num_days();
+        if age_days < 0 {
+            // Future-dated snapshots are kept in recent/daily if within bounds.
+            continue;
+        }
+        let mut keep_this = false;
+        if policy.keep_daily > 0
+            && (age_days as usize) < policy.keep_daily
+            && !daily_buckets.contains(&date)
+            && daily_buckets.len() < policy.keep_daily
+        {
+            daily_buckets.insert(date);
+            keep_this = true;
+        }
+        let iso_week = date.iso_week();
+        let week_key = (iso_week.year(), iso_week.week());
+        let age_weeks = (age_days / 7) as usize;
+        if policy.keep_weekly > 0
+            && age_weeks < policy.keep_weekly
+            && !weekly_buckets.contains(&week_key)
+            && weekly_buckets.len() < policy.keep_weekly
+        {
+            weekly_buckets.insert(week_key);
+            keep_this = true;
+        }
+        if keep_this {
+            kept.insert(name.clone());
+        }
+    }
+
+    // Return pruned names oldest-first, matching `auto_snapshots_to_prune`.
+    autos
+        .into_iter()
+        .rev()
+        .filter(|(_, _, name)| !kept.contains(name))
+        .map(|(_, _, name)| name)
+        .collect()
+}
+
 /// Builds the shell snippet that creates an auto-snapshot and prunes older ones.
 pub fn auto_snapshot_shell_snippet(
     name: &str,
@@ -155,6 +264,11 @@ pub fn decide_auto_snapshot(
         }
     }
     if !should_create_auto_snapshot(snapshots, now_epoch, 300) {
+        return None;
+    }
+    if workspace_snapshot_enabled
+        && workspace_unchanged_since_last_snapshot(workspace_path, name, snapshots)
+    {
         return None;
     }
     let new_snap = format!("auto-{now_local_stamp}");
@@ -244,5 +358,201 @@ mod tests {
             "btrfs subvolume delete '/tmp/my workspaces/.snapshots/dev-box/auto-20261113-100000'"
         ));
         assert!(snippet.contains("Warning: workspace auto-snapshot failed"));
+    }
+
+    struct FakeClock {
+        epoch: i64,
+    }
+
+    impl FakeClock {
+        fn new(epoch: i64) -> Self {
+            Self { epoch }
+        }
+        fn advance(&mut self, secs: i64) -> i64 {
+            self.epoch += secs;
+            self.epoch
+        }
+        fn stamp(&self) -> String {
+            Local
+                .timestamp_opt(self.epoch, 0)
+                .earliest()
+                .expect("valid epoch")
+                .format("%Y%m%d-%H%M%S")
+                .to_string()
+        }
+    }
+
+    #[test]
+    fn min_interval_seconds_with_fake_clock() {
+        let base_dt =
+            NaiveDateTime::parse_from_str("20261113-100000", "%Y%m%d-%H%M%S").expect("valid dt");
+        let base_epoch = Local
+            .from_local_datetime(&base_dt)
+            .earliest()
+            .expect("local")
+            .timestamp();
+        let mut clock = FakeClock::new(base_epoch);
+        let mut snaps = vec![format!("auto-{}", clock.stamp())];
+
+        // 299s later: still within 300s interval
+        let t1 = clock.advance(299);
+        assert!(!should_create_auto_snapshot(&snaps, t1, 300));
+        assert!(decide_auto_snapshot(
+            "dev-box",
+            false,
+            true,
+            &snaps,
+            "",
+            false,
+            5,
+            None,
+            t1,
+            &clock.stamp(),
+        )
+        .is_none());
+
+        // +1s (300s total): boundary reached -> allowed
+        let t2 = clock.advance(1);
+        assert!(should_create_auto_snapshot(&snaps, t2, 300));
+        // Unless last_attempt_epoch was 60s ago
+        assert!(decide_auto_snapshot(
+            "dev-box",
+            false,
+            true,
+            &snaps,
+            "",
+            false,
+            5,
+            Some(t2 - 60),
+            t2,
+            &clock.stamp(),
+        )
+        .is_none());
+        assert!(decide_auto_snapshot(
+            "dev-box",
+            false,
+            true,
+            &snaps,
+            "",
+            false,
+            5,
+            Some(t2 - 300),
+            t2,
+            &clock.stamp(),
+        )
+        .is_some());
+
+        // Negative or zero min_interval_seconds always allows creation
+        assert!(should_create_auto_snapshot(&snaps, base_epoch, 0));
+        assert!(should_create_auto_snapshot(&snaps, base_epoch, -10));
+
+        // After adding the new snapshot, another 299s must elapse before the next one
+        snaps.push(format!("auto-{}", clock.stamp()));
+        let t3 = clock.advance(299);
+        assert!(!should_create_auto_snapshot(&snaps, t3, 300));
+        let t4 = clock.advance(1);
+        assert!(should_create_auto_snapshot(&snaps, t4, 300));
+    }
+
+    #[test]
+    fn tiered_retention_keeps_recent_daily_and_weekly_snapshots() {
+        let now_dt =
+            NaiveDateTime::parse_from_str("20261118-180000", "%Y%m%d-%H%M%S").expect("valid dt");
+        let now_epoch = Local
+            .from_local_datetime(&now_dt)
+            .earliest()
+            .expect("local")
+            .timestamp();
+
+        let snaps: Vec<String> = vec![
+            "manual-keep",
+            // Week -3 (21 days ago, outside 7-day daily window, inside 4-week weekly)
+            "auto-20261028-090000",
+            "auto-20261028-150000", // newer in same week -> kept as weekly
+            // Day -2 (inside 7-day daily window): 2 on same day
+            "auto-20261116-090000",
+            "auto-20261116-170000", // newer on day -2 -> kept as daily
+            // Day -1: 2 on same day
+            "auto-20261117-080000",
+            "auto-20261117-200000", // newer on day -1 -> kept as daily
+            // Today: 2 recent
+            "auto-20261118-100000",
+            "auto-20261118-160000",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let policy = RetentionPolicy {
+            keep_recent: 2,
+            keep_daily: 7,
+            keep_weekly: 4,
+        };
+        let prune = auto_snapshots_to_prune_tiered(&snaps, policy, now_epoch);
+        assert_eq!(
+            prune,
+            vec![
+                "auto-20261028-090000".to_string(),
+                "auto-20261116-090000".to_string(),
+                "auto-20261117-080000".to_string(),
+            ]
+        );
+        assert!(!prune.iter().any(|s| s == "manual-keep"));
+    }
+
+    #[test]
+    fn smart_auto_snapshot_skips_unchanged_workspace_and_triggers_on_change() {
+        let tmp = std::env::temp_dir().join(format!(
+            "aibox-smart-autosnap-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let ws = tmp.join("dev-box");
+        let snap_dir = tmp.join(".snapshots/dev-box");
+        let old_snap = snap_dir.join("auto-20261113-100000");
+        std::fs::create_dir_all(&ws).expect("ws");
+        std::fs::write(ws.join("code.rs"), "fn main() {}\n").expect("write");
+        // Ensure snapshot dir mtime is >= workspace mtime.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::create_dir_all(&old_snap).expect("snap");
+
+        let snaps = vec!["auto-20261113-100000".to_string()];
+        let old_epoch = parse_auto_snapshot_timestamp_epoch("auto-20261113-100000").expect("epoch");
+
+        // Workspace is unchanged since old_snap -> skipped even after 600s.
+        assert!(decide_auto_snapshot(
+            "dev-box",
+            false,
+            true,
+            &snaps,
+            &ws.to_string_lossy(),
+            true,
+            5,
+            None,
+            old_epoch + 600,
+            "20261113-101000",
+        )
+        .is_none());
+
+        // Modify a file in workspace -> mtime advances -> auto-snapshot created.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(ws.join("code.rs"), "fn main() { println!(\"hi\"); }\n").expect("modify");
+        assert!(decide_auto_snapshot(
+            "dev-box",
+            false,
+            true,
+            &snaps,
+            &ws.to_string_lossy(),
+            true,
+            5,
+            None,
+            old_epoch + 600,
+            "20261113-101000",
+        )
+        .is_some());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

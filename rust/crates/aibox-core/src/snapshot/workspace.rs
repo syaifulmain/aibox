@@ -228,6 +228,9 @@ pub fn workspace_delete_snapshot_snippet(snap_path: &str, warn_only: bool) -> St
     }
     let q_snap = shell_quote(&clean_snap);
     let exit_line = if warn_only { "" } else { "        exit 1\n" };
+    let q_warn = shell_quote(&format!(
+        "Warning: could not delete subvolume or root-owned files; run: sudo rm -rf {q_snap}"
+    ));
     format!(
         "if [ -e {q_snap} ]; then\n    \
             if ! btrfs subvolume delete {q_snap} >/dev/null 2>&1; then\n        \
@@ -240,7 +243,7 @@ pub fn workspace_delete_snapshot_snippet(snap_path: &str, warn_only: bool) -> St
                 sudo -n rm -rf {q_snap} >/dev/null 2>&1 || true\n    \
             fi\n    \
             if [ -e {q_snap} ]; then\n        \
-                echo \"Warning: could not delete subvolume or root-owned files; run: sudo rm -rf {q_snap}\" >&2\n\
+                echo {q_warn} >&2\n\
                 {exit_line}    fi\n\
         fi"
     )
@@ -272,10 +275,11 @@ pub fn workspace_restore_snippet(
     let safety_path_expr = format!("{}\"/pre-restore-{epoch_expr}\"", shell_quote(&clean_dir));
     let del_tmp = workspace_delete_snapshot_snippet(&format!("{clean_ws}.restore-tmp"), true);
     let del_old = workspace_delete_snapshot_snippet(&format!("{clean_ws}.restore-old"), true);
+    let q_missing_msg = shell_quote(&format!("Workspace snapshot {q_snap} does not exist."));
 
     format!(
         "if [ ! -d {q_snap} ]; then\n    \
-            echo \"Workspace snapshot {q_snap} does not exist.\" >&2\n    \
+            echo {q_missing_msg} >&2\n    \
             exit 1\n\
         fi\n\
         if ! command -v btrfs >/dev/null 2>&1; then\n    \
@@ -309,12 +313,18 @@ pub fn convert_workspace_to_subvolume_script(env_name: &str, workspace_path: &st
     let q_ws = shell_quote(&clean_ws);
     let q_tmp = shell_quote(&format!("{clean_ws}.subvol-tmp"));
     let q_pre = shell_quote(&format!("{clean_ws}.pre-subvol"));
+    let q_stop_msg = shell_quote(&format!(
+        "Stop {q_name} before converting its workspace to a Btrfs subvolume."
+    ));
+    let q_pre_exists_msg = shell_quote(&format!(
+        "Backup directory {q_pre} already exists. Remove or rename it first."
+    ));
     format!(
         "set -euo pipefail\n\
         echo '@@STAGE:10:Checking container & Btrfs status...'\n\
         STATUS=$(incus info {q_name} 2>/dev/null | awk '/^Status:/ {{print $2}}')\n\
         if [[ \"$STATUS\" == \"RUNNING\" ]]; then\n    \
-            echo \"Stop '{q_name}' before converting its workspace to a Btrfs subvolume.\" >&2\n    \
+            echo {q_stop_msg} >&2\n    \
             exit 1\n\
         fi\n\
         if ! command -v btrfs >/dev/null 2>&1; then\n    \
@@ -331,7 +341,7 @@ pub fn convert_workspace_to_subvolume_script(env_name: &str, workspace_path: &st
             exit 0\n\
         fi\n\
         if [ -e {q_pre} ]; then\n    \
-            echo \"Backup directory {q_pre} already exists. Remove or rename it first.\" >&2\n    \
+            echo {q_pre_exists_msg} >&2\n    \
             exit 1\n\
         fi\n\
         echo '@@STAGE:30:Creating Btrfs subvolume...'\n\
@@ -355,6 +365,121 @@ pub fn convert_workspace_to_subvolume_script(env_name: &str, workspace_path: &st
         fi\n\
         echo '@@STAGE:100:Workspace converted to Btrfs subvolume.'"
     )
+}
+
+/// Parses `Generation:` from `btrfs subvolume show` output.
+pub fn parse_btrfs_subvolume_generation(output: &str) -> Option<u64> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Generation:") {
+            if let Ok(gen_id) = rest.trim().parse::<u64>() {
+                return Some(gen_id);
+            }
+        }
+    }
+    None
+}
+
+fn btrfs_subvolume_generation(path: &str) -> Option<u64> {
+    let out = Command::new("btrfs")
+        .args(["subvolume", "show", path])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_btrfs_subvolume_generation(&stdout)
+}
+
+/// Walks `root` up to `max_entries` filesystem entries and returns the newest mtime.
+/// Returns `None` if `root` cannot be read or exceeds `max_entries` (conservative fallback).
+fn max_tree_mtime(root: &Path, max_entries: usize) -> Option<std::time::SystemTime> {
+    let root_meta = fs::symlink_metadata(root).ok()?;
+    let mut latest = root_meta.modified().ok()?;
+    let mut stack = vec![root.to_path_buf()];
+    let mut visited = 0usize;
+
+    while let Some(dir) = stack.pop() {
+        let entries = fs::read_dir(&dir).ok()?;
+        for entry in entries {
+            visited += 1;
+            if visited > max_entries {
+                return None;
+            }
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if let Ok(mtime) = meta.modified() {
+                if mtime > latest {
+                    latest = mtime;
+                }
+            }
+            if meta.file_type().is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    Some(latest)
+}
+
+/// Returns `true` when `workspace_path` exists, has at least one existing snapshot in
+/// `.snapshots/<env_name>/`, and has not been modified since the newest snapshot
+/// (comparing Btrfs subvolume generation when available, otherwise filesystem mtime).
+pub fn workspace_unchanged_since_last_snapshot(
+    workspace_path: &str,
+    env_name: &str,
+    snapshots: &[String],
+) -> bool {
+    let clean_ws = clean_path(workspace_path.trim());
+    if clean_ws.is_empty() || !Path::new(&clean_ws).is_dir() {
+        return false;
+    }
+    let snap_dir = workspace_snapshot_dir(&clean_ws, env_name);
+    if snap_dir.is_empty() {
+        return false;
+    }
+
+    let mut newest_snap: Option<(std::time::SystemTime, String)> = None;
+    for snap in snapshots {
+        let snap_path = format!("{snap_dir}/{snap}");
+        let p = Path::new(&snap_path);
+        if !p.is_dir() {
+            continue;
+        }
+        let Ok(meta) = fs::symlink_metadata(p) else {
+            continue;
+        };
+        let Ok(mtime) = meta.modified() else {
+            continue;
+        };
+        if newest_snap.as_ref().is_none_or(|(t, _)| mtime > *t) {
+            newest_snap = Some((mtime, snap_path));
+        }
+    }
+
+    let Some((snap_mtime, snap_path)) = newest_snap else {
+        return false;
+    };
+
+    if is_btrfs_subvolume(&clean_ws) && is_btrfs_subvolume(&snap_path) {
+        if let (Some(ws_gen), Some(snap_gen)) = (
+            btrfs_subvolume_generation(&clean_ws),
+            btrfs_subvolume_generation(&snap_path),
+        ) {
+            return ws_gen <= snap_gen;
+        }
+    }
+
+    let Some(ws_mtime) = max_tree_mtime(Path::new(&clean_ws), 20_000) else {
+        return false;
+    };
+    ws_mtime <= snap_mtime
 }
 
 #[cfg(test)]
@@ -433,5 +558,33 @@ mod tests {
             parse_container_workspace_path_output(true, "relative"),
             "/home/workspace"
         );
+    }
+
+    #[test]
+    fn parses_btrfs_subvolume_generation() {
+        let sample = "\
+\tName: \t\t\tdev-box
+\tUUID: \t\t\t1234
+\tGeneration: \t\t4219
+\tGen at creation: \t4100
+";
+        assert_eq!(parse_btrfs_subvolume_generation(sample), Some(4219));
+        assert_eq!(parse_btrfs_subvolume_generation("not a subvolume"), None);
+    }
+
+    #[test]
+    fn non_btrfs_scripts_degrade_with_clear_messages() {
+        let convert = convert_workspace_to_subvolume_script("dev-box", "/tmp/ws/dev-box");
+        assert!(convert.contains("Workspace filesystem is not Btrfs."));
+        assert!(convert.contains("btrfs command not found."));
+
+        let restore = workspace_restore_snippet(
+            "/tmp/ws/dev-box",
+            "/tmp/ws/.snapshots/dev-box",
+            "snap-1",
+            100,
+        );
+        assert!(restore.contains("btrfs tool is required for workspace snapshot restore."));
+        assert!(restore.contains("does not exist."));
     }
 }

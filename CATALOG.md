@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Snapshot: Centralized Quoting, Async Size Cache, Smart Auto-Snapshot & Tiered Retention (`rust/crates/aibox-core/src/snapshot/`, `aibox-app`)
+
+- **Centralized shell quoting (`snapshot/workspace.rs`, `snapshot/scripts.rs`, `golden/snapshot.jsonl`, `golden/backup.jsonl`):** Routed all error/warning `echo` messages in `workspace_delete_snapshot_snippet`, `workspace_restore_snippet`, and `convert_workspace_to_subvolume_script` through `util::shell::shell_quote` so `$` and `"` inside hostile names/paths are never expanded or broken. Updated reviewed golden fixtures and added hostile-name (` `, `'`, `$`, `\n`) unit and golden tests.
+- **Async snapshot size calculation & cache (`snapshot/sizes.rs`, `qt_backend.rs`):** Extracted snapshot size parsing (`parse_snapshot_sizes_json`, `parse_du_bytes_output`, `parse_btrfs_qgroup_bytes`), added `compute_workspace_snapshot_sizes` (`btrfs qgroup show -r --raw` with `du -sb` fallback) and `SnapshotSizeCache`, and wired `Backend` to compute missing read-only snapshot sizes on a background worker thread and prune deleted entries.
+- **Smart auto-snapshot skip (`snapshot/workspace.rs`, `snapshot/auto.rs`):** Added `workspace_unchanged_since_last_snapshot` (comparing Btrfs subvolume `Generation` when available and falling back to filesystem tree mtime) so `decide_auto_snapshot` skips creating redundant workspace auto-snapshots when nothing has changed since the last snapshot.
+- **Tiered retention policy (`snapshot/auto.rs`):** Added `RetentionPolicy` and `auto_snapshots_to_prune_tiered` supporting recent, daily, and weekly retention buckets while preserving manual snapshots.
+- **Verification tests (`snapshot/auto.rs`, `snapshot/scripts.rs`, `snapshot/sizes.rs`, `snapshot/workspace.rs`):** Added unit tests for `min_interval_seconds` with a fake clock, tiered retention pruning, smart auto-snapshot skip/trigger, `btrfs qgroup` parsing and cache pruning, non-Btrfs degradation messages, and hostile-name script syntax/execution checks.
+
 ### Core History: Atomic Writes, Monthly JSONL Storage, In-Memory Cache & Pruning (`rust/crates/aibox-core/src/history.rs`, `engine.rs`, `aibox-app`)
 
 - **Atomic writes (`history.rs`):** Switched history log writes, monthly metadata updates, and the `history-seen` marker (`acknowledge_operation_history`) to `atomic_write` so no partial files or leftover temp files occur on crash.

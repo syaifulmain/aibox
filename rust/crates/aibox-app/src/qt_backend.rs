@@ -27,6 +27,9 @@ use aibox_core::incus::list::{
     parse as parse_incus_list, templates as extract_templates, ParseDefaults,
 };
 use aibox_core::session::scan_recorded_sessions;
+use aibox_core::snapshot::{
+    compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes, SnapshotSizeCache,
+};
 use aibox_core::util::paths::{
     clean_path, default_os_storage_path, default_system_path, default_workspace_path,
     CONTAINER_WORKSPACE_PATH,
@@ -976,6 +979,8 @@ pub struct BackendRust {
     pub(crate) idle_samples: HashMap<String, Vec<IdleCpuSample>>,
     pub(crate) idle_warned: HashSet<String>,
     pub(crate) idle_check_in_flight: Arc<AtomicBool>,
+    pub(crate) snapshot_size_cache: SnapshotSizeCache,
+    pub(crate) snapshot_sizes_in_flight: Arc<AtomicBool>,
 }
 
 impl Default for BackendRust {
@@ -1092,6 +1097,8 @@ impl Default for BackendRust {
             idle_samples: HashMap::new(),
             idle_warned: HashSet::new(),
             idle_check_in_flight: Arc::new(AtomicBool::new(false)),
+            snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_sizes_in_flight: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -1660,7 +1667,7 @@ impl qobject::Backend {
             record_sessions: self.record_sessions,
         };
 
-        let (envs_changed, _clamped_index) = {
+        let (envs_changed, _clamped_index, pending_sizes) = {
             let mut rust = self.as_mut().rust_mut();
             rust.last_images_json = img_json.to_vec();
             rust.engine.pool_info = pool_info;
@@ -1681,6 +1688,7 @@ impl qobject::Backend {
                 true,
             );
 
+            let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
             for env in &mut envs {
                 env.disk_alert_level = if env.disk_percent >= crit {
                     2
@@ -1689,6 +1697,33 @@ impl qobject::Backend {
                 } else {
                     0
                 };
+                // Seed cache with any Incus snapshot sizes already returned in the list payload.
+                if !env.snapshot_sizes.is_empty() {
+                    let initial = env.snapshot_sizes.clone();
+                    rust.snapshot_size_cache.insert_incus(&env.name, initial);
+                }
+                rust.snapshot_size_cache.prune_removed(
+                    &env.name,
+                    &env.snapshots,
+                    &env.workspace_snapshots,
+                );
+                rust.snapshot_size_cache.apply_to_environment(env);
+
+                let missing_incus = !rust
+                    .snapshot_size_cache
+                    .missing_incus_snapshots(&env.name, &env.snapshots)
+                    .is_empty();
+                let missing_ws = rust
+                    .snapshot_size_cache
+                    .missing_workspace_snapshots(&env.name, &env.workspace_snapshots);
+                if missing_incus || !missing_ws.is_empty() {
+                    pending_sizes.push((
+                        env.name.clone(),
+                        env.workspace_snapshot_dir.clone(),
+                        missing_incus,
+                        missing_ws,
+                    ));
+                }
             }
 
             let fa_inputs: Vec<FileAccessEnvInput> = envs
@@ -1726,7 +1761,7 @@ impl qobject::Backend {
                 rust.selected_index
             };
             rust.selected_index = clamped;
-            (changed, clamped)
+            (changed, clamped, pending_sizes)
         };
 
         self.as_mut().pool_info_changed();
@@ -1738,9 +1773,104 @@ impl qobject::Backend {
                 self.as_mut().refresh_stale_report();
             }
         }
+        self.as_mut().schedule_snapshot_size_worker(pending_sizes);
         self.as_mut().evaluate_all_watchdogs();
         self.as_mut().trigger_idle_auto_stops_check();
         self.as_mut().rebuild_os_catalog();
+    }
+
+    fn schedule_snapshot_size_worker(
+        self: Pin<&mut Self>,
+        pending: Vec<(String, String, bool, Vec<String>)>,
+    ) {
+        if pending.is_empty() || self.demo_mode {
+            return;
+        }
+        let in_flight = Arc::clone(&self.snapshot_sizes_in_flight);
+        if in_flight.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let mut results = Vec::with_capacity(pending.len());
+            for (env_name, snap_dir, need_incus, missing_ws) in pending {
+                let incus_sizes = if need_incus {
+                    fetch_incus_snapshot_sizes(&env_name)
+                } else {
+                    Default::default()
+                };
+                let ws_sizes = if !missing_ws.is_empty() && !snap_dir.is_empty() {
+                    compute_workspace_snapshot_sizes(&snap_dir, &missing_ws)
+                } else {
+                    Default::default()
+                };
+                if !incus_sizes.is_empty() || !ws_sizes.is_empty() {
+                    results.push((env_name, incus_sizes, ws_sizes));
+                }
+            }
+            let _ = qt_thread.queue(move |mut backend| {
+                in_flight.store(false, Ordering::Release);
+                if results.is_empty() {
+                    return;
+                }
+                let changed = {
+                    let mut rust = backend.as_mut().rust_mut();
+                    let mut any_new = false;
+                    for (env_name, incus_sizes, ws_sizes) in results {
+                        if rust
+                            .snapshot_size_cache
+                            .insert_incus(&env_name, incus_sizes)
+                        {
+                            any_new = true;
+                        }
+                        if rust
+                            .snapshot_size_cache
+                            .insert_workspace(&env_name, ws_sizes)
+                        {
+                            any_new = true;
+                        }
+                    }
+                    if any_new {
+                        let cache = rust.snapshot_size_cache.clone();
+                        for env in &mut rust.engine.environments {
+                            cache.apply_to_environment(env);
+                        }
+                        let state_dir = rust.engine.paths.state_dir.clone();
+                        let fa_inputs: Vec<FileAccessEnvInput> = rust
+                            .engine
+                            .environments
+                            .iter()
+                            .map(|e| FileAccessEnvInput {
+                                name: e.name.clone(),
+                                running: e.running,
+                            })
+                            .collect();
+                        let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
+                        let mut env_values: Vec<serde_json::Value> = rust
+                            .engine
+                            .environments
+                            .iter()
+                            .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
+                            .collect();
+                        for (val, fa) in env_values.iter_mut().zip(fa_result.envs.iter()) {
+                            if let Some(obj) = val.as_object_mut() {
+                                obj.insert(
+                                    "fileAccessEnabled".into(),
+                                    serde_json::json!(fa.active),
+                                );
+                                obj.insert("fileAccessPort".into(), serde_json::json!(fa.port));
+                                obj.insert("fileAccessUrl".into(), serde_json::json!(fa.url));
+                            }
+                        }
+                        rust.environments = json_array_to_qvariant_list(&env_values);
+                    }
+                    any_new
+                };
+                if changed {
+                    backend.as_mut().environments_changed();
+                }
+            });
+        });
     }
 
     pub fn path_to_url(&self, path: &QString) -> QUrl {

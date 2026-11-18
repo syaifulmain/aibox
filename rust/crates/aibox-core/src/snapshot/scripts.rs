@@ -340,4 +340,85 @@ exit 0\n",
 
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn hostile_names_with_spaces_quotes_dollars_and_newlines_pass_bash_syntax_and_do_not_expand() {
+        let hostile_env = "box' $HOME \"q\"\nline2";
+        let hostile_snap = "snap' $USER\n2";
+        let tmp = std::env::temp_dir().join(format!(
+            "aibox-hostile-snap-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let ws_path = tmp.join("ws dir/$DOLLAR'quote");
+        let stub_dir = tmp.join("stubs");
+        let log_path = tmp.join("calls.log");
+        fs::create_dir_all(&stub_dir).expect("stub_dir");
+        fs::create_dir_all(&ws_path).expect("ws_path");
+
+        write_executable(
+            &stub_dir.join("incus"),
+            "#!/bin/sh\nprintf 'INCUS:%s\\n' \"$*\" >> \"$AIBOX_STUB_LOG\"\nexit 0\n",
+        );
+        write_executable(
+            &stub_dir.join("btrfs"),
+            "#!/bin/sh\nprintf 'BTRFS:%s\\n' \"$*\" >> \"$AIBOX_STUB_LOG\"\nexit 0\n",
+        );
+
+        let ws_str = ws_path.to_string_lossy().to_string();
+        let scripts = [
+            create_snapshot_script(hostile_env, hostile_snap, &ws_str, true),
+            restore_snapshot_script(hostile_env, hostile_snap, &ws_str, "system", false, 123),
+            delete_snapshot_script(hostile_env, hostile_snap, &ws_str, true, true),
+            wipe_environment_script(
+                hostile_env,
+                &ws_str,
+                true,
+                &format!("{}/sessions/$KEEP'dir", tmp.display()),
+                &format!("{}/secrets/$KEEP'file.json", tmp.display()),
+            ),
+        ];
+
+        let orig_path = std::env::var("PATH").unwrap_or_default();
+        let test_path = format!("{}:{orig_path}", stub_dir.display());
+        for (idx, script) in scripts.iter().enumerate() {
+            let script_file = tmp.join(format!("hostile_{idx}.sh"));
+            fs::write(&script_file, script).expect("write script");
+            let syntax = Command::new("/bin/bash")
+                .arg("-n")
+                .arg(&script_file)
+                .output()
+                .expect("bash -n");
+            assert!(
+                syntax.status.success(),
+                "bash -n failed for script {idx}: {}",
+                String::from_utf8_lossy(&syntax.stderr)
+            );
+        }
+
+        // Execute create_snapshot_script and verify $HOME/$USER were not expanded.
+        let run_file = tmp.join("hostile_run.sh");
+        fs::write(&run_file, &scripts[0]).expect("write run");
+        let out = Command::new("/bin/bash")
+            .arg(&run_file)
+            .env("PATH", &test_path)
+            .env("AIBOX_STUB_LOG", &log_path)
+            .env("HOME", "/should/not/expand")
+            .env("USER", "should_not_expand")
+            .output()
+            .expect("run bash");
+        assert!(
+            out.status.success(),
+            "hostile create script failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let log = fs::read_to_string(&log_path).expect("log");
+        assert!(!log.contains("/should/not/expand"));
+        assert!(!log.contains("should_not_expand"));
+        assert!(log.contains("$HOME"));
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
