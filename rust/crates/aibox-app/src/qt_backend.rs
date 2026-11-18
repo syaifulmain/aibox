@@ -803,6 +803,10 @@ pub mod qobject {
         fn remove_os_image(self: Pin<&mut Backend>, os_id: &QString);
 
         #[qinvokable]
+        #[cxx_name = "prefetchOsImage"]
+        fn prefetch_os_image(self: Pin<&mut Backend>, os_id: &QString);
+
+        #[qinvokable]
         #[cxx_name = "completeFirstRun"]
         fn complete_first_run(self: Pin<&mut Backend>, system_path: &QString) -> QString;
 

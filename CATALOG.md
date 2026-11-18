@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Provision: Structured Rollback, `ProvisionError` Validation, Fast CoW Clone, Image Pre-fetch & Script Templates (`rust/crates/aibox-core/src/provision/`, `aibox-app`, `CreateDialog.qml`)
+
+- **Typed input validation (`provision/error.rs`, `provision/mod.rs`, `create.rs`, `clone.rs`, `lifecycle.rs`, `resources.rs`, `qt_backend_provision.rs`):** Added `ProvisionError` (`thiserror::Error`) and shared validation helpers (`validate_new_env_name`, `validate_limits`) so environment names, CPU cores, disk/RAM/process/I/O quotas, catalog selections, and workspace paths are validated in Rust before generating any shell script.
+- **Structured reverse-order rollback (`provision/templates.rs`, `create.rs`, `clone.rs`):** Added `rollback_trap_snippet` (`EXIT` trap tracking `ROLLBACK_WS` and `ROLLBACK_INSTANCE`) to `create_environment_script` and `clone_environment_script` so mid-flight failures clean up created instances, network ACLs, and newly created workspace subvolumes/directories in reverse order while preserving pre-existing workspaces and logging `[rollback]` details to task history.
+- **Fast clone (`provision/clone.rs`, `provision/templates.rs`, `qt_backend_provision.rs`):** Updated `incus copy` to use `--instance-only --stateless` and added `clone_environment_script_with_source` to clone the source workspace via `btrfs subvolume snapshot` (copy-on-write) when both source and destination reside on Btrfs.
+- **Background OS image pre-fetch (`provision/resources.rs`, `qt_backend.rs`, `qt_backend_provision.rs`, `CreateDialog.qml`):** Added `prefetch_os_image_script`, `prepare_prefetch_os_image`, and `Backend::prefetchOsImage` to quietly pre-fetch uncached OS images in the background when an OS catalog entry is selected in `CreateDialog`.
+- **Script templates (`provision/templates.rs`, `tests/golden/provision.jsonl`):** Extracted `CREATE_SCRIPT_TEMPLATE`, `CLONE_SCRIPT_TEMPLATE`, and `PREFETCH_IMAGE_TEMPLATE` with `render_template`, removed a duplicate workspace snippet at the end of `create_environment_script`, and updated golden fixtures.
+- **Verification tests (`provision/create.rs`, `clone.rs`, `resources.rs`, `error.rs`):** Added `ProvisionError` validation tests, Btrfs snapshot clone test, OS image pre-fetch tests, and stage-by-stage failure rollback simulations (`@@STAGE:n`) across create and clone scripts.
+
 ### Core Health: `crate::process`, Explicit `socket_writable`, Check Cadence, Single-Query Idle Stats & `checks/` Split (`rust/crates/aibox-core/src/process.rs`, `health/`)
 
 - **Extracted `crate::process` (`process.rs`, `engine.rs`, `cli/`, `golden.rs`):** Moved `CommandOutput`, `CommandRunner`, and `SystemRunner` out of `health::checks` into a dedicated `aibox_core::process` module and updated all core, CLI, and golden test callers.

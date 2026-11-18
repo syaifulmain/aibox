@@ -307,7 +307,11 @@ ModalDialog {
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: app.newEnvOsId = modelData.id
+                                onClicked: {
+                                    app.newEnvOsId = modelData.id
+                                    if (!modelData.downloaded)
+                                        backend.prefetchOsImage(modelData.id)
+                                }
                             }
                         }
                     }

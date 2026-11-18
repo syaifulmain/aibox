@@ -12,13 +12,14 @@ use aibox_core::provision::lifecycle::{
     ai_exec_command_text, prepare_toggle_start_stop, set_environment_template_script,
 };
 use aibox_core::provision::resources::{
-    download_os_image_script, remove_os_image_script, validate_and_prepare_update_resources,
+    download_os_image_script, prepare_prefetch_os_image, remove_os_image_script,
+    validate_and_prepare_update_resources,
 };
 use aibox_core::snapshot::auto::decide_auto_snapshot;
 use aibox_core::util::paths::{cache_base_path, CONTAINER_WORKSPACE_PATH};
 use aibox_core::util::time::{now_compact_stamp, now_epoch_secs};
 
-use crate::qt_backend::qobject;
+use crate::qt_backend::{find_executable, qobject};
 
 impl qobject::Backend {
     #[allow(clippy::too_many_arguments)]
@@ -60,7 +61,7 @@ impl qobject::Backend {
         ) {
             Ok(p) => p,
             Err(err) => {
-                self.as_mut().set_error_message(&err);
+                self.as_mut().set_error_message(&err.to_string());
                 return;
             }
         };
@@ -123,6 +124,10 @@ impl qobject::Backend {
                 .map(|e| e.network_allowlist.as_str())
                 .unwrap_or(""),
             src_env.as_ref().map(|e| e.env_type.as_str()).unwrap_or(""),
+            src_env
+                .as_ref()
+                .map(|e| e.workspace_path.as_str())
+                .unwrap_or(""),
             &new_name.to_string(),
             &existing_names,
             &disk_gib.to_string(),
@@ -137,7 +142,7 @@ impl qobject::Backend {
         ) {
             Ok(p) => p,
             Err(err) => {
-                self.as_mut().set_error_message(&err);
+                self.as_mut().set_error_message(&err.to_string());
                 return;
             }
         };
@@ -200,7 +205,7 @@ impl qobject::Backend {
         ) {
             Ok(p) => p,
             Err(err) => {
-                self.as_mut().set_error_message(&err);
+                self.as_mut().set_error_message(&err.to_string());
                 return;
             }
         };
@@ -245,7 +250,7 @@ impl qobject::Backend {
             env.as_ref().is_some_and(|e| e.env_type == "VM"),
         ) {
             Ok(p) => p,
-            Err(err) => return QString::from(err.as_str()),
+            Err(err) => return QString::from(err.to_string().as_str()),
         };
 
         self.as_mut()
@@ -283,6 +288,32 @@ impl qobject::Backend {
         let plan = remove_os_image_script(&os_s, &cache_base);
         self.as_mut()
             .run_shell_task(&plan.title, &plan.script, "", "");
+    }
+
+    /// Starts a non-blocking background pre-fetch for an OS image when selected in the catalog.
+    pub fn prefetch_os_image(self: Pin<&mut Self>, os_id: &QString) {
+        if self.demo_mode || find_executable("incus").is_none() {
+            return;
+        }
+        let os_s = os_id.to_string();
+        let cache_base = cache_base_path(&self.engine.config.os_storage_path, &os_s);
+        let already_cached = std::path::Path::new(&cache_base).exists()
+            && std::path::Path::new(&format!("{cache_base}.root")).exists();
+        let Ok(Some(plan)) = prepare_prefetch_os_image(
+            &os_s,
+            &self.engine.config.os_catalog,
+            &self.engine.config.os_storage_path,
+            already_cached,
+        ) else {
+            return;
+        };
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("/bin/bash")
+                .args(["-c", &plan.script])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        });
     }
 
     pub fn copy_ai_command(self: Pin<&mut Self>, name: &QString) {

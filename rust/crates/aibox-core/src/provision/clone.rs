@@ -1,9 +1,10 @@
-use crate::health::limits::{is_valid_io_limit, is_valid_process_limit};
 use crate::network::acl::acl_apply_shell_snippet;
 use crate::network::allowlist::{parse_allowlist_entries, resolve_allowlist_cidrs, HostResolver};
-use crate::provision::{clean_limit_value, is_valid_size_spec};
+use crate::provision::templates::{render_template, rollback_trap_snippet, CLONE_SCRIPT_TEMPLATE};
+use crate::provision::{
+    is_valid_size_spec, validate_limits, validate_new_env_name, ProvisionError,
+};
 use crate::snapshot::workspace::workspace_create_snippet;
-use crate::util::names::sanitize_name;
 use crate::util::paths::{resolve_workspace_path, CONTAINER_WORKSPACE_PATH};
 use crate::util::shell::shell_quote;
 
@@ -19,6 +20,41 @@ pub fn clone_environment_script(
     source_name: &str,
     new_name: &str,
     workspace: &str,
+    disk_gib: &str,
+    ram_gib: &str,
+    cpu_cores: i32,
+    start_after: bool,
+    net_mode: &str,
+    net_allowlist: &str,
+    resolved_cidrs: &[String],
+    process_limit: &str,
+    io_limit: &str,
+    is_vm: bool,
+) -> String {
+    clone_environment_script_with_source(
+        source_name,
+        new_name,
+        workspace,
+        "",
+        disk_gib,
+        ram_gib,
+        cpu_cores,
+        start_after,
+        net_mode,
+        net_allowlist,
+        resolved_cidrs,
+        process_limit,
+        io_limit,
+        is_vm,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn clone_environment_script_with_source(
+    source_name: &str,
+    new_name: &str,
+    workspace: &str,
+    source_workspace: &str,
     disk_gib: &str,
     ram_gib: &str,
     cpu_cores: i32,
@@ -86,16 +122,23 @@ pub fn clone_environment_script(
         ""
     };
 
-    format!(
-        "\nset -euo pipefail\nSRC={}\nDST={}\nWORKSPACE={}\nWS_PATH={}\n\necho \"@@STAGE:12:Step 1/3 — Preparing fresh workspace directory...\"\n{}\nif command -v setfacl >/dev/null 2>&1; then\n    ACL_USER=\"${{SUDO_USER:-${{USER:-$(id -un)}}}}\"\n    setfacl -R -m \"u:${{ACL_USER}}:rwx\" -m \"m::rwx\" -d -m \"u:${{ACL_USER}}:rwx\" -d -m \"m::rwx\" \"$WORKSPACE\" 2>/dev/null || true\nfi\n\necho \"@@STAGE:35:Step 2/3 — Cloning environment with Btrfs copy-on-write...\"\nscript -q -e -c \"incus copy \\\"$SRC\\\" \\\"$DST\\\" --stateless\" /dev/null\n\necho \"@@STAGE:70:Step 3/3 — Configuring isolated workspace & limits...\"\nincus config unset \"$DST\" user.aibox.template >/dev/null 2>&1 || true\nincus config device remove \"$DST\" workspace >/dev/null 2>&1 || true\nif ! incus config device add \"$DST\" workspace disk source=\"$WORKSPACE\" path=\"$WS_PATH\" shift=true >/dev/null 2>&1; then\n    incus config device add \"$DST\" workspace disk source=\"$WORKSPACE\" path=\"$WS_PATH\" >/dev/null\nfi\n{}\n{}\n{}\necho \"@@STAGE:100:Clone ready!\"\n",
-        shell_quote(source_name),
-        shell_quote(new_name),
-        shell_quote(workspace),
-        shell_quote(CONTAINER_WORKSPACE_PATH),
-        workspace_create_snippet(workspace),
-        quota_lines.trim(),
-        net_snippet,
-        start_snippet,
+    let rollback_trap = rollback_trap_snippet("DST");
+    let ws_create = workspace_create_snippet(workspace);
+
+    render_template(
+        CLONE_SCRIPT_TEMPLATE,
+        &[
+            ("SRC", &shell_quote(source_name)),
+            ("DST", &shell_quote(new_name)),
+            ("WORKSPACE", &shell_quote(workspace)),
+            ("SRC_WORKSPACE", &shell_quote(source_workspace)),
+            ("WS_PATH", &shell_quote(CONTAINER_WORKSPACE_PATH)),
+            ("ROLLBACK_TRAP", &rollback_trap),
+            ("WORKSPACE_CREATE", &ws_create),
+            ("QUOTA_LINES", quota_lines.trim()),
+            ("NET_SNIPPET", &net_snippet),
+            ("START_SNIPPET", start_snippet),
+        ],
     )
 }
 
@@ -107,6 +150,7 @@ pub fn prepare_clone_environment<R: HostResolver>(
     source_net_mode: &str,
     source_net_allowlist: &str,
     source_type: &str,
+    source_workspace: &str,
     raw_new_name: &str,
     existing_names: &[String],
     disk_gib: &str,
@@ -118,46 +162,26 @@ pub fn prepare_clone_environment<R: HostResolver>(
     workspace_parent: &str,
     workspace_base: &str,
     resolver: &R,
-) -> Result<CloneEnvironmentPlan, String> {
+) -> Result<CloneEnvironmentPlan, ProvisionError> {
     if busy {
-        return Err(
-            "Another operation is currently in progress. Please wait or cancel it first."
-                .to_string(),
-        );
+        return Err(ProvisionError::Busy);
     }
     if !source_exists {
-        return Err(format!("Source environment '{source_name}' was not found."));
+        return Err(ProvisionError::SourceNotFound(source_name.to_string()));
     }
-    let new_name = sanitize_name(raw_new_name);
-    if new_name.is_empty() {
-        return Err(
-            "Please enter a valid environment name (letters, numbers, hyphens).".to_string(),
-        );
-    }
-    if existing_names.iter().any(|n| n == &new_name) {
-        return Err(format!("Environment '{new_name}' already exists."));
-    }
+    let new_name = validate_new_env_name(raw_new_name, existing_names)?;
 
+    if !(0..=1024).contains(&cpu_cores) {
+        return Err(ProvisionError::InvalidCpuCores);
+    }
     if !disk_gib.trim().is_empty() && !is_valid_size_spec(disk_gib) {
-        return Err("The disk quota is invalid. Use a value such as 35GiB.".to_string());
+        return Err(ProvisionError::InvalidDiskQuota);
     }
     if !ram_gib.trim().is_empty() && !is_valid_size_spec(ram_gib) {
-        return Err("The RAM limit is invalid. Use a value such as 6GiB.".to_string());
+        return Err(ProvisionError::InvalidRamLimit);
     }
 
-    let clean_proc = clean_limit_value(process_limit);
-    let clean_io = clean_limit_value(io_limit);
-    if !is_valid_process_limit(&clean_proc) {
-        return Err(
-            "The process limit is invalid. Use an integer >= 10 (e.g. 512) or leave unlimited."
-                .to_string(),
-        );
-    }
-    if !is_valid_io_limit(&clean_io) {
-        return Err(
-            "The disk I/O limit is invalid. Use a rate such as 200MB or 2500iops.".to_string(),
-        );
-    }
+    let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
 
     let resolved_cidrs = if source_net_mode == "allowlist" {
         let entries = parse_allowlist_entries(source_net_allowlist);
@@ -167,11 +191,13 @@ pub fn prepare_clone_environment<R: HostResolver>(
     };
 
     let is_vm = source_type.eq_ignore_ascii_case("VM");
-    let host_workspace = resolve_workspace_path(workspace_parent, &new_name, workspace_base)?;
-    let script = clone_environment_script(
+    let host_workspace = resolve_workspace_path(workspace_parent, &new_name, workspace_base)
+        .map_err(ProvisionError::InvalidWorkspacePath)?;
+    let script = clone_environment_script_with_source(
         source_name,
         &new_name,
         &host_workspace,
+        source_workspace,
         disk_gib,
         ram_gib,
         cpu_cores,
@@ -259,7 +285,7 @@ mod tests {
         assert!(output.status.success(), "{output:?}");
 
         let log = fs::read_to_string(&log_path).unwrap();
-        assert!(log.contains("copy node-tpl cloned-box --stateless"));
+        assert!(log.contains("copy node-tpl cloned-box --instance-only --stateless"));
         assert!(log.contains("config unset cloned-box user.aibox.template"));
         assert!(log.contains("config device remove cloned-box workspace"));
         assert!(log.contains(&format!(
@@ -290,5 +316,246 @@ mod tests {
         );
         assert!(clone_script.contains("limits.processes '1024'"));
         assert!(clone_script.contains("limits.read='100MB' limits.write='100MB'"));
+    }
+
+    #[test]
+    fn prepare_clone_environment_validates_inputs_with_typed_errors() {
+        struct NoopResolver;
+        impl HostResolver for NoopResolver {
+            fn resolve_ipv4(&self, _host: &str) -> Vec<String> {
+                Vec::new()
+            }
+        }
+        let resolver = NoopResolver;
+        let existing = vec!["taken".to_string()];
+
+        assert_eq!(
+            prepare_clone_environment(
+                true,
+                "src",
+                true,
+                "online",
+                "",
+                "CT",
+                "/tmp/ws/src",
+                "dst",
+                &existing,
+                "40GiB",
+                "8GiB",
+                4,
+                false,
+                "512",
+                "100MB",
+                "",
+                "/tmp/ws",
+                &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::Busy
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "missing", false, "online", "", "CT", "", "dst", &existing, "40GiB", "8GiB",
+                4, false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::SourceNotFound("missing".into())
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "!!!", &existing, "40GiB", "8GiB", 4,
+                false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidName
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "taken", &existing, "40GiB", "8GiB", 4,
+                false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::AlreadyExists("taken".into())
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "dst", &existing, "40GiB", "8GiB", -1,
+                false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidCpuCores
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "dst", &existing, "bad", "8GiB", 4,
+                false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidDiskQuota
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "dst", &existing, "40GiB", "bad", 4,
+                false, "512", "100MB", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidRamLimit
+        );
+    }
+
+    #[test]
+    fn clone_environment_script_uses_btrfs_snapshot_when_supported() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aibox-prov-btrfs-clone-{nanos}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let stub_dir = dir.join("stubs");
+        fs::create_dir_all(&stub_dir).unwrap();
+        let src_ws = dir.join("ws/src-box");
+        let dst_ws = dir.join("ws/dst-box");
+        fs::create_dir_all(&src_ws).unwrap();
+        let btrfs_log = dir.join("btrfs.log");
+
+        write_executable(&stub_dir.join("incus"), "#!/bin/sh\nexit 0\n");
+        write_executable(&stub_dir.join("script"), "#!/bin/sh\nexec bash -c \"$4\"\n");
+        write_executable(&stub_dir.join("sleep"), "#!/bin/sh\nexit 0\n");
+        write_executable(
+            &stub_dir.join("stat"),
+            "#!/bin/sh\ncase \"$*\" in\n    *%T*) echo btrfs; exit 0;;\n    *%i*) echo 256; exit 0;;\nesac\nexec /usr/bin/stat \"$@\"\n",
+        );
+        write_executable(
+            &stub_dir.join("btrfs"),
+            "#!/bin/sh\necho \"$@\" >> \"$AIBOX_BTRFS_LOG\"\nif [ \"$1\" = subvolume ] && [ \"$2\" = snapshot ]; then mkdir -p \"$4\"; fi\nexit 0\n",
+        );
+
+        let script_path = dir.join("clone.sh");
+        let script = clone_environment_script_with_source(
+            "src-box",
+            "dst-box",
+            &dst_ws.to_string_lossy(),
+            &src_ws.to_string_lossy(),
+            "40GiB",
+            "8GiB",
+            4,
+            false,
+            "online",
+            "",
+            &[],
+            "",
+            "",
+            false,
+        );
+        fs::write(&script_path, script).unwrap();
+
+        let path_env = format!(
+            "{}:{}",
+            stub_dir.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let output = Command::new("/bin/bash")
+            .arg(&script_path)
+            .env("PATH", path_env)
+            .env("AIBOX_BTRFS_LOG", &btrfs_log)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+
+        let log = fs::read_to_string(&btrfs_log).unwrap();
+        assert!(
+            log.contains(&format!(
+                "subvolume snapshot {} {}",
+                src_ws.display(),
+                dst_ws.display()
+            )),
+            "expected btrfs subvolume snapshot, got: {log}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clone_environment_script_rolls_back_at_every_stage() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("aibox-prov-clone-rb-{nanos}"));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let stub_dir = base.join("stubs");
+        fs::create_dir_all(&stub_dir).unwrap();
+
+        write_executable(
+            &stub_dir.join("incus"),
+            r#"#!/bin/sh
+echo "$@" >> "$AIBOX_STUB_LOG"
+if [ "$1" = copy ] && [ "$FAIL_AT" = "copy" ]; then exit 2; fi
+if [ "$1" = config ] && [ "$2" = device ] && [ "$3" = add ] && [ "$FAIL_AT" = "device_add" ]; then exit 3; fi
+if [ "$1" = start ] && [ "$FAIL_AT" = "start" ]; then exit 4; fi
+exit 0
+"#,
+        );
+        write_executable(&stub_dir.join("script"), "#!/bin/sh\nexec bash -c \"$4\"\n");
+        write_executable(&stub_dir.join("sleep"), "#!/bin/sh\nexit 0\n");
+
+        let path_env = format!(
+            "{}:{}",
+            stub_dir.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+
+        for fail_at in ["copy", "device_add", "start"] {
+            let ws = base.join(format!("ws-{fail_at}"));
+            let log_path = base.join(format!("incus-{fail_at}.log"));
+            let script_path = base.join(format!("clone-{fail_at}.sh"));
+            let script = clone_environment_script(
+                "src-tpl",
+                "dst-rb",
+                &ws.to_string_lossy(),
+                "40GiB",
+                "8GiB",
+                4,
+                fail_at == "start",
+                "online",
+                "",
+                &[],
+                "",
+                "",
+                false,
+            );
+            fs::write(&script_path, script).unwrap();
+
+            let output = Command::new("/bin/bash")
+                .arg(&script_path)
+                .env("PATH", &path_env)
+                .env("AIBOX_STUB_LOG", &log_path)
+                .env("FAIL_AT", fail_at)
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "expected failure at {fail_at}");
+            assert!(
+                !ws.exists(),
+                "workspace should have been rolled back on failure at {fail_at}"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("[rollback]"),
+                "expected rollback log at {fail_at}, got: {stderr}"
+            );
+            let log = fs::read_to_string(&log_path).unwrap();
+            if fail_at == "copy" {
+                assert!(!log.contains("delete dst-rb --force"), "log: {log}");
+            } else {
+                assert!(log.contains("delete dst-rb --force"), "log: {log}");
+                assert!(
+                    log.contains("network acl delete aibox-dst-rb"),
+                    "log: {log}"
+                );
+            }
+        }
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

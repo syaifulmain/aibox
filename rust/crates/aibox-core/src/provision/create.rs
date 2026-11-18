@@ -1,8 +1,9 @@
 use crate::config::defaults::{OsEntry, Preset};
-use crate::health::limits::{is_valid_io_limit, is_valid_process_limit};
-use crate::provision::{clean_limit_value, is_valid_size_spec};
+use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
+use crate::provision::{
+    is_valid_size_spec, validate_limits, validate_new_env_name, ProvisionError,
+};
 use crate::snapshot::workspace::workspace_create_snippet;
-use crate::util::names::sanitize_name;
 use crate::util::paths::{cache_base_path, resolve_workspace_path, CONTAINER_WORKSPACE_PATH};
 use crate::util::shell::{shell_array_words, shell_quote};
 
@@ -47,21 +48,24 @@ pub fn create_environment_script(
 
     let ws_snippet = workspace_create_snippet(workspace);
     let cache_root = format!("{cache_base}.root");
+    let rollback_trap = rollback_trap_snippet("NAME");
 
-    format!(
-        "\nset -euo pipefail\nNAME={}\nLOCAL_ALIAS={}\nREMOTE_IMAGE={}\nWORKSPACE={}\nWS_PATH={}\nCACHE={}\nCACHE_ROOT={}\nPROFILE_ARGS=({})\nQUOTA_ARGS=({})\nX11={}\n\necho \"@@STAGE:8:Step 1/4 — Preparing shared workspace directory...\"\n{}\nif command -v setfacl >/dev/null 2>&1; then\n    ACL_USER=\"${{SUDO_USER:-${{USER:-$(id -un)}}}}\"\n    setfacl -R -m \"u:${{ACL_USER}}:rwx\" -m \"m::rwx\" -d -m \"u:${{ACL_USER}}:rwx\" -d -m \"m::rwx\" \"$WORKSPACE\" 2>/dev/null || true\nfi\n\nif incus image info \"$LOCAL_ALIAS\" >/dev/null 2>&1; then\n    echo \"@@STAGE:60:Step 2/4 — Using cached OS image ($LOCAL_ALIAS)...\"\n    SOURCE_IMAGE=\"$LOCAL_ALIAS\"\nelif [ -s \"$CACHE\" ] && [ -s \"$CACHE_ROOT\" ]; then\n    echo \"@@STAGE:30:Step 2/4 — Importing OS image from OS storage...\"\n    incus image import \"$CACHE\" \"$CACHE_ROOT\" --alias \"$LOCAL_ALIAS\"\n    SOURCE_IMAGE=\"$LOCAL_ALIAS\"\nelse\n    echo \"@@STAGE:12:Step 2/4 — Downloading OS image ($REMOTE_IMAGE)...\"\n    script -q -e -c \"incus image copy \\\"$REMOTE_IMAGE\\\" local: --alias \\\"$LOCAL_ALIAS\\\" --auto-update\" /dev/null\n    SOURCE_IMAGE=\"$LOCAL_ALIAS\"\nfi\n\necho \"@@STAGE:72:Step 3/4 — Launching isolated OS container & applying quotas...\"\nscript -q -e -c \"incus launch \\\"$SOURCE_IMAGE\\\" \\\"$NAME\\\" ${{PROFILE_ARGS[*]}} ${{QUOTA_ARGS[*]}}\" /dev/null\n\necho \"@@STAGE:86:Step 4/4 — Mounting $WS_PATH & waiting for network IP...\"\nsleep 1\n\nif ! incus config device add \"$NAME\" workspace disk source=\"$WORKSPACE\" path=\"$WS_PATH\" shift=true >/dev/null 2>&1; then\n    incus config device add \"$NAME\" workspace disk source=\"$WORKSPACE\" path=\"$WS_PATH\" >/dev/null\nfi\n\nif [[ \"$X11\" == \"1\" ]] && [[ -d /tmp/.X11-unix ]]; then\n    if command -v xhost >/dev/null 2>&1 && [[ -n \"${{DISPLAY:-}}\" ]]; then\n        xhost +local: >/dev/null 2>&1 || true\n    fi\n    incus config device add \"$NAME\" x11 disk source=/tmp/.X11-unix path=/tmp/.X11-unix >/dev/null 2>&1 || true\nfi\n\nincus exec \"$NAME\" -- sh -c '\n    mkdir -p \"$1\" && chmod 777 \"$1\" || true\n    if [ -f /etc/dhcpcd.conf ] && ! grep -q \"^noarp\" /etc/dhcpcd.conf; then\n        echo \"noarp\" >> /etc/dhcpcd.conf\n        pkill -HUP dhcpcd 2>/dev/null || udhcpc -i eth0 -n -q 2>/dev/null || true\n    fi\n' aibox \"$WS_PATH\" >/dev/null 2>&1 || true\n\nfor _ in 1 2 3 4 5; do\n    if incus list \"$NAME\" -f csv -c 4 | grep -q \"[0-9]\"; then\n        break\n    fi\n    sleep 1\ndone\n{}\necho \"@@STAGE:100:Environment ready!\"\n",
-        shell_quote(name),
-        shell_quote(local_alias),
-        shell_quote(remote_image),
-        shell_quote(workspace),
-        shell_quote(CONTAINER_WORKSPACE_PATH),
-        shell_quote(cache_base),
-        shell_quote(&cache_root),
-        shell_array_words(profile_flags),
-        shell_array_words(&quota_args),
-        if x11 { "1" } else { "0" },
-        ws_snippet,
-        ws_snippet,
+    render_template(
+        CREATE_SCRIPT_TEMPLATE,
+        &[
+            ("NAME", &shell_quote(name)),
+            ("LOCAL_ALIAS", &shell_quote(local_alias)),
+            ("REMOTE_IMAGE", &shell_quote(remote_image)),
+            ("WORKSPACE", &shell_quote(workspace)),
+            ("WS_PATH", &shell_quote(CONTAINER_WORKSPACE_PATH)),
+            ("CACHE", &shell_quote(cache_base)),
+            ("CACHE_ROOT", &shell_quote(&cache_root)),
+            ("PROFILE_ARGS", &shell_array_words(profile_flags)),
+            ("QUOTA_ARGS", &shell_array_words(&quota_args)),
+            ("X11", if x11 { "1" } else { "0" }),
+            ("ROLLBACK_TRAP", &rollback_trap),
+            ("WORKSPACE_CREATE", &ws_snippet),
+        ],
     )
 }
 
@@ -83,64 +87,40 @@ pub fn prepare_create_environment(
     workspace_parent: &str,
     workspace_base: &str,
     os_storage_path: &str,
-) -> Result<CreateEnvironmentPlan, String> {
+) -> Result<CreateEnvironmentPlan, ProvisionError> {
     if busy {
-        return Err(
-            "Another operation is currently in progress. Please wait or cancel it first."
-                .to_string(),
-        );
+        return Err(ProvisionError::Busy);
     }
 
-    let name = sanitize_name(raw_name);
-    if name.is_empty() {
-        return Err(
-            "Please enter a valid environment name (letters, numbers, hyphens).".to_string(),
-        );
-    }
+    let name = validate_new_env_name(raw_name, existing_names)?;
 
-    if existing_names.iter().any(|n| n == &name) {
-        return Err(format!("Environment '{name}' already exists."));
+    if !(1..=1024).contains(&cpu_cores) {
+        return Err(ProvisionError::InvalidCpuCores);
     }
-
     if !is_valid_size_spec(disk_gib) {
-        return Err("The disk quota is invalid. Use a value such as 35GiB.".to_string());
+        return Err(ProvisionError::InvalidDiskQuota);
     }
     if !is_valid_size_spec(ram_gib) {
-        return Err("The RAM limit is invalid. Use a value such as 6GiB.".to_string());
+        return Err(ProvisionError::InvalidRamLimit);
     }
 
-    let clean_proc = clean_limit_value(process_limit);
-    let clean_io = clean_limit_value(io_limit);
-    if !is_valid_process_limit(&clean_proc) {
-        return Err(
-            "The process limit is invalid. Use an integer >= 10 (e.g. 512) or leave unlimited."
-                .to_string(),
-        );
-    }
-    if !is_valid_io_limit(&clean_io) {
-        return Err(
-            "The disk I/O limit is invalid. Use a rate such as 200MB or 2500iops.".to_string(),
-        );
-    }
+    let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
 
     let os_entry = os_entries
         .iter()
         .find(|e| e.id == os_id)
         .or_else(|| os_entries.first())
-        .ok_or_else(|| {
-            "There is no OS in the catalog. Add one in Configuration first.".to_string()
-        })?;
+        .ok_or(ProvisionError::EmptyOsCatalog)?;
 
     let preset = presets
         .iter()
         .find(|p| p.id == preset_id)
         .or_else(|| presets.iter().find(|p| p.id == default_preset_id))
         .or_else(|| presets.first())
-        .ok_or_else(|| {
-            "There is no capability preset. Add one in Configuration first.".to_string()
-        })?;
+        .ok_or(ProvisionError::EmptyPresetCatalog)?;
 
-    let host_workspace = resolve_workspace_path(workspace_parent, &name, workspace_base)?;
+    let host_workspace = resolve_workspace_path(workspace_parent, &name, workspace_base)
+        .map_err(ProvisionError::InvalidWorkspacePath)?;
     let local_alias = format!("aibox-{}", os_entry.id);
     let cache_base = cache_base_path(os_storage_path, &os_entry.id);
     let is_vm = preset.flags.contains("--vm");
@@ -281,5 +261,262 @@ mod tests {
         );
         assert!(!vm_script.contains("limits.processes="));
         assert!(vm_script.contains("limits.read=200MB,limits.write=200MB"));
+    }
+
+    #[test]
+    fn prepare_create_environment_validates_inputs_with_typed_errors() {
+        let os = vec![OsEntry {
+            id: "arch".into(),
+            alias: "archlinux".into(),
+            name: "Arch".into(),
+            badge: "Rolling".into(),
+            description: "Arch Linux".into(),
+        }];
+        let presets = vec![Preset {
+            id: "gui".into(),
+            title: "GUI".into(),
+            sub: "GUI".into(),
+            flags: "-p default".into(),
+            x11: true,
+        }];
+        let existing = vec!["taken".to_string()];
+
+        assert_eq!(
+            prepare_create_environment(
+                true, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::Busy
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "!!!", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidName
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "taken", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::AlreadyExists("taken".into())
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 0,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidCpuCores
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "bad", "6GiB", 4,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidDiskQuota
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "bad", 4,
+                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidRamLimit
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "1", "200MB", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidProcessLimit
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "512", "bad", "", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidIoLimit
+        );
+        assert!(matches!(
+            prepare_create_environment(
+                false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
+                "512", "200MB", "/etc/bad", "/tmp/ws", "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidWorkspacePath(_)
+        ));
+        assert_eq!(
+            prepare_create_environment(
+                false,
+                "box1",
+                &existing,
+                "arch",
+                &[],
+                "gui",
+                "gui",
+                &presets,
+                "35GiB",
+                "6GiB",
+                4,
+                "512",
+                "200MB",
+                "",
+                "/tmp/ws",
+                "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::EmptyOsCatalog
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false,
+                "box1",
+                &existing,
+                "arch",
+                &os,
+                "gui",
+                "gui",
+                &[],
+                "35GiB",
+                "6GiB",
+                4,
+                "512",
+                "200MB",
+                "",
+                "/tmp/ws",
+                "/tmp/os"
+            )
+            .unwrap_err(),
+            ProvisionError::EmptyPresetCatalog
+        );
+    }
+
+    #[test]
+    fn create_environment_script_rolls_back_at_every_stage() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("aibox-prov-create-rb-{nanos}"));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let stub_dir = base.join("stubs");
+        fs::create_dir_all(&stub_dir).unwrap();
+
+        write_executable(
+            &stub_dir.join("incus"),
+            r#"#!/bin/sh
+echo "$@" >> "$AIBOX_STUB_LOG"
+if [ "$1" = image ] && [ "$2" = info ]; then exit 1; fi
+if [ "$1" = image ] && [ "$2" = copy ] && [ "$FAIL_AT" = "image_copy" ]; then exit 2; fi
+if [ "$1" = launch ] && [ "$FAIL_AT" = "launch" ]; then exit 3; fi
+if [ "$1" = config ] && [ "$2" = device ] && [ "$3" = add ] && [ "$FAIL_AT" = "device_add" ]; then exit 4; fi
+if [ "$1" = list ]; then echo "10.0.0.5"; fi
+exit 0
+"#,
+        );
+        write_executable(&stub_dir.join("script"), "#!/bin/sh\nexec bash -c \"$4\"\n");
+        write_executable(&stub_dir.join("sleep"), "#!/bin/sh\nexit 0\n");
+
+        let path_env = format!(
+            "{}:{}",
+            stub_dir.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+
+        for fail_at in ["image_copy", "launch", "device_add"] {
+            let ws = base.join(format!("ws-{fail_at}"));
+            let log_path = base.join(format!("incus-{fail_at}.log"));
+            let script_path = base.join(format!("create-{fail_at}.sh"));
+            let script = create_environment_script(
+                "rb-box",
+                "aibox-archlinux",
+                "images:archlinux",
+                &ws.to_string_lossy(),
+                &base.join("cache/aibox-archlinux").to_string_lossy(),
+                "-p default",
+                "6GiB",
+                "35GiB",
+                4,
+                false,
+                "",
+                "",
+                false,
+            );
+            fs::write(&script_path, script).unwrap();
+
+            let output = Command::new("/bin/bash")
+                .arg(&script_path)
+                .env("PATH", &path_env)
+                .env("AIBOX_STUB_LOG", &log_path)
+                .env("FAIL_AT", fail_at)
+                .env_remove("DISPLAY")
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "expected failure at {fail_at}");
+            assert!(
+                !ws.exists(),
+                "workspace should have been rolled back on failure at {fail_at}"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("[rollback]"),
+                "expected rollback log at {fail_at}, got: {stderr}"
+            );
+            let log = fs::read_to_string(&log_path).unwrap();
+            if fail_at == "device_add" {
+                assert!(log.contains("delete rb-box --force"), "log: {log}");
+                assert!(
+                    log.contains("network acl delete aibox-rb-box"),
+                    "log: {log}"
+                );
+            } else {
+                assert!(!log.contains("delete rb-box --force"), "log: {log}");
+            }
+        }
+
+        // Pre-existing workspace must NOT be deleted on rollback.
+        let preexisting_ws = base.join("ws-preexisting");
+        fs::create_dir_all(&preexisting_ws).unwrap();
+        let marker = preexisting_ws.join("keep.txt");
+        fs::write(&marker, "keep").unwrap();
+        let log_path = base.join("incus-preexisting.log");
+        let script_path = base.join("create-preexisting.sh");
+        let script = create_environment_script(
+            "rb-box",
+            "aibox-archlinux",
+            "images:archlinux",
+            &preexisting_ws.to_string_lossy(),
+            &base.join("cache/aibox-archlinux").to_string_lossy(),
+            "-p default",
+            "6GiB",
+            "35GiB",
+            4,
+            false,
+            "",
+            "",
+            false,
+        );
+        fs::write(&script_path, script).unwrap();
+        let output = Command::new("/bin/bash")
+            .arg(&script_path)
+            .env("PATH", &path_env)
+            .env("AIBOX_STUB_LOG", &log_path)
+            .env("FAIL_AT", "launch")
+            .env_remove("DISPLAY")
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(marker.exists(), "pre-existing workspace must be preserved");
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

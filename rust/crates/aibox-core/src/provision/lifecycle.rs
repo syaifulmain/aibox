@@ -1,3 +1,4 @@
+use crate::provision::ProvisionError;
 use crate::snapshot::workspace::workspace_mount_migration_script;
 use crate::util::paths::CONTAINER_WORKSPACE_PATH;
 use crate::util::shell::shell_quote;
@@ -166,11 +167,9 @@ pub fn prepare_toggle_start_stop(
     is_running: bool,
     auto_snap: &str,
     allow_refresh: &str,
-) -> Result<ToggleStartStopPlan, String> {
+) -> Result<ToggleStartStopPlan, ProvisionError> {
     if is_template {
-        return Err(
-            "Templates cannot be started directly. Clone or unmark as template first.".to_string(),
-        );
+        return Err(ProvisionError::TemplateStartNotAllowed);
     }
     if is_running {
         Ok(ToggleStartStopPlan {

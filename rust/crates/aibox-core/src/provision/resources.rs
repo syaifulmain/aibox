@@ -1,5 +1,7 @@
-use crate::health::limits::{is_valid_io_limit, is_valid_process_limit};
-use crate::provision::{clean_limit_value, is_valid_size_spec};
+use crate::config::defaults::OsEntry;
+use crate::provision::templates::{render_template, PREFETCH_IMAGE_TEMPLATE};
+use crate::provision::{is_valid_size_spec, validate_limits, ProvisionError};
+use crate::util::paths::cache_base_path;
 use crate::util::shell::shell_quote;
 use crate::util::size::parse_size_bytes;
 
@@ -97,48 +99,36 @@ pub fn validate_and_prepare_update_resources(
     used_bytes: i64,
     disk_usage_label: &str,
     is_vm: bool,
-) -> Result<UpdateResourcesPlan, String> {
+) -> Result<UpdateResourcesPlan, ProvisionError> {
     if name.is_empty() {
-        return Err("Select an environment first.".to_string());
+        return Err(ProvisionError::EmptySelection);
     }
     if busy {
-        return Err("Another operation is currently in progress.".to_string());
+        return Err(ProvisionError::Busy);
     }
     if !(1..=1024).contains(&cpu_cores) {
-        return Err("CPU cores must be between 1 and 1024.".to_string());
+        return Err(ProvisionError::InvalidCpuCores);
     }
     if !is_valid_size_spec(ram_gib) {
-        return Err("The RAM limit is invalid. Use a value such as 8GiB.".to_string());
+        return Err(ProvisionError::InvalidRamLimit);
     }
     if !is_valid_size_spec(disk_gib) {
-        return Err("The disk quota is invalid. Use a value such as 50GiB.".to_string());
+        return Err(ProvisionError::InvalidDiskQuota);
     }
 
-    let clean_proc = clean_limit_value(process_limit);
-    let clean_io = clean_limit_value(io_limit);
-    if !is_valid_process_limit(&clean_proc) {
-        return Err(
-            "The process limit is invalid. Use an integer >= 10 (e.g. 4096) or Unlimited."
-                .to_string(),
-        );
-    }
-    if !is_valid_io_limit(&clean_io) {
-        return Err(
-            "The disk I/O limit is invalid. Use a rate such as 200MB, 2500iops, or Unlimited."
-                .to_string(),
-        );
-    }
+    let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
 
     if !env_exists {
-        return Err(format!("Environment '{name}' was not found."));
+        return Err(ProvisionError::NotFound(name.to_string()));
     }
 
     let trimmed_disk = disk_gib.trim();
     let target_bytes = parse_size_bytes(trimmed_disk);
     if used_bytes > 0 && target_bytes > 0 && target_bytes < used_bytes {
-        return Err(format!(
-            "Cannot shrink disk quota ({trimmed_disk}) below current usage ({disk_usage_label})."
-        ));
+        return Err(ProvisionError::DiskShrinkBelowUsage {
+            target: trimmed_disk.to_string(),
+            current: disk_usage_label.to_string(),
+        });
     }
 
     Ok(UpdateResourcesPlan {
@@ -191,6 +181,53 @@ pub fn remove_os_image_script(os_id: &str, cache_base: &str) -> OsImageTaskPlan 
     }
 }
 
+/// Builds a quiet, idempotent background script to pre-fetch an OS image into Incus and OS storage.
+pub fn prefetch_os_image_script(os_id: &str, alias: &str, cache_base: &str) -> OsImageTaskPlan {
+    let local_alias = format!("aibox-{os_id}");
+    let remote_image = format!("images:{alias}");
+    let cache_root = format!("{cache_base}.root");
+    let script = render_template(
+        PREFETCH_IMAGE_TEMPLATE,
+        &[
+            ("LOCAL_ALIAS", &shell_quote(&local_alias)),
+            ("REMOTE_IMAGE", &shell_quote(&remote_image)),
+            ("CACHE", &shell_quote(cache_base)),
+            ("CACHE_ROOT", &shell_quote(&cache_root)),
+        ],
+    );
+    OsImageTaskPlan {
+        title: format!("Pre-fetching OS image '{os_id}'"),
+        script,
+    }
+}
+
+/// Validates and builds a background pre-fetch plan when an OS catalog entry is selected.
+/// Returns `Ok(None)` if the image is already cached locally.
+pub fn prepare_prefetch_os_image(
+    os_id: &str,
+    os_entries: &[OsEntry],
+    os_storage_path: &str,
+    already_cached: bool,
+) -> Result<Option<OsImageTaskPlan>, ProvisionError> {
+    let clean_id = os_id.trim();
+    if clean_id.is_empty() {
+        return Err(ProvisionError::EmptySelection);
+    }
+    let entry = os_entries
+        .iter()
+        .find(|e| e.id == clean_id)
+        .ok_or_else(|| ProvisionError::UnknownOsEntry(clean_id.to_string()))?;
+    if already_cached {
+        return Ok(None);
+    }
+    let cache_base = cache_base_path(os_storage_path, &entry.id);
+    Ok(Some(prefetch_os_image_script(
+        &entry.id,
+        &entry.alias,
+        &cache_base,
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,8 +269,40 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(
-            shrink_err,
+            shrink_err.to_string(),
             "Cannot shrink disk quota (10GiB) below current usage (20.0 GiB)."
         );
+    }
+
+    #[test]
+    fn prefetch_os_image_validates_and_skips_when_cached() {
+        let catalog = vec![OsEntry {
+            id: "archlinux".into(),
+            alias: "archlinux".into(),
+            name: "Arch Linux".into(),
+            badge: "Rolling".into(),
+            description: "Arch".into(),
+        }];
+
+        assert_eq!(
+            prepare_prefetch_os_image("", &catalog, "/tmp/os", false).unwrap_err(),
+            ProvisionError::EmptySelection
+        );
+        assert_eq!(
+            prepare_prefetch_os_image("unknown", &catalog, "/tmp/os", false).unwrap_err(),
+            ProvisionError::UnknownOsEntry("unknown".into())
+        );
+        assert!(
+            prepare_prefetch_os_image("archlinux", &catalog, "/tmp/os", true)
+                .unwrap()
+                .is_none()
+        );
+
+        let plan = prepare_prefetch_os_image("archlinux", &catalog, "/tmp/os", false)
+            .unwrap()
+            .expect("expected prefetch plan");
+        assert!(plan.title.contains("archlinux"));
+        assert!(plan.script.contains("incus image copy"));
+        assert!(plan.script.contains("incus image export"));
     }
 }
