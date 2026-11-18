@@ -9,10 +9,6 @@ use crate::util::paths::{atomic_write, home_dir};
 
 const SVG_TEMPLATE: &str = include_str!("../../../../../pkgbuild/aibox.svg.tpl");
 
-fn parse_rgb_or(hex: &str, fallback: Rgb) -> Rgb {
-    Rgb::from_hex(hex).unwrap_or(fallback)
-}
-
 fn shift_oklab_l(c: Rgb, delta_l: f64) -> Rgb {
     let lab = to_oklab(c);
     from_oklab(Oklab {
@@ -25,24 +21,13 @@ fn shift_oklab_l(c: Rgb, delta_l: f64) -> Rgb {
 /// Renders the adaptive desktop icon SVG for `palette` by substituting
 /// contrast-guarded color tokens into `pkgbuild/aibox.svg.tpl`.
 pub fn render(palette: &Palette) -> String {
-    let default_bg = if palette.is_dark {
-        Rgb::BLACK
-    } else {
-        Rgb::WHITE
-    };
-    let default_fg = if palette.is_dark {
-        Rgb::WHITE
-    } else {
-        Rgb::BLACK
-    };
-
-    let bg = parse_rgb_or(&palette.surface_canvas, default_bg);
-    let card = parse_rgb_or(&palette.surface_card, bg);
-    let input = parse_rgb_or(&palette.surface_input, card);
-    let fg = parse_rgb_or(&palette.text_primary, default_fg);
-    let accent = parse_rgb_or(&palette.accent, fg);
-    let border_strong = parse_rgb_or(&palette.border_strong, fg);
-    let border_subtle = parse_rgb_or(&palette.border_subtle, card);
+    let bg = palette.surface_canvas.rgb();
+    let card = palette.surface_card.rgb();
+    let input = palette.surface_input.rgb();
+    let fg = palette.text_primary.rgb();
+    let accent = palette.accent.rgb();
+    let border_strong = palette.border_strong.rgb();
+    let border_subtle = palette.border_subtle.rgb();
 
     let (bg_top, bg_bottom) = if palette.is_dark {
         (mix(card, fg, 0.08), input)

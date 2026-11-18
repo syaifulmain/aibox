@@ -144,7 +144,7 @@ macro_rules! define_theme_rust {
                 Self {
                     is_dark: palette.is_dark,
                     mode: QString::from(&colors.mode),
-                    $($palette_field: QString::from(&palette.$palette_field),)+
+                    $($palette_field: QString::from(&palette.$palette_field.to_qml_hex()),)+
                     mode_override: QString::from("auto"),
                     high_contrast: false,
                     reduce_motion: false,
@@ -169,7 +169,7 @@ macro_rules! define_theme_rust {
             ) {
                 self.is_dark = palette.is_dark;
                 self.mode = QString::from(if palette.is_dark { "dark" } else { "light" });
-                $(self.$palette_field = QString::from(&palette.$palette_field);)+
+                $(self.$palette_field = QString::from(&palette.$palette_field.to_qml_hex());)+
                 self.colors = colors;
                 self.palette = palette;
             }
@@ -453,25 +453,7 @@ fn load_colors_and_palette(
     theme_dir: &Path,
     opts: aibox_core::theme::PaletteOptions,
 ) -> (aibox_core::theme::ThemeColors, aibox_core::theme::Palette) {
-    let candidate = if theme_dir.is_file() {
-        Some(theme_dir.to_path_buf())
-    } else if theme_dir.join("theme").join("colors.toml").is_file() {
-        Some(theme_dir.join("theme").join("colors.toml"))
-    } else if theme_dir.join("colors.toml").is_file() {
-        Some(theme_dir.join("colors.toml"))
-    } else {
-        None
-    };
-
-    let colors = match candidate {
-        Some(path) => match path.to_str() {
-            Some(s) => aibox_core::theme::parse_colors_file(s),
-            None => aibox_core::theme::ThemeColors::default(),
-        },
-        None => aibox_core::theme::ThemeColors::default(),
-    };
-    let palette = aibox_core::theme::derive_palette_with_options(&colors, opts);
-    (colors, palette)
+    aibox_core::theme::load_colors_and_palette(theme_dir, opts)
 }
 
 fn default_theme_dir(override_dir: &str) -> String {

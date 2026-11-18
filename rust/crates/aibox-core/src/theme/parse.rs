@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::color::{relative_luminance, Rgb};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeColors {
     pub is_dark: bool,

@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Theme: `Copy` `Rgba` Representation, Palette Cache & Split `palette/` (`rust/crates/aibox-core/src/theme/`)
+
+- **`Copy` color representation (`color.rs`, `palette/mod.rs`, `icon.rs`, `qt_theme.rs`):** Added `struct Rgba(u8, u8, u8, u8)` (`Copy`, `Serialize`, `Display`) and switched `Palette` fields from `String` to `Rgba`, removing 49 `.clone()` calls in `Palette::tokens()` and formatting to `#rrggbb`/`#aarrggbb` only when exported to QML, JSON, or dumps. `icon::render` now reads `Rgba::rgb()` directly without re-parsing hex.
+- **Palette cache (`palette/cache.rs`):** Added bounded `PaletteCache` keyed by deterministic FNV-1a hashes of `(ThemeColors, PaletteOptions)` and `(toml_bytes, PaletteOptions)`, wired into `derive_palette_with_options` and `load_colors_and_palette` (shared with `qt_theme.rs`) so file-watcher reloads with unchanged contents skip both parsing and palette derivation.
+- **Split `palette/` (`palette/contrast.rs`, `palette/derive.rs`, `palette/cache.rs`, `palette/mod.rs`):** Separated WCAG contrast thresholds, status derivation, and `validate_palette_contrast` into `palette/contrast.rs`, pure derivation into `palette/derive.rs`, and caching into `palette/cache.rs`.
+- **Tests & verification:** Added `validate_palette_contrast` coverage across all 23 Omarchy fixtures in `Auto`, `High Contrast`, `Light`, and `Dark` modes, `PaletteCache` hit/miss tests, a `< 1 ms` palette build timing test, and a golden JSON snapshot test (`tests/theme_palette_golden.rs` + `tests/golden/theme_palettes.json`).
+
 ### Core Config: Typed `ConfigError`, Schema Versioning & Split Settings (`rust/crates/aibox-core/src/config/`)
 
 - **Typed error (`config/error.rs`):** Added `ConfigError` (`thiserror`) with `Io(#[from] IoError)`, `Parse { path, source }`, and `Invalid { field, reason }` variants, replacing `Result<_, String>` across `config/model.rs` and `config/settings/`. Boundary callers in `aibox-app` (`qt_backend*.rs`) and `golden.rs` convert `ConfigError` to `String`/`QString`.

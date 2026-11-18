@@ -1,9 +1,11 @@
+use std::fmt;
 use std::sync::OnceLock;
 
 use regex::Regex;
+use serde::Serialize;
 
 /// 8-bit sRGB color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
@@ -41,6 +43,112 @@ impl Rgb {
     pub fn to_qml_argb(self, alpha: f64) -> String {
         let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
         format!("#{:02x}{:02x}{:02x}{:02x}", a, self.r, self.g, self.b)
+    }
+}
+
+/// 8-bit sRGBA color stored as `(r, g, b, a)`.
+///
+/// `Copy` so derived palettes can be passed and cached without heap allocations,
+/// formatting to `#rrggbb` or `#aarrggbb` only when exported to QML or JSON.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Rgba(pub u8, pub u8, pub u8, pub u8);
+
+impl Default for Rgba {
+    fn default() -> Self {
+        Self::BLACK
+    }
+}
+
+impl Rgba {
+    pub const BLACK: Self = Self(0, 0, 0, 255);
+    pub const WHITE: Self = Self(255, 255, 255, 255);
+
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self(r, g, b, a)
+    }
+
+    pub const fn from_rgb(rgb: Rgb) -> Self {
+        Self(rgb.r, rgb.g, rgb.b, 255)
+    }
+
+    pub const fn from_rgb_alpha(rgb: Rgb, a: u8) -> Self {
+        Self(rgb.r, rgb.g, rgb.b, a)
+    }
+
+    pub fn with_alpha(rgb: Rgb, alpha: f64) -> Self {
+        let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
+        Self(rgb.r, rgb.g, rgb.b, a)
+    }
+
+    pub const fn rgb(self) -> Rgb {
+        Rgb {
+            r: self.0,
+            g: self.1,
+            b: self.2,
+        }
+    }
+
+    /// Parses `#RRGGBB` (opaque) or `#AARRGGBB` into an `Rgba` value.
+    pub fn from_hex(hex: &str) -> Option<Self> {
+        let s = hex.trim();
+        let digits = s.strip_prefix('#')?;
+        match digits.len() {
+            6 => {
+                let rgb = Rgb::from_hex(s)?;
+                Some(Self::from_rgb(rgb))
+            }
+            8 => {
+                let a = u8::from_str_radix(&digits[0..2], 16).ok()?;
+                let r = u8::from_str_radix(&digits[2..4], 16).ok()?;
+                let g = u8::from_str_radix(&digits[4..6], 16).ok()?;
+                let b = u8::from_str_radix(&digits[6..8], 16).ok()?;
+                Some(Self(r, g, b, a))
+            }
+            _ => None,
+        }
+    }
+
+    /// Formats the RGB channels as lowercase `#rrggbb`.
+    pub fn to_hex(self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
+    }
+
+    /// Formats as `#rrggbb` when opaque (`a == 255`) or `#aarrggbb` when translucent.
+    pub fn to_qml_hex(self) -> String {
+        if self.3 == 255 {
+            self.to_hex()
+        } else {
+            format!("#{:02x}{:02x}{:02x}{:02x}", self.3, self.0, self.1, self.2)
+        }
+    }
+}
+
+impl From<Rgb> for Rgba {
+    fn from(rgb: Rgb) -> Self {
+        Self::from_rgb(rgb)
+    }
+}
+
+impl fmt::Display for Rgba {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.3 == 255 {
+            write!(f, "#{:02x}{:02x}{:02x}", self.0, self.1, self.2)
+        } else {
+            write!(
+                f,
+                "#{:02x}{:02x}{:02x}{:02x}",
+                self.3, self.0, self.1, self.2
+            )
+        }
+    }
+}
+
+impl Serialize for Rgba {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_qml_hex())
     }
 }
 
