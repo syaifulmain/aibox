@@ -90,6 +90,21 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> Result<(), IoError> {
 /// The temp file is fsynced before the rename and the parent directory after
 /// it, so the new contents survive a crash once this returns `Ok`.
 pub fn atomic_write_with_mode(path: &Path, data: &[u8], mode: Option<u32>) -> Result<(), IoError> {
+    atomic_write_with(path, mode, |file| {
+        file.write_all(data)?;
+        Ok(true)
+    })?;
+    Ok(())
+}
+
+/// Streams data to a sibling temp file via `write_fn` and atomically renames it
+/// over `path` if `write_fn` returns `Ok(true)`.
+///
+/// Returning `Ok(false)` aborts the replacement cleanly without touching `path`.
+pub fn atomic_write_with<F>(path: &Path, mode: Option<u32>, write_fn: F) -> Result<bool, IoError>
+where
+    F: FnOnce(&mut fs::File) -> std::io::Result<bool>,
+{
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -100,7 +115,7 @@ pub fn atomic_write_with_mode(path: &Path, data: &[u8], mode: Option<u32>) -> Re
     let pid = std::process::id();
     let tmp_path = parent.join(format!(".{file_name}.tmp.{pid}"));
 
-    let write_result = (|| -> Result<(), IoError> {
+    let write_result = (|| -> Result<bool, IoError> {
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
         if let Some(mode) = mode {
@@ -115,16 +130,26 @@ pub fn atomic_write_with_mode(path: &Path, data: &[u8], mode: Option<u32>) -> Re
             file.set_permissions(fs::Permissions::from_mode(mode))
                 .map_err(|e| IoError::new("set permissions on", &tmp_path, e))?;
         }
-        file.write_all(data)
-            .map_err(|e| IoError::new("write", &tmp_path, e))?;
+        let commit = write_fn(&mut file).map_err(|e| IoError::new("write", &tmp_path, e))?;
+        if !commit {
+            return Ok(false);
+        }
         file.sync_all()
             .map_err(|e| IoError::new("sync", &tmp_path, e))?;
-        Ok(())
+        Ok(true)
     })();
 
-    if let Err(err) = write_result {
+    let commit = match write_result {
+        Ok(commit) => commit,
+        Err(err) => {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(err);
+        }
+    };
+
+    if !commit {
         let _ = fs::remove_file(&tmp_path);
-        return Err(err);
+        return Ok(false);
     }
 
     if let Err(e) = fs::rename(&tmp_path, path) {
@@ -137,7 +162,7 @@ pub fn atomic_write_with_mode(path: &Path, data: &[u8], mode: Option<u32>) -> Re
     if let Ok(dir) = fs::File::open(parent) {
         let _ = dir.sync_all();
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Default global AIBox root directory (`$HOME/aibox`).

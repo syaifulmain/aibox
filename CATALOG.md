@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Core Session: Streaming Redaction, Atomic Write, Single-Pass ANSI & `sessions.idx` (`rust/crates/aibox-core/src/session.rs`)
+
+- **Streaming atomic redaction (`util/paths.rs`, `secrets/redact.rs`, `session.rs`):** Added `atomic_write_with` in `util::paths` (shared with `atomic_write_with_mode`) and `StreamingRedactor::finish_with_status` in `secrets::redact`. `redact_session_log_file` now streams 64 KiB chunks (`BufReader`/`BufWriter`) directly into a `0600` sibling temp file and atomically commits only when secrets were redacted, keeping memory constant for large logs.
+- **Single-pass streaming ANSI stripper (`session.rs`):** Replaced the 4-pass regex pipeline in `strip_ansi_sequences` with `StreamingAnsiStripper`, a single-pass byte state machine handling OSC (`\x07` / `\x1b\\`), CSI, 2-byte ESC, short ESC, `\r`, and `\x07` across arbitrary chunk boundaries. `read_recorded_session_log` now tail-seeks to the 400 KiB raw budget and streams 64 KiB chunks through `StreamingAnsiStripper`.
+- **Indexed retention pruning (`session.rs`):** Added a lightweight `<sessions_dir>/sessions.idx` cache (`SessionIndex` keyed by `env_name` and directory nanosecond mtime) written via `atomic_write_with_mode(..., Some(0o600))` so `prune_recorded_sessions` skips `read_dir` and per-file `stat` syscalls on unchanged environment directories.
+- **Verification tests (`session.rs`):** Added unit tests for ANSI sequences split across 1/3/5/7-byte chunk boundaries, 50 MiB session log streaming redaction + tail reading, and `sessions.idx` creation, reuse, and refresh.
+
 ### Core Secrets: `SecretsError`, Unified Atomic Write, Aho-Corasick Redaction & Security Tests (`rust/crates/aibox-core/src/secrets/`)
 
 - **Typed error (`secrets/error.rs`):** Added `SecretsError` (`thiserror`) across `store.rs`, `state.rs`, and `inject.rs`, ensuring `Display` never exposes secret values (only secret names, paths, modes, or static messages), with `From<SecretsError> for String` for boundary callers.

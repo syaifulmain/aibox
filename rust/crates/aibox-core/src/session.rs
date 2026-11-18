@@ -1,27 +1,30 @@
 //! Terminal session recording, ANSI stripping, redaction, retention pruning, and replay helpers.
 
+use std::collections::BTreeMap;
 use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::fs::{self, File};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use chrono::{DateTime, Local, Utc};
-use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::secrets::redact::redact_secrets_bytes;
+use crate::secrets::redact::StreamingRedactor;
 use crate::secrets::store::{default_secrets_store_path, load_secrets_store};
 use crate::util::format::format_bytes;
 use crate::util::names::sanitize_name;
-use crate::util::paths::clean_path;
+use crate::util::paths::{atomic_write_with, atomic_write_with_mode, clean_path};
 use crate::util::shell::shell_quote;
 
 pub const DEFAULT_SESSION_VIEW_MAX_BYTES: i32 = 200 * 1024;
 pub const DEFAULT_PRUNE_MAX_PER_ENV: i32 = 20;
 pub const DEFAULT_PRUNE_MAX_TOTAL_BYTES: i64 = 200 * 1024 * 1024;
+const STREAM_CHUNK_BYTES: usize = 64 * 1024;
+const SESSIONS_INDEX_FILE: &str = "sessions.idx";
+const SESSIONS_INDEX_VERSION: u32 = 1;
 
 const DEMO_SESSION_LOG: &str = concat!(
     "Script started on 2026-11-13 17:10:00+07:00 [COMMAND=\"incus exec desktop-studio --cwd /home/workspace -- bash -l\"]\n",
@@ -130,46 +133,194 @@ pub fn build_session_wrap_command(
     )
 }
 
-/// Strips ANSI/VT escape sequences and normalizes `\r\n` / `\r` for plain-text session viewing.
-pub fn strip_ansi_sequences(raw_text: &str) -> String {
-    static OSC_RE: OnceLock<Regex> = OnceLock::new();
-    static CSI_RE: OnceLock<Regex> = OnceLock::new();
-    static ESC2_RE: OnceLock<Regex> = OnceLock::new();
-    static ESC_SHORT_RE: OnceLock<Regex> = OnceLock::new();
+const MAX_OSC_PENDING: usize = 4096;
+const MAX_CSI_PENDING: usize = 256;
 
-    let osc_re = OSC_RE
-        .get_or_init(|| Regex::new(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").expect("valid OSC regex"));
-    let csi_re =
-        CSI_RE.get_or_init(|| Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]").expect("valid CSI regex"));
-    let esc2_re = ESC2_RE
-        .get_or_init(|| Regex::new(r"\x1b[()#%*+\-/][0-9A-Za-z]?").expect("valid ESC2 regex"));
-    let esc_short_re =
-        ESC_SHORT_RE.get_or_init(|| Regex::new(r"\x1b[@-Z\\-_]").expect("valid ESC short regex"));
-
-    let mut out = raw_text.replace("\r\n", "\n").replace('\r', "");
-    out = osc_re.replace_all(&out, "").into_owned();
-    out = csi_re.replace_all(&out, "").into_owned();
-    out = esc2_re.replace_all(&out, "").into_owned();
-    out = esc_short_re.replace_all(&out, "").into_owned();
-    out.replace('\x07', "")
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnsiState {
+    Normal,
+    Esc,
+    Osc,
+    OscEsc,
+    CsiParams,
+    CsiInter,
+    Esc2,
 }
 
-/// Strips ANSI sequences from `raw_bytes` and caps the output to the tail `max_bytes` (minimum 1024).
-pub fn format_recorded_session_text(raw_bytes: &[u8], max_bytes: i32) -> String {
-    if raw_bytes.is_empty() {
-        return String::new();
-    }
-    let cap = max_bytes.max(1024) as usize;
-    let mut truncated = false;
-    let raw_budget = cap * 2;
-    let slice = if raw_bytes.len() > raw_budget {
-        truncated = true;
-        &raw_bytes[raw_bytes.len() - raw_budget..]
-    } else {
-        raw_bytes
-    };
+/// Single-pass streaming ANSI/VT escape sequence stripper.
+///
+/// Handles sequences split across arbitrary chunk boundaries and strips `\r`
+/// and `\x07` while leaving multi-byte UTF-8 sequences untouched.
+pub struct StreamingAnsiStripper {
+    state: AnsiState,
+    pending: Vec<u8>,
+}
 
-    let mut clean = strip_ansi_sequences(&String::from_utf8_lossy(slice));
+impl Default for StreamingAnsiStripper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StreamingAnsiStripper {
+    pub fn new() -> Self {
+        Self {
+            state: AnsiState::Normal,
+            pending: Vec::new(),
+        }
+    }
+
+    /// Feeds a byte chunk and appends the stripped output to `out`.
+    pub fn feed_into(&mut self, chunk: &[u8], out: &mut Vec<u8>) {
+        for &b in chunk {
+            self.step(b, out);
+        }
+    }
+
+    /// Flushes any incomplete trailing escape sequence at EOF into `out`.
+    pub fn finish_into(mut self, out: &mut Vec<u8>) {
+        match self.state {
+            AnsiState::Normal | AnsiState::Esc2 => {}
+            AnsiState::Esc => out.push(0x1b),
+            AnsiState::Osc | AnsiState::OscEsc => {
+                for b in self.pending.drain(..) {
+                    if b != b'\r' && b != 0x07 {
+                        out.push(b);
+                    }
+                }
+            }
+            AnsiState::CsiParams | AnsiState::CsiInter => {
+                for b in self.pending.drain(..) {
+                    if b != b'\r' && b != 0x07 {
+                        out.push(b);
+                    }
+                }
+            }
+        }
+    }
+
+    fn step(&mut self, b: u8, out: &mut Vec<u8>) {
+        match self.state {
+            AnsiState::Normal => {
+                if b == 0x1b {
+                    self.state = AnsiState::Esc;
+                } else if b != b'\r' && b != 0x07 {
+                    out.push(b);
+                }
+            }
+            AnsiState::Esc => match b {
+                b']' => {
+                    self.pending.clear();
+                    self.state = AnsiState::Osc;
+                }
+                b'[' => {
+                    self.pending.clear();
+                    self.pending.extend_from_slice(b"\x1b[");
+                    self.state = AnsiState::CsiParams;
+                }
+                b'(' | b')' | b'#' | b'%' | b'*' | b'+' | b'-' | b'/' => {
+                    self.state = AnsiState::Esc2;
+                }
+                0x40..=0x5A | 0x5C..=0x5F => {
+                    self.state = AnsiState::Normal;
+                }
+                _ => {
+                    out.push(0x1b);
+                    self.state = AnsiState::Normal;
+                    self.step(b, out);
+                }
+            },
+            AnsiState::Osc => {
+                if b == 0x07 {
+                    self.pending.clear();
+                    self.state = AnsiState::Normal;
+                } else if b == 0x1b {
+                    self.state = AnsiState::OscEsc;
+                } else if self.pending.len() < MAX_OSC_PENDING {
+                    self.pending.push(b);
+                } else {
+                    // Unterminated/oversized OSC: drop the `\x1b]` prefix and flush payload.
+                    let buffered = std::mem::take(&mut self.pending);
+                    self.state = AnsiState::Normal;
+                    for pb in buffered {
+                        self.step(pb, out);
+                    }
+                    self.step(b, out);
+                }
+            }
+            AnsiState::OscEsc => {
+                if b == b'\\' {
+                    self.pending.clear();
+                    self.state = AnsiState::Normal;
+                } else {
+                    // Previous `\x1b` was not ST (`\x1b\\`), so OSC was unterminated.
+                    let buffered = std::mem::take(&mut self.pending);
+                    for pb in buffered {
+                        if pb != b'\r' && pb != 0x07 {
+                            out.push(pb);
+                        }
+                    }
+                    self.state = AnsiState::Esc;
+                    self.step(b, out);
+                }
+            }
+            AnsiState::CsiParams => {
+                if matches!(b, b'0'..=b'9' | b';' | b'?') && self.pending.len() < MAX_CSI_PENDING {
+                    self.pending.push(b);
+                } else if (0x20..=0x2F).contains(&b) && self.pending.len() < MAX_CSI_PENDING {
+                    self.pending.push(b);
+                    self.state = AnsiState::CsiInter;
+                } else if (0x40..=0x7E).contains(&b) {
+                    self.pending.clear();
+                    self.state = AnsiState::Normal;
+                } else {
+                    let buffered = std::mem::take(&mut self.pending);
+                    self.state = AnsiState::Normal;
+                    for pb in buffered {
+                        if pb != b'\r' && pb != 0x07 {
+                            out.push(pb);
+                        }
+                    }
+                    self.step(b, out);
+                }
+            }
+            AnsiState::CsiInter => {
+                if (0x20..=0x2F).contains(&b) && self.pending.len() < MAX_CSI_PENDING {
+                    self.pending.push(b);
+                } else if (0x40..=0x7E).contains(&b) {
+                    self.pending.clear();
+                    self.state = AnsiState::Normal;
+                } else {
+                    let buffered = std::mem::take(&mut self.pending);
+                    self.state = AnsiState::Normal;
+                    for pb in buffered {
+                        if pb != b'\r' && pb != 0x07 {
+                            out.push(pb);
+                        }
+                    }
+                    self.step(b, out);
+                }
+            }
+            AnsiState::Esc2 => {
+                self.state = AnsiState::Normal;
+                if !b.is_ascii_alphanumeric() {
+                    self.step(b, out);
+                }
+            }
+        }
+    }
+}
+
+/// Strips ANSI/VT escape sequences and normalizes `\r\n` / `\r` for plain-text session viewing.
+pub fn strip_ansi_sequences(raw_text: &str) -> String {
+    let mut stripper = StreamingAnsiStripper::new();
+    let mut out = Vec::with_capacity(raw_text.len());
+    stripper.feed_into(raw_text.as_bytes(), &mut out);
+    stripper.finish_into(&mut out);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn finalize_truncated_session_text(mut clean: String, cap: usize, mut truncated: bool) -> String {
     let utf8 = clean.as_bytes();
     if utf8.len() > cap {
         truncated = true;
@@ -189,63 +340,83 @@ pub fn format_recorded_session_text(raw_bytes: &[u8], max_bytes: i32) -> String 
     }
 }
 
-/// Atomically redacts `secret_values` in `log_file_path` (preserving `0600` permissions).
+/// Strips ANSI sequences from `raw_bytes` and caps the output to the tail `max_bytes` (minimum 1024).
+pub fn format_recorded_session_text(raw_bytes: &[u8], max_bytes: i32) -> String {
+    if raw_bytes.is_empty() {
+        return String::new();
+    }
+    let cap = max_bytes.max(1024) as usize;
+    let mut truncated = false;
+    let raw_budget = cap * 2;
+    let slice = if raw_bytes.len() > raw_budget {
+        truncated = true;
+        &raw_bytes[raw_bytes.len() - raw_budget..]
+    } else {
+        raw_bytes
+    };
+
+    let clean = strip_ansi_sequences(&String::from_utf8_lossy(slice));
+    finalize_truncated_session_text(clean, cap, truncated)
+}
+
+/// Atomically redacts `secret_values` in `log_file_path` (preserving `0600` permissions)
+/// by streaming in 64 KiB chunks so memory stays constant for large session logs.
 /// Returns `true` if the file was modified.
 pub fn redact_session_log_file(log_file_path: &str, secret_values: &[String]) -> bool {
     if log_file_path.trim().is_empty() || secret_values.is_empty() {
         return false;
     }
     let path = Path::new(log_file_path);
-    let Ok(raw) = fs::read(path) else {
+    let Ok(in_file) = File::open(path) else {
         return false;
     };
-    let scrubbed = redact_secrets_bytes(&raw, secret_values);
-    if scrubbed == raw {
-        return false;
-    }
 
-    let Some(parent) = path.parent() else {
-        return false;
-    };
-    let file_name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("session.log");
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{file_name}.tmp.{}.{nanos}", std::process::id()));
+    let res = atomic_write_with(path, Some(0o600), |out_file| {
+        let mut reader = BufReader::with_capacity(STREAM_CHUNK_BYTES, in_file);
+        let mut writer = BufWriter::with_capacity(STREAM_CHUNK_BYTES, out_file);
+        let mut redactor = StreamingRedactor::new(secret_values);
+        let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
 
-    let write_res = (|| -> std::io::Result<()> {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&tmp_path)?;
-        file.write_all(&scrubbed)?;
-        file.sync_all()?;
-        Ok(())
-    })();
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            let out_chunk = redactor.feed(&buf[..n]);
+            if !out_chunk.is_empty() {
+                writer.write_all(&out_chunk)?;
+            }
+        }
 
-    if write_res.is_err() {
-        let _ = fs::remove_file(&tmp_path);
-        return false;
-    }
-    if fs::rename(&tmp_path, path).is_err() {
-        let _ = fs::remove_file(&tmp_path);
-        return false;
-    }
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    true
+        let (tail, modified) = redactor.finish_with_status();
+        if !tail.is_empty() {
+            writer.write_all(&tail)?;
+        }
+        writer.flush()?;
+        Ok(modified)
+    });
+
+    res.unwrap_or(false)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SessionFilePair {
     log_path: String,
     timing_path: String,
     mtime_ms: i128,
     total_bytes: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct IndexedEnv {
+    dir_mtime_ms: i128,
+    entries: Vec<SessionFilePair>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct SessionIndex {
+    version: u32,
+    envs: BTreeMap<String, IndexedEnv>,
 }
 
 fn remove_session_pair_files(pair: &SessionFilePair) {
@@ -257,15 +428,79 @@ fn remove_session_pair_files(pair: &SessionFilePair) {
     }
 }
 
-fn file_mtime_ms(meta: &fs::Metadata) -> i128 {
+fn file_mtime_ns(meta: &fs::Metadata) -> i128 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i128)
+        .map(|d| d.as_nanos() as i128)
         .unwrap_or(0)
 }
 
+fn scan_env_session_pairs(env_dir: &Path) -> Vec<SessionFilePair> {
+    let Ok(log_entries) = fs::read_dir(env_dir) else {
+        return Vec::new();
+    };
+    let mut logs: Vec<(String, PathBuf)> = log_entries
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            if p.is_file() {
+                let name = p.file_name()?.to_str()?.to_string();
+                if name.ends_with(".log") {
+                    return Some((name, p));
+                }
+            }
+            None
+        })
+        .collect();
+    logs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut pairs = Vec::with_capacity(logs.len());
+    for (_, log_path_buf) in logs {
+        let Ok(log_meta) = fs::metadata(&log_path_buf) else {
+            continue;
+        };
+        let base = log_path_buf
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let timing_path_buf = env_dir.join(format!("{base}.timing"));
+        let timing_meta = fs::metadata(&timing_path_buf).ok();
+        let timing_bytes = timing_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+        let total_bytes = log_meta.len() as i64 + timing_bytes;
+        pairs.push(SessionFilePair {
+            log_path: log_path_buf.to_string_lossy().into_owned(),
+            timing_path: if timing_meta.is_some() {
+                timing_path_buf.to_string_lossy().into_owned()
+            } else {
+                String::new()
+            },
+            mtime_ms: file_mtime_ns(&log_meta),
+            total_bytes,
+        });
+    }
+    pairs
+}
+
+fn load_session_index(idx_path: &Path) -> Option<SessionIndex> {
+    let data = fs::read(idx_path).ok()?;
+    let idx: SessionIndex = serde_json::from_slice(&data).ok()?;
+    if idx.version != SESSIONS_INDEX_VERSION {
+        return None;
+    }
+    Some(idx)
+}
+
+fn save_session_index(idx_path: &Path, idx: &SessionIndex) {
+    if let Ok(bytes) = serde_json::to_vec(idx) {
+        let _ = atomic_write_with_mode(idx_path, &bytes, Some(0o600));
+    }
+}
+
 /// Prunes recorded sessions per environment (`max_per_env`) and globally (`max_total_bytes`).
+///
+/// Uses a lightweight index (`<sessions_dir>/sessions.idx`) so unchanged
+/// environment directories do not need to be re-scanned on every run.
 pub fn prune_recorded_sessions(sessions_dir: &str, max_per_env: i32, max_total_bytes: i64) -> i32 {
     let root = Path::new(sessions_dir);
     let Ok(env_entries) = fs::read_dir(root) else {
@@ -286,52 +521,32 @@ pub fn prune_recorded_sessions(sessions_dir: &str, max_per_env: i32, max_total_b
         .collect();
     env_dirs.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut deleted = 0i32;
-    let mut surviving: Vec<SessionFilePair> = Vec::new();
+    let idx_path = root.join(SESSIONS_INDEX_FILE);
+    let loaded = load_session_index(&idx_path);
+    let mut index_dirty = loaded.is_none();
+    let prev_envs = loaded.map(|idx| idx.envs).unwrap_or_default();
+    if prev_envs.len() != env_dirs.len() {
+        index_dirty = true;
+    }
 
-    for (_, env_dir) in env_dirs {
-        let Ok(log_entries) = fs::read_dir(&env_dir) else {
+    let mut next_envs: BTreeMap<String, IndexedEnv> = BTreeMap::new();
+    let mut deleted = 0i32;
+    let mut surviving: Vec<(String, SessionFilePair)> = Vec::new();
+
+    for (env_name, env_dir) in env_dirs {
+        let Ok(dir_meta) = fs::metadata(&env_dir) else {
+            index_dirty = true;
             continue;
         };
-        let mut logs: Vec<(String, PathBuf)> = log_entries
-            .flatten()
-            .filter_map(|e| {
-                let p = e.path();
-                if p.is_file() {
-                    let name = p.file_name()?.to_str()?.to_string();
-                    if name.ends_with(".log") {
-                        return Some((name, p));
-                    }
-                }
-                None
-            })
-            .collect();
-        logs.sort_by(|a, b| a.0.cmp(&b.0));
+        let dir_mtime_ms = file_mtime_ns(&dir_meta);
 
-        let mut pairs = Vec::with_capacity(logs.len());
-        for (_, log_path_buf) in logs {
-            let Ok(log_meta) = fs::metadata(&log_path_buf) else {
-                continue;
-            };
-            let base = log_path_buf
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            let timing_path_buf = env_dir.join(format!("{base}.timing"));
-            let timing_meta = fs::metadata(&timing_path_buf).ok();
-            let timing_bytes = timing_meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
-            let total_bytes = log_meta.len() as i64 + timing_bytes;
-            pairs.push(SessionFilePair {
-                log_path: log_path_buf.to_string_lossy().into_owned(),
-                timing_path: if timing_meta.is_some() {
-                    timing_path_buf.to_string_lossy().into_owned()
-                } else {
-                    String::new()
-                },
-                mtime_ms: file_mtime_ms(&log_meta),
-                total_bytes,
-            });
-        }
+        let mut pairs = match prev_envs.get(&env_name) {
+            Some(cached) if cached.dir_mtime_ms == dir_mtime_ms => cached.entries.clone(),
+            _ => {
+                index_dirty = true;
+                scan_env_session_pairs(&env_dir)
+            }
+        };
 
         // Newest first for per-env cap.
         pairs.sort_by(|a, b| {
@@ -340,34 +555,71 @@ pub fn prune_recorded_sessions(sessions_dir: &str, max_per_env: i32, max_total_b
                 .then_with(|| b.log_path.cmp(&a.log_path))
         });
 
+        let mut env_surviving = Vec::with_capacity(pairs.len());
+        let mut env_deleted = false;
         for (i, pair) in pairs.into_iter().enumerate() {
             if max_per_env >= 0 && i >= max_per_env as usize {
                 remove_session_pair_files(&pair);
                 deleted += 1;
+                env_deleted = true;
+                index_dirty = true;
             } else {
-                surviving.push(pair);
+                surviving.push((env_name.clone(), pair.clone()));
+                env_surviving.push(pair);
             }
         }
+
+        let final_dir_mtime = if env_deleted {
+            fs::metadata(&env_dir)
+                .map(|m| file_mtime_ns(&m))
+                .unwrap_or(dir_mtime_ms)
+        } else {
+            dir_mtime_ms
+        };
+        next_envs.insert(
+            env_name,
+            IndexedEnv {
+                dir_mtime_ms: final_dir_mtime,
+                entries: env_surviving,
+            },
+        );
     }
 
     if max_total_bytes > 0 {
-        let mut total_bytes: i64 = surviving.iter().map(|p| p.total_bytes).sum();
+        let mut total_bytes: i64 = surviving.iter().map(|(_, p)| p.total_bytes).sum();
         if total_bytes > max_total_bytes {
             // Oldest first for global size cap.
             surviving.sort_by(|a, b| {
-                a.mtime_ms
-                    .cmp(&b.mtime_ms)
-                    .then_with(|| a.log_path.cmp(&b.log_path))
+                a.1.mtime_ms
+                    .cmp(&b.1.mtime_ms)
+                    .then_with(|| a.1.log_path.cmp(&b.1.log_path))
             });
-            for pair in &surviving {
+            for (env_name, pair) in &surviving {
                 if total_bytes <= max_total_bytes {
                     break;
                 }
                 remove_session_pair_files(pair);
                 total_bytes -= pair.total_bytes;
                 deleted += 1;
+                index_dirty = true;
+                if let Some(indexed_env) = next_envs.get_mut(env_name) {
+                    indexed_env.entries.retain(|e| e.log_path != pair.log_path);
+                    if let Ok(m) = fs::metadata(root.join(env_name)) {
+                        indexed_env.dir_mtime_ms = file_mtime_ns(&m);
+                    }
+                }
             }
         }
+    }
+
+    if index_dirty {
+        save_session_index(
+            &idx_path,
+            &SessionIndex {
+                version: SESSIONS_INDEX_VERSION,
+                envs: next_envs,
+            },
+        );
     }
 
     deleted
@@ -450,7 +702,8 @@ pub fn scan_recorded_sessions(sessions_dir: &str) -> Vec<Value> {
     items.into_iter().map(|(_, v)| v).collect()
 }
 
-/// Reads and formats a recorded session log file, returning `None` if missing/unreadable.
+/// Reads and formats a recorded session log file by streaming its tail in 64 KiB
+/// chunks, returning `None` if missing/unreadable.
 pub fn read_recorded_session_log(log_path: &str, demo_mode: bool) -> Option<String> {
     if log_path.trim().is_empty() {
         return Some(String::new());
@@ -461,11 +714,36 @@ pub fn read_recorded_session_log(log_path: &str, demo_mode: bool) -> Option<Stri
             DEFAULT_SESSION_VIEW_MAX_BYTES,
         ));
     }
-    let bytes = fs::read(log_path).ok()?;
-    Some(format_recorded_session_text(
-        &bytes,
-        DEFAULT_SESSION_VIEW_MAX_BYTES,
-    ))
+
+    let mut file = File::open(log_path).ok()?;
+    let file_len = file.metadata().ok()?.len();
+    if file_len == 0 {
+        return Some(String::new());
+    }
+
+    let cap = DEFAULT_SESSION_VIEW_MAX_BYTES.max(1024) as usize;
+    let raw_budget = (cap * 2) as u64;
+    let truncated = file_len > raw_budget;
+    if truncated {
+        file.seek(SeekFrom::End(-(raw_budget as i64))).ok()?;
+    }
+
+    let mut reader = BufReader::with_capacity(STREAM_CHUNK_BYTES, file);
+    let mut stripper = StreamingAnsiStripper::new();
+    let mut clean_bytes = Vec::with_capacity((file_len.min(raw_budget)) as usize);
+    let mut chunk = vec![0u8; STREAM_CHUNK_BYTES];
+
+    loop {
+        let n = reader.read(&mut chunk).ok()?;
+        if n == 0 {
+            break;
+        }
+        stripper.feed_into(&chunk[..n], &mut clean_bytes);
+    }
+    stripper.finish_into(&mut clean_bytes);
+
+    let clean = String::from_utf8_lossy(&clean_bytes).into_owned();
+    Some(finalize_truncated_session_text(clean, cap, truncated))
 }
 
 /// Builds the shell command used to replay a recorded session with `scriptreplay`.
@@ -531,6 +809,7 @@ pub fn redact_session_main(log_path: &str, sessions_dir: &str) -> i32 {
 mod tests {
     use super::*;
     use std::process::Command;
+    use std::time::SystemTime;
 
     struct TempDir {
         path: PathBuf,
@@ -690,5 +969,158 @@ mod tests {
         .is_ok());
         assert!(!lp.exists());
         assert!(!tp.exists());
+    }
+
+    #[test]
+    fn ansi_split_across_chunk_boundaries_and_real_terminal_sequences() {
+        // Mix of OSC (BEL and ST), CSI (256-color, DEC private mode, cursor),
+        // ESC2 (G0 charset), ESC_SHORT (reverse index, next line), CR/LF, and UTF-8.
+        let sample = "\x1b]0;htop — /workspace\x07\
+                      \x1b[?1049h\x1b[?25l\x1b[1;1H\x1b(B\x1b[38;5;196mCPU:\x1b[0m 12%\r\n\
+                      \x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\\r\n\
+                      \x1bM\x1bE\x1bHcafé 🚀\x07\r\n\
+                      \x1b[?25h\x1b[?1049l";
+
+        let whole = strip_ansi_sequences(sample);
+        assert!(!whole.contains('\x1b'));
+        assert!(!whole.contains('\r'));
+        assert!(!whole.contains('\x07'));
+        assert_eq!(whole, "CPU: 12%\nlink\ncafé 🚀\n");
+
+        // Feed 1 byte at a time and 3 bytes at a time to split every escape sequence.
+        for chunk_size in [1usize, 3, 5, 7] {
+            let mut stripper = StreamingAnsiStripper::new();
+            let mut out = Vec::new();
+            for chunk in sample.as_bytes().chunks(chunk_size) {
+                stripper.feed_into(chunk, &mut out);
+            }
+            stripper.finish_into(&mut out);
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                whole,
+                "mismatch for chunk_size={chunk_size}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_50mb_session_redaction_and_tail_read() {
+        let dir = TempDir::new("large-50mb");
+        let log_path = dir.path.join("50mb.log");
+        let secret = "sk-live-50mb-boundary-secret-99999";
+
+        // Build a ~50 MiB file in 1 MiB blocks without holding 50 MiB in a single String.
+        {
+            let mut f =
+                BufWriter::with_capacity(STREAM_CHUNK_BYTES, File::create(&log_path).unwrap());
+            let filler = vec![b'x'; 64 * 1024 - 1];
+            // Secret #1 at the very start
+            f.write_all(b"start=").unwrap();
+            f.write_all(secret.as_bytes()).unwrap();
+            f.write_all(b"\n").unwrap();
+            // Pad to just before an exact 64 KiB chunk boundary, then split secret #2 across it
+            let pos_before_boundary = 64 * 1024 - 7 - (6 + secret.len() + 1);
+            f.write_all(&filler[..pos_before_boundary]).unwrap();
+            f.write_all(secret.as_bytes()).unwrap();
+            f.write_all(b"\n").unwrap();
+
+            // Write remaining ~50 MiB
+            let line = vec![b'A'; 1023];
+            for _ in 0..(50 * 1024) {
+                f.write_all(&line).unwrap();
+                f.write_all(b"\n").unwrap();
+            }
+            // Secret #3 + tail marker at the very end
+            f.write_all(b"end=").unwrap();
+            f.write_all(secret.as_bytes()).unwrap();
+            f.write_all(b"\nFINAL_50MB_TAIL\n").unwrap();
+            f.flush().unwrap();
+        }
+
+        let file_size = fs::metadata(&log_path).unwrap().len();
+        assert!(file_size > 50 * 1024 * 1024);
+
+        let secrets = vec![secret.to_string()];
+        assert!(redact_session_log_file(
+            log_path.to_str().unwrap(),
+            &secrets
+        ));
+        assert!(!redact_session_log_file(
+            log_path.to_str().unwrap(),
+            &secrets
+        ));
+
+        let mode = fs::metadata(&log_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+
+        // Stream-verify no secret remains and exactly 3 [REDACTED] markers exist.
+        let mut reader =
+            BufReader::with_capacity(STREAM_CHUNK_BYTES, File::open(&log_path).unwrap());
+        let mut content_tail = String::new();
+        let mut buf = [0u8; STREAM_CHUNK_BYTES];
+        let mut redacted_count = 0usize;
+        let mut overlap = String::new();
+        loop {
+            let n = reader.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            let chunk_str = String::from_utf8_lossy(&buf[..n]);
+            let combined = format!("{overlap}{chunk_str}");
+            assert!(!combined.contains(secret), "secret leaked in 50MB file");
+            redacted_count += combined.matches("[REDACTED]").count();
+            // Keep small overlap so we don't double-count or miss boundary markers
+            let keep = combined.len().min(16);
+            overlap = combined[combined.len() - keep..].to_string();
+            redacted_count -= overlap.matches("[REDACTED]").count();
+            content_tail = combined;
+        }
+        redacted_count += content_tail.matches("[REDACTED]").count().min(1);
+        assert!(redacted_count >= 3);
+
+        // Tail read on 50 MB file returns truncated 200 KB view with final marker.
+        let viewed = read_recorded_session_log(log_path.to_str().unwrap(), false).unwrap();
+        assert!(viewed.starts_with("[... truncated to last 200 KB ...]"));
+        assert!(viewed.contains("FINAL_50MB_TAIL"));
+        assert!(!viewed.contains(secret));
+    }
+
+    #[test]
+    fn sessions_index_created_reused_and_refreshed() {
+        let dir = TempDir::new("idx");
+        let sess_root = dir.path.join("sessions");
+        let env_alpha = sess_root.join("alpha");
+        fs::create_dir_all(&env_alpha).unwrap();
+
+        for i in 1..=3 {
+            fs::write(env_alpha.join(format!("170000000{i}.log")), b"hello\n").unwrap();
+        }
+
+        let pruned = prune_recorded_sessions(sess_root.to_str().unwrap(), 2, 1024 * 1024);
+        assert_eq!(pruned, 1);
+
+        let idx_path = sess_root.join(SESSIONS_INDEX_FILE);
+        assert!(idx_path.exists());
+        let idx = load_session_index(&idx_path).expect("index loaded");
+        assert_eq!(idx.envs.get("alpha").map(|e| e.entries.len()), Some(2));
+
+        // Second prune with no changes reuses index and deletes 0.
+        assert_eq!(
+            prune_recorded_sessions(sess_root.to_str().unwrap(), 2, 1024 * 1024),
+            0
+        );
+
+        // Adding a new env dir refreshes the index.
+        let env_beta = sess_root.join("beta");
+        fs::create_dir_all(&env_beta).unwrap();
+        fs::write(env_beta.join("1700000010.log"), b"beta1\n").unwrap();
+        fs::write(env_beta.join("1700000011.log"), b"beta2\n").unwrap();
+        fs::write(env_beta.join("1700000012.log"), b"beta3\n").unwrap();
+        assert_eq!(
+            prune_recorded_sessions(sess_root.to_str().unwrap(), 2, 1024 * 1024),
+            1
+        );
+        let idx2 = load_session_index(&idx_path).expect("index reloaded");
+        assert_eq!(idx2.envs.get("beta").map(|e| e.entries.len()), Some(2));
     }
 }

@@ -179,6 +179,7 @@ impl SecretRedactor {
 pub struct StreamingRedactor {
     redactor: SecretRedactor,
     buf: Vec<u8>,
+    modified: bool,
 }
 
 impl StreamingRedactor {
@@ -186,6 +187,7 @@ impl StreamingRedactor {
         Self {
             redactor: SecretRedactor::new(values),
             buf: Vec::new(),
+            modified: false,
         }
     }
 
@@ -197,6 +199,9 @@ impl StreamingRedactor {
         self.buf.extend_from_slice(chunk);
         if self.redactor.max_len <= 1 {
             let out = self.redactor.redact_bytes(&self.buf);
+            if out != self.buf {
+                self.modified = true;
+            }
             self.buf.clear();
             return out;
         }
@@ -218,6 +223,9 @@ impl StreamingRedactor {
             if start >= safe_end {
                 break;
             }
+            if &self.buf[start..end] != REDACTED_MARKER {
+                self.modified = true;
+            }
             out.extend_from_slice(&self.buf[cursor..start]);
             out.extend_from_slice(REDACTED_MARKER);
             cursor = end;
@@ -232,13 +240,21 @@ impl StreamingRedactor {
     }
 
     /// Flushes and redacts any remaining buffered bytes at EOF.
-    pub fn finish(mut self) -> Vec<u8> {
+    pub fn finish(self) -> Vec<u8> {
+        self.finish_with_status().0
+    }
+
+    /// Flushes and redacts any remaining buffered bytes at EOF, returning `(bytes, modified)`.
+    pub fn finish_with_status(mut self) -> (Vec<u8>, bool) {
         if self.buf.is_empty() {
-            return Vec::new();
+            return (Vec::new(), self.modified);
         }
         let out = self.redactor.redact_bytes(&self.buf);
+        if out != self.buf {
+            self.modified = true;
+        }
         self.buf.clear();
-        out
+        (out, self.modified)
     }
 }
 
