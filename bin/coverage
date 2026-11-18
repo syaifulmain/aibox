@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+if ! cargo llvm-cov --version >/dev/null 2>&1; then
+    echo "cargo-llvm-cov not found. Install with: cargo install cargo-llvm-cov" >&2
+    exit 1
+fi
+
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+
+exec cargo llvm-cov \
+    -p aibox-core \
+    --locked \
+    --manifest-path "$ROOT/rust/Cargo.toml" \
+    --summary-only \
+    "$@"

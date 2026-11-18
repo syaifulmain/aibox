@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Install Arch build and test dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel \
+            clang \
+            git \
+            lld \
+            qt6-base \
+            qt6-declarative \
+            rsync \
+            rust
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ./bin/test
+        run: ./bin/test

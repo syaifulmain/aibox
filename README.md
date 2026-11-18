@@ -109,7 +109,8 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 
 ```bash
 ./bin/build     # compile into rust/target/release/aibox (fast loop)
-./bin/test      # run fmt, clippy, and the Rust/Qt/QML test suite
+./bin/test      # run fmt, clippy, and the Rust/Qt/QML test suite (--fast / --nextest)
+./bin/coverage  # run aibox-core coverage summary via cargo-llvm-cov
 ./bin/install   # build and install into ~/.local/ (or --system for makepkg)
 ```
 

@@ -21,6 +21,39 @@ find_cargo() {
 CARGO="$(find_cargo)"
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 
+MODE="full"
+for arg in "$@"; do
+    case "$arg" in
+        --fast)
+            MODE="fast"
+            ;;
+        --nextest)
+            MODE="nextest"
+            ;;
+        *)
+            echo "Unknown option: $arg (supported: --fast, --nextest)" >&2
+            exit 2
+            ;;
+    esac
+done
+
 "$CARGO" fmt --all --check --manifest-path "$ROOT/rust/Cargo.toml"
 "$CARGO" clippy --all-targets --manifest-path "$ROOT/rust/Cargo.toml" -- -D warnings
-"$CARGO" test --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+
+case "$MODE" in
+    fast)
+        "$CARGO" test --workspace --release --locked --lib --tests --manifest-path "$ROOT/rust/Cargo.toml"
+        ;;
+    nextest)
+        if "$CARGO" nextest --version >/dev/null 2>&1; then
+            "$CARGO" nextest run --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+            "$CARGO" test --doc --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+        else
+            echo "cargo-nextest not installed; falling back to cargo test" >&2
+            "$CARGO" test --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+        fi
+        ;;
+    *)
+        "$CARGO" test --workspace --release --locked --manifest-path "$ROOT/rust/Cargo.toml"
+        ;;
+esac

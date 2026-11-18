@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Tooling, Build & Test: Split `golden.rs`, `strip = true` Release Profile, `file_size_lint`, CI Workflow & Test/Coverage Helpers (`bin/`, `rust/Cargo.toml`, `rust/crates/aibox-core/tests/`, `.github/workflows/ci.yml`)
+
+- **Split `golden.rs` (`tests/golden.rs`, `tests/common/mod.rs`, `tests/golden/*.rs`):** Split the 2600-line `tests/golden.rs` into 17 domain modules under `tests/golden/` (`backup`, `cli`, `config`, `diff`, `health`, `i18n`, `incus`, `network`, `provision`, `secrets`, `session`, `settings`, `snapshot`, `task`, `theme`, `util`, `workspace`) with shared `replay_jsonl` and `GoldenEnvGuard` helpers in `tests/common/mod.rs` (parallel execution for pure domains, mutex-guarded env restore for env-mutating domains).
+- **Release profile stripping (`rust/Cargo.toml`):** Added `strip = true` to `[profile.release]` alongside `lto = "thin"`, `codegen-units = 1`, and `panic = "abort"`, reducing `rust/target/release/aibox` from 6.4M to 5.3M.
+- **File size lint (`tests/file_size_lint.rs`):** Added an integration test enforcing the 1500-line ceiling on all non-test `.rs` and `.qml` source files (with a capped legacy allowlist entry for `qt_backend.rs` pending `app-backend` split).
+- **Test & coverage tooling (`bin/test`, `bin/coverage`, `.github/workflows/ci.yml`):** Added `--fast` (release `--lib --tests`, skipping doc-tests) and `--nextest` flags to `bin/test` while keeping full `--release --locked` as default (warm `./bin/test` 18.44s vs 18.57s baseline), added `bin/coverage` wrapping `cargo llvm-cov -p aibox-core --summary-only`, and added an Arch Linux container CI workflow in `.github/workflows/ci.yml`.
+
 ### QML UI: `Main.qml` & `CreateDialog.qml` Split, Lazy-Loaded Dialogs, Lightweight Delegates, `reduceMotion` & Dev Gallery Exclusion (`src/qml/`, `src/resources.qrc`, `aibox-app`)
 
 - **Split `Main.qml` (`AppState.qml`, `ShortcutMap.qml`, `DialogHost.qml`, `Main.qml`):** Extracted shared window state and helper actions into `AppState.qml` (576 lines), global `Shortcut` definitions into `ShortcutMap.qml` (244 lines), and lazy modal loaders into `DialogHost.qml` (139 lines), reducing `Main.qml` from 999 lines to 78 lines.
