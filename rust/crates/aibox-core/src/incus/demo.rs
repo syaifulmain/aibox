@@ -44,6 +44,9 @@ pub fn build_demo_state(record_sessions: bool, os_storage_path: &str, now_epoch:
     e1.insert("memoryLimit".into(), json!("8GiB"));
     e1.insert("memoryUsage".into(), json!("1.4 GB"));
     e1.insert("memoryPercent".into(), json!(18));
+    e1.insert("swapLimit".into(), json!("4GiB"));
+    e1.insert("swapUsage".into(), json!("420 MB"));
+    e1.insert("swapPercent".into(), json!(10));
     e1.insert("diskLimit".into(), json!("60GiB"));
     e1.insert("diskUsage".into(), json!("8.2 GB"));
     e1.insert("diskUsageBytes".into(), json!(8_804_682_956_i64));
@@ -149,6 +152,8 @@ pub fn build_demo_state(record_sessions: bool, os_storage_path: &str, now_epoch:
     e2.insert("memoryLimit".into(), json!("6GiB"));
     e2.insert("memoryUsage".into(), json!("620 MB"));
     e2.insert("memoryPercent".into(), json!(10));
+    e2.insert("swapUsage".into(), json!("120 MB"));
+    e2.insert("swapPercent".into(), json!(1));
     e2.insert("diskLimit".into(), json!("35GiB"));
     e2.insert("diskUsage".into(), json!("32.2 GB"));
     e2.insert("diskPercent".into(), json!(92));

@@ -209,19 +209,44 @@ Item {
                           ? qsTr("VM swap is managed inside the guest.")
                           : qsTr("Container swap is provided by the host.")
 
-                KeyValue {
-                    label: qsTr("Allowance")
-                    value: {
-                        const env = backend.selectedEnvironment
-                        if ((env.type || "") === "VIRTUAL-MACHINE" || (env.type || "") === "VM")
-                            return qsTr("Guest-managed")
-                        const raw = env.swapLimit || ""
-                        if (raw.length === 0)
-                            return qsTr("Host")
-                        if (raw === "Off")
-                            return qsTr("Off")
-                        return raw
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.gap * 2
+
+                    KeyValue {
+                        label: qsTr("Allowance")
+                        value: {
+                            const env = backend.selectedEnvironment
+                            if ((env.type || "") === "VIRTUAL-MACHINE" || (env.type || "") === "VM")
+                                return qsTr("Guest-managed")
+                            const raw = env.swapLimit || ""
+                            if (raw.length === 0)
+                                return qsTr("Host")
+                            if (raw === "Off")
+                                return qsTr("Off")
+                            return raw
+                        }
                     }
+
+                    KeyValue {
+                        visible: (backend.selectedEnvironment.type || "") !== "VIRTUAL-MACHINE"
+                                 && (backend.selectedEnvironment.type || "") !== "VM"
+                        label: qsTr("Usage")
+                        value: {
+                            if (!(backend.selectedEnvironment.running || false))
+                                return "—"
+                            return (backend.selectedEnvironment.swapUsage || "0 B")
+                                   + " / " + (backend.selectedEnvironment.swapLimit || qsTr("Host"))
+                        }
+                    }
+                }
+
+                MeterBar {
+                    visible: (backend.selectedEnvironment.type || "") !== "VIRTUAL-MACHINE"
+                             && (backend.selectedEnvironment.type || "") !== "VM"
+                             && (backend.selectedEnvironment.running || false)
+                    Layout.fillWidth: true
+                    value: backend.selectedEnvironment.swapPercent || 0
                 }
             }
 

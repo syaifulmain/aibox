@@ -46,6 +46,10 @@ pub struct ExtraMountEntry {
     pub readonly: bool,
 }
 
+fn is_zero(value: &i32) -> bool {
+    *value == 0
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
@@ -64,6 +68,12 @@ pub struct Environment {
     pub memory_limit: String,
     pub memory_usage: String,
     pub memory_percent: i32,
+    /// Live swap use reported by Incus for containers. Empty when swap is
+    /// disabled, unused, or not accounted by the container cgroup.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub swap_usage: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub swap_percent: i32,
     pub disk_limit: String,
     pub disk_quota_bytes: i64,
     pub disk_usage: String,

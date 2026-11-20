@@ -471,6 +471,7 @@
   "Host follows the Incus default; Off disables swap.": "Host følger Incus-standard; Fra deaktiverer swap.",
   "VM swap is managed inside the guest.": "VM-swap administreres i gæsten.",
   "Allowance": "Tildeling",
+  "Usage": "Brug",
   "Host": "Vært",
   "Guest-managed": "Styret af gæsten",
   "Container swap is provided by the host.": "Container-swap leveres af værten."

@@ -6,6 +6,7 @@ use chrono::Utc;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
+use crate::health::swap::host_swap_info;
 use crate::secrets::store::parse_env_secret_names;
 use crate::session::effective_record_sessions;
 use crate::snapshot::auto::is_auto_snapshot_name;
@@ -267,6 +268,7 @@ impl RawState {
         self.started_at.is_empty()
             && self.memory.usage.0 == 0
             && self.memory.total.0 == 0
+            && self.memory.swap_usage.0 == 0
             && self.disk.root.usage.0 == 0
             && self.disk.root.total.0 == 0
             && self.cpu.usage.0 == 0
@@ -279,6 +281,7 @@ impl RawState {
 struct RawMemoryState {
     usage: FlexibleI64,
     total: FlexibleI64,
+    swap_usage: FlexibleI64,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -572,6 +575,7 @@ pub fn parse_with_now(
         let mut disk_usage = "0 MB".to_string();
         let mut mem_bytes = 0i64;
         let mut mem_total_bytes = parse_size_bytes(&memory_limit);
+        let mut swap_bytes = 0i64;
         let mut disk_bytes = 0i64;
         let mut disk_total_bytes = parse_size_bytes(limits.disk_limit);
         let mut cpu_percent = 0i32;
@@ -580,6 +584,7 @@ pub fn parse_with_now(
 
         if let Some(st) = item.state.as_ref().filter(|s| !s.is_empty()) {
             mem_bytes = st.memory.usage.0;
+            swap_bytes = st.memory.swap_usage.0;
             if mem_bytes > 0 {
                 memory_usage = format_bytes(mem_bytes);
             }
@@ -637,6 +642,24 @@ pub fn parse_with_now(
 
         let memory_percent = compute_usage_percent(mem_bytes, mem_total_bytes);
         let disk_percent = compute_usage_percent(disk_bytes, disk_total_bytes);
+
+        // Container swap is host-provided: an explicit limit bounds it, otherwise
+        // the host swap total is the only meaningful denominator. Read host swap
+        // lazily so an idle list poll stays cheap.
+        let (swap_usage, swap_percent) =
+            if swap_bytes > 0 && env_type != "VIRTUAL-MACHINE" && swap_limit != "Off" {
+                let swap_total_bytes = if swap_limit.is_empty() {
+                    host_swap_info().total_bytes
+                } else {
+                    parse_size_bytes(&swap_limit)
+                };
+                (
+                    format_bytes(swap_bytes),
+                    compute_usage_percent(swap_bytes, swap_total_bytes),
+                )
+            } else {
+                (String::new(), 0)
+            };
 
         let mut snapshots = Vec::new();
         let mut snapshot_sizes = BTreeMap::new();
@@ -799,6 +822,8 @@ pub fn parse_with_now(
             memory_limit,
             memory_usage,
             memory_percent,
+            swap_usage,
+            swap_percent,
             disk_limit: limits.disk_limit.to_string(),
             disk_quota_bytes: limits.disk_quota_bytes,
             disk_usage,

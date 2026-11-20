@@ -135,6 +135,50 @@ mod tests {
     }
 
     #[test]
+    fn parse_incus_json_reads_container_swap_usage() {
+        let sample = br#"[
+            {
+                "name": "swap-used",
+                "status": "Running",
+                "type": "container",
+                "config": { "limits.memory.swap": "4GiB" },
+                "state": {
+                    "memory": { "usage": 104857600, "total": 4294967296, "swap_usage": 536870912 }
+                }
+            },
+            {
+                "name": "swap-idle",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "state": { "memory": { "usage": 104857600, "total": 4294967296 } }
+            },
+            {
+                "name": "swap-vm",
+                "status": "Running",
+                "type": "virtual-machine",
+                "config": {},
+                "state": { "memory": { "usage": 104857600, "swap_usage": 536870912 } }
+            }
+        ]"#;
+        let mut state = CounterState::new();
+        let envs = parse(
+            sample,
+            "/tmp/ws",
+            &mut state,
+            0,
+            ParseDefaults::default(),
+            false,
+        );
+        assert_eq!(envs[0].swap_usage, "512 MiB");
+        assert_eq!(envs[0].swap_percent, 13);
+        assert_eq!(envs[1].swap_usage, "");
+        assert_eq!(envs[1].swap_percent, 0);
+        assert_eq!(envs[2].swap_usage, "");
+        assert_eq!(envs[2].swap_percent, 0);
+    }
+
+    #[test]
     fn parse_incus_json_uses_workspace_device_source_match_qt_test() {
         let sample = br#"[
             {

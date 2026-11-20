@@ -665,6 +665,16 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
   - Removed the `shortcutHint` property and the badge chip that rendered the key letter next to labels, so buttons and menu rows no longer show `N`, `R`, `Esc`, `Space`, `Del`, and the other key hints.
   - Keyboard shortcuts keep working unchanged; the `?` help overlay and the README shortcut table remain the single place that documents them.
 
+### Iteration 32 — Live Container Swap Usage
+- **Swap Metrics (`rust/crates/aibox-core/src/incus/list/parse.rs`, `model.rs`)**:
+  - `RawMemoryState` now reads `swap_usage` from the Incus instance state; `Environment` gained `swapUsage` and `swapPercent`, omitted from JSON when swap is unused so existing golden fixtures stay stable.
+  - The percentage denominator is the explicit `limits.memory.swap` size, or the host swap total from `/proc/swaps` when the limit follows the Incus default (`Host`). Virtual machines keep empty swap usage because guest swap is not exposed by Incus.
+- **UI (`src/qml/panels/EnvironmentInspector.qml`)**:
+  - The **Swap Memory** card now shows an **Usage** row (`used / allowance`) and a usage meter for running containers; stopped containers show `—` and VMs keep the `Guest-managed` label.
+  - Added `Usage` to `src/i18n/en.json` and `src/i18n/da.json`.
+- **Tests (`rust/crates/aibox-core/src/incus/list/mod.rs`)**:
+  - Added `parse_incus_json_reads_container_swap_usage` covering an explicit limit, an idle container, and a VM, and refreshed the demo golden fixture with sample swap values.
+
 ### Iteration 31 — Compact Environment List Card
 - **Environment Sidebar (`src/qml/Main.qml`)**:
   - Removed the secondary description line (`<osName> · <preset>`) under the environment name; everything else (status dot, name, `TEMPLATE`/`RUNNING` badges, disk/memory quotas, and network/IP) is unchanged.

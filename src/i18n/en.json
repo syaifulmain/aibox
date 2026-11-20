@@ -105,6 +105,7 @@
   "Host follows the Incus default; Off disables swap.": "Host follows the Incus default; Off disables swap.",
   "VM swap is managed inside the guest.": "VM swap is managed inside the guest.",
   "Allowance": "Allowance",
+  "Usage": "Usage",
   "Host": "Host",
   "Off": "Off",
   "Guest-managed": "Guest-managed",
