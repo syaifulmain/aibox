@@ -8,6 +8,7 @@
         <file alias="components/Style.qml">qml/components/Style.qml</file>
         <file alias="components/FlatInput.qml">qml/components/FlatInput.qml</file>
         <file alias="components/ChipInput.qml">qml/components/ChipInput.qml</file>
+        <file alias="components/SizeUnitChips.qml">qml/components/SizeUnitChips.qml</file>
         <file alias="components/SlidersIcon.qml">qml/components/SlidersIcon.qml</file>
         <file alias="components/ThemeDebugOverlay.qml">qml/components/ThemeDebugOverlay.qml</file>
         <file alias="components/TagBadge.qml">qml/components/TagBadge.qml</file>

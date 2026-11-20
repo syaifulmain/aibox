@@ -44,7 +44,7 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 | [rust/crates/aibox-app/cpp/shim/](rust/crates/aibox-app/cpp/shim) | Source (C++) | Tiny C++ shims (`translator_shim.{h,cpp}`, `clipboard_shim.{h,cpp}`, `qml_helpers.{h,cpp}`, `test_helpers.{h,cpp}`). |
 | [rust/crates/aibox-app/tests/](rust/crates/aibox-app/tests) | Integration Tests | Offscreen Qt/QML integration tests (`backend_qobject.rs` for QObject/signal/async tests, `qml_smoke.rs` loading `qrc:/Main.qml`, all settings sections, and all dialogs with zero-warning enforcement, `qml_color_lint.rs` enforcing zero hardcoded colors or legacy tokens in `src/qml/`, and `theme_matrix.rs` for ignored offscreen screenshot matrix generation). |
 | [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
-| [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
+| [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `SizeUnitChips`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, First Run, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
 | [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `aibox` binary. |
@@ -62,6 +62,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ---
 
 ## 3. Changelog
+
+### QML UI: Fix Empty Quota/Settings Forms in Lazy-Loaded Dialogs, Size Unit Chips & Safer Toggle Saves (`src/qml/dialogs/EditQuotasDialog.qml`, `src/qml/panels/SettingsPanel.qml`, `src/qml/panels/settings/`, `src/qml/components/SizeUnitChips.qml`)
+
+- **Lazy-loaded dialogs now populate saved values (`DialogHost.qml` loaders, `EditQuotasDialog.qml`, `SettingsPanel.qml`):** The lazily created dialogs open with `open` already true, so their `visibleChanged` handlers never ran and every form showed only placeholders. Both dialogs now load their state on `Component.onCompleted` as well as on later visibility changes, restoring the current instance quotas and the saved safety, create-option, and appearance settings.
+- **Unit chips for size fields (`SizeUnitChips.qml`, `EditQuotasDialog.qml`, `src/resources.qrc`):** RAM, disk, and I/O quota fields now take a number only and offer compact unit chips (GiB/MiB/TiB for RAM and disk, MB/MiB/GB/GiB for I/O), pre-selecting the unit of the current instance. The dialog composes the final size spec and the pool overcommit warning uses the composed value.
+- **Unticking safety toggles no longer demands the other fields (`SafetySection.qml`):** When automatic snapshots or the watchdog are disabled, empty numeric fields fall back to the stored configuration instead of failing validation.
+- **Golden workspace replay isolation (`tests/golden/workspace.rs`):** The workspace replay now holds `GoldenEnvGuard` so the tilde-home case no longer races with other golden modules that temporarily set `HOME`.
 
 ### Tooling, Build & Test: Split `golden.rs`, `strip = true` Release Profile, `file_size_lint`, CI Workflow & Test/Coverage Helpers (`bin/`, `rust/Cargo.toml`, `rust/crates/aibox-core/tests/`, `.github/workflows/ci.yml`)
 

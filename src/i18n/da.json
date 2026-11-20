@@ -227,6 +227,7 @@
   "Disk Quota (Used: %1)": "Diskkvote (brugt: %1)",
   "Process Limit (pids)": "Procesgrænse (pids)",
   "Disk I/O Limit": "Disk-I/O-grænse",
+  "Type Unlimited to remove the cap.": "Skriv Unlimited for at fjerne grænsen.",
   "Choose Extra Host Folder to Mount": "Vælg ekstra værtsmappe til montering",
   "Backups": "Sikkerhedskopier",
   "Export and import environment backups": "Eksportér og importér miljøsikkerhedskopier",

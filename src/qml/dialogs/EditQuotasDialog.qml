@@ -5,19 +5,55 @@ import "../components"
 ModalDialog {
     id: editQuotasOverlay
     property QtObject app: null
+    property string ramUnit: "GiB"
+    property string diskUnit: "GiB"
+    property string ioUnit: "MB"
+    readonly property var ramUnits: unitOptions(["GiB", "MiB", "TiB"], ramUnit)
+    readonly property var diskUnits: unitOptions(["GiB", "MiB", "TiB"], diskUnit)
+    readonly property var ioUnits: unitOptions(["MB", "MiB", "GB", "GiB"], ioUnit)
     open: app.editQuotasVisible
     zOrder: 89
     size: "md"
     onDismissed: app.editQuotasVisible = false
 
-    onVisibleChanged: {
-        if (!visible)
-            return
+    // The loader creates this dialog only when it is already open, so a
+    // visibleChanged handler never runs. Load the saved values on completion.
+    Component.onCompleted: if (open) loadValues()
+    onOpenChanged: if (open) loadValues()
+
+    function unitOptions(base, current) {
+        return base.indexOf(current) >= 0 ? base : [current].concat(base)
+    }
+
+    function unitOf(value, fallback) {
+        const match = String(value).trim().match(/(GiB|MiB|TiB|GB|MB|TB)$/i)
+        return match ? match[1] : fallback
+    }
+
+    function numberPart(value) {
+        const match = String(value).trim().match(/^\d+(?:\.\d+)?/)
+        return match ? match[0] : String(value).trim()
+    }
+
+    function composeSize(value, unit) {
+        const raw = String(value).trim()
+        if (raw.length === 0)
+            return ""
+        if (raw.toLowerCase() === "unlimited")
+            return "Unlimited"
+        const match = raw.match(/^\d+(?:\.\d+)?/)
+        return match ? match[0] + unit : raw
+    }
+
+    function loadValues() {
         quotaCpuField.text = String(app.editQuotaCpu)
-        quotaRamField.text = app.editQuotaRam
-        quotaDiskField.text = app.editQuotaDisk
+        ramUnit = unitOf(app.editQuotaRam, "GiB")
+        quotaRamField.text = numberPart(app.editQuotaRam)
+        diskUnit = unitOf(app.editQuotaDisk, "GiB")
+        quotaDiskField.text = numberPart(app.editQuotaDisk)
         quotaProcField.text = app.editQuotaProc
-        quotaIoField.text = app.editQuotaIo
+        ioUnit = unitOf(app.editQuotaIo, "MB")
+        quotaIoField.text = numberPart(app.editQuotaIo)
     }
 
     ModalHeader {
@@ -56,12 +92,26 @@ ModalDialog {
 
     FormRow {
         label: qsTr("RAM Limit")
-        FlatInput { id: quotaRamField; Layout.fillWidth: true; placeholder: "8GiB" }
+
+        FlatInput { id: quotaRamField; Layout.fillWidth: true; placeholder: "8" }
+
+        SizeUnitChips {
+            units: editQuotasOverlay.ramUnits
+            current: editQuotasOverlay.ramUnit
+            onSelected: function (unit) { editQuotasOverlay.ramUnit = unit }
+        }
     }
 
     FormRow {
         label: qsTr("Disk Quota (Used: %1)").arg(backend.selectedEnvironment.diskUsage || "0 MB")
-        FlatInput { id: quotaDiskField; Layout.fillWidth: true; placeholder: "40GiB" }
+
+        FlatInput { id: quotaDiskField; Layout.fillWidth: true; placeholder: "40" }
+
+        SizeUnitChips {
+            units: editQuotasOverlay.diskUnits
+            current: editQuotasOverlay.diskUnit
+            onSelected: function (unit) { editQuotasOverlay.diskUnit = unit }
+        }
     }
 
     FormRow {
@@ -76,12 +126,21 @@ ModalDialog {
 
     FormRow {
         label: qsTr("Disk I/O Limit")
-        FlatInput { id: quotaIoField; Layout.fillWidth: true; placeholder: "200MB or Unlimited" }
+        hint: qsTr("Type Unlimited to remove the cap.")
+
+        FlatInput { id: quotaIoField; Layout.fillWidth: true; placeholder: "200" }
+
+        SizeUnitChips {
+            units: editQuotasOverlay.ioUnits
+            current: editQuotasOverlay.ioUnit
+            onSelected: function (unit) { editQuotasOverlay.ioUnit = unit }
+        }
     }
 
     Rectangle {
         readonly property string poolWarn: app.editQuotasVisible
-                                           ? backend.poolWarningForQuotaEdit(app.editQuotaEnvName, quotaDiskField.text)
+                                           ? backend.poolWarningForQuotaEdit(app.editQuotaEnvName,
+                                               editQuotasOverlay.composeSize(quotaDiskField.text, editQuotasOverlay.diskUnit))
                                            : ""
         visible: poolWarn.length > 0
         Layout.fillWidth: true
@@ -115,10 +174,10 @@ ModalDialog {
                 const err = backend.updateEnvironmentResources(
                     app.editQuotaEnvName,
                     isNaN(cpu) ? 0 : cpu,
-                    quotaRamField.text,
-                    quotaDiskField.text,
+                    editQuotasOverlay.composeSize(quotaRamField.text, editQuotasOverlay.ramUnit),
+                    editQuotasOverlay.composeSize(quotaDiskField.text, editQuotasOverlay.diskUnit),
                     quotaProcField.text,
-                    quotaIoField.text)
+                    editQuotasOverlay.composeSize(quotaIoField.text, editQuotasOverlay.ioUnit))
                 if (err.length > 0) {
                     app.editQuotaError = err
                 } else {

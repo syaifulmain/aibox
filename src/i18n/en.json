@@ -15,6 +15,7 @@
   "Environment Actions": "Environment Actions",
   "Create an isolated copy with its own workspace": "Create an isolated copy with its own workspace",
   "Quotas & Limits": "Quotas & Limits",
+  "Type Unlimited to remove the cap.": "Type Unlimited to remove the cap.",
   "Edit CPU, memory, disk, process and I/O limits": "Edit CPU, memory, disk, process and I/O limits",
   "Mark as Template": "Mark as Template",
   "Reuse this environment as a starting point for new ones": "Reuse this environment as a starting point for new ones",

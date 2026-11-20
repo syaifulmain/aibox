@@ -216,7 +216,9 @@ ColumnLayout {
             variant: "primary"
             onClicked: {
                 const parsedKeep = parseInt(autoSnapKeepField.text.trim(), 10)
-                const keep = isNaN(parsedKeep) ? 0 : parsedKeep
+                const keep = isNaN(parsedKeep)
+                             ? (app.autoSnapEnabledDraft ? 0 : backend.autoSnapshotKeep)
+                             : parsedKeep
                 const snapErr = backend.saveAutoSnapshotSettings(app.autoSnapEnabledDraft, keep)
                 if (snapErr.length > 0) {
                     app.showConfigNotice(snapErr, true)
@@ -226,8 +228,12 @@ ColumnLayout {
                 const parsedCrit = parseInt(watchdogCritField.text.trim(), 10)
                 const wdErr = backend.saveWatchdogSettings(
                     app.watchdogEnabledDraft,
-                    isNaN(parsedWarn) ? 0 : parsedWarn,
-                    isNaN(parsedCrit) ? 0 : parsedCrit,
+                    isNaN(parsedWarn)
+                    ? (app.watchdogEnabledDraft ? 0 : backend.watchdogDiskWarn)
+                    : parsedWarn,
+                    isNaN(parsedCrit)
+                    ? (app.watchdogEnabledDraft ? 0 : backend.watchdogDiskCritical)
+                    : parsedCrit,
                     app.watchdogAutoStopDraft)
                 if (wdErr.length > 0) {
                     app.showConfigNotice(wdErr, true)

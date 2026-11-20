@@ -39,9 +39,7 @@ ModalDialog {
         osCatalogSection.setOsFields(idValue, aliasValue, nameValue, badgeValue, descriptionValue)
     }
 
-    onVisibleChanged: {
-        if (!visible)
-            return
+    function reloadAll() {
         app.configNotice = ""
         locationsSection.reload()
         poolSection.reload()
@@ -50,6 +48,11 @@ ModalDialog {
         safetySection.reload()
         appearanceSection.reload()
     }
+
+    // The loader creates this panel only when it is already open, so reload on
+    // completion as well as on later visibility changes.
+    Component.onCompleted: if (visible) reloadAll()
+    onVisibleChanged: if (visible) reloadAll()
 
     RowLayout {
         Layout.fillWidth: true
