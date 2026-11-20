@@ -198,6 +198,12 @@ pub fn save_create_options(
             "Keep at most 4 swap choices.",
         ));
     }
+    if !swap.iter().any(|value| value == "Off") || !swap.iter().any(|value| value == "Host") {
+        return Err(ConfigError::invalid(
+            "swapOptions",
+            "Swap choices must include Off and Host.",
+        ));
+    }
 
     let mut cpu_values = Vec::new();
     for raw in parse_csv(cpu_csv) {
@@ -340,12 +346,14 @@ mod tests {
         assert!(save_create_options(&cfg, "35GiB", "bad", "Off", "2").is_err());
         assert!(save_create_options(&cfg, "35GiB", "4GiB", "", "2").is_err());
         assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, bogus", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Host, 4GiB", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, 4GiB", "2").is_err());
         assert!(
             save_create_options(&cfg, "35GiB", "4GiB", "Off, Host, 2GiB, 4GiB, 8GiB", "2").is_err()
         );
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "0").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "1025").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, Host", "0").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, Host", "1025").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, Host", "").is_err());
 
         let updated = save_create_options(
             &cfg,
@@ -358,6 +366,9 @@ mod tests {
         assert_eq!(updated.disk_options, vec!["20GiB", "50GiB"]);
         assert_eq!(updated.ram_options, vec!["4GiB", "16GiB"]);
         assert_eq!(updated.swap_options, vec!["Off", "Host", "4GiB"]);
+        let aliases =
+            save_create_options(&cfg, "20GiB", "4GiB", "false, true", "2").expect("aliases");
+        assert_eq!(aliases.swap_options, vec!["Off", "Host"]);
         assert_eq!(updated.cpu_options, vec![2, 8]);
         assert_eq!(updated.default_disk, "20GiB");
         assert_eq!(updated.default_ram, "4GiB");

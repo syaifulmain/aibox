@@ -466,6 +466,7 @@
   "Host has no active swap. Swap limits will not be used.": "Værten har ingen aktiv swap. Swapgrænser bruges ikke.",
   "Swap limit": "Swap-grænse",
   "Off, Host, or a size": "Fra, Vært eller en størrelse",
+  "%1 is required and cannot be removed.": "%1 er påkrævet og kan ikke fjernes.",
   "Swap Limit": "Swap-grænse",
   "Host follows the Incus default; Off disables swap.": "Host følger Incus-standard; Fra deaktiverer swap.",
   "VM swap is managed inside the guest.": "VM-swap administreres i gæsten.",

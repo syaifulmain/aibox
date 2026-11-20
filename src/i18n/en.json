@@ -100,6 +100,7 @@
   "Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically. Swap accepts Off, Host, or a size such as 4GiB; press × on a chip to remove it.": "Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically. Swap accepts Off, Host, or a size such as 4GiB; press × on a chip to remove it.",
   "Swap limit": "Swap limit",
   "Off, Host, or a size": "Off, Host, or a size",
+  "%1 is required and cannot be removed.": "%1 is required and cannot be removed.",
   "Swap Limit": "Swap Limit",
   "Host follows the Incus default; Off disables swap.": "Host follows the Incus default; Off disables swap.",
   "VM swap is managed inside the guest.": "VM swap is managed inside the guest.",

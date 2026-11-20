@@ -154,6 +154,22 @@ impl Config {
         if self.swap_options.is_empty() {
             self.swap_options = default_swap_options();
         }
+        let missing_required: Vec<&str> = ["Off", "Host"]
+            .into_iter()
+            .filter(|required| {
+                !self
+                    .swap_options
+                    .iter()
+                    .any(|value| value.eq_ignore_ascii_case(required))
+            })
+            .collect();
+        if !missing_required.is_empty() {
+            let keep = 4usize.saturating_sub(missing_required.len());
+            self.swap_options.truncate(keep);
+            for required in missing_required {
+                self.swap_options.push(required.to_string());
+            }
+        }
 
         if !self.os_catalog.iter().any(|e| e.id == self.default_os_id) {
             self.default_os_id = self

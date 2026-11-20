@@ -222,6 +222,7 @@ ColumnLayout {
                 values: app.swapChoiceDraft
                 maxChips: 4
                 allowText: true
+                lockedValues: ["Off", "Host"]
                 placeholder: qsTr("Off, Host, or a size")
                 onAddRequested: function (value) {
                     app.updateCreateChoices("swap",

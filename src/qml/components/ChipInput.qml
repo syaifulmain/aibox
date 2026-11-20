@@ -10,6 +10,7 @@ Rectangle {
     property int maxChips: 4
     property int maxValue: 1024
     property bool allowText: false
+    property var lockedValues: []
     property string placeholder: ""
     readonly property int count: values ? values.length : 0
     readonly property bool atLimit: count >= maxChips
@@ -25,6 +26,10 @@ Rectangle {
 
     HoverHandler { id: chipHover }
     IntValidator { id: chipValidator; bottom: 1; top: chipRoot.maxValue }
+
+    function isLocked(value) {
+        return chipRoot.lockedValues.indexOf(String(value)) >= 0
+    }
 
     function submit() {
         const raw = chipInput.text.trim()
@@ -72,7 +77,8 @@ Rectangle {
                 required property string modelData
                 required property int index
                 readonly property string suffix: chipRoot.unit
-                readonly property bool removable: chipRoot.count > 1
+                readonly property bool locked: chipRoot.isLocked(modelData)
+                readonly property bool removable: chipRoot.count > 1 && !locked
                 readonly property string amount: (chipRoot.unit.length > 0 && modelData.endsWith(chipRoot.unit))
                                                   ? modelData.slice(0, modelData.length - chipRoot.unit.length)
                                                   : modelData
@@ -104,6 +110,7 @@ Rectangle {
                         font.pixelSize: Style.fontCaption
                     }
                     Text {
+                        visible: !locked
                         text: "×"
                         leftPadding: Style.gapXs
                         color: chipMouse.containsMouse && removable ? theme.accentText : theme.textMuted
@@ -118,6 +125,10 @@ Rectangle {
                     hoverEnabled: true
                     cursorShape: removable ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: {
+                        if (locked) {
+                            app.showConfigNotice(qsTr("%1 is required and cannot be removed.").arg(modelData), true)
+                            return
+                        }
                         if (!removable) {
                             app.showConfigNotice(qsTr("Keep at least one choice."), true)
                             return
@@ -149,7 +160,10 @@ Rectangle {
                 validator: chipRoot.allowText ? null : chipValidator
                 onAccepted: chipRoot.submit()
                 Keys.onBackPressed: {
-                    if (text.length === 0 && chipRoot.count > 1)
+                    if (text.length !== 0 || chipRoot.count <= 1)
+                        return
+                    const last = chipRoot.values[chipRoot.count - 1]
+                    if (!chipRoot.isLocked(last))
                         chipRoot.removeRequested(chipRoot.count - 1)
                 }
             }
