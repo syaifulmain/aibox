@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Container Swap Limits, Host Swap Warning & Live Quota Editing (`incus/list`, `provision`, `aibox-app`, `src/qml`)
+
+- **Container swap controls (`limits.memory.swap`):** Added `swapLimit` to the environment model and parser. Containers expose `Off`, `Host` (Incus default), and fixed sizes (`2GiB`, `4GiB`, `8GiB`). New environments default to `Off`, while `Host` leaves the Incus default untouched. VMs hide the control because their swap is guest-managed.
+- **Live edits for existing environments:** `update_environment_resources` now accepts a swap value. `Off` writes `limits.memory.swap=false`, a size writes that value, and `Host` unsets the key. Updates apply live without restarting the container. Clone plans copy an explicit source value and leave the copied setting untouched when the source follows the host default.
+- **Host swap visibility (`health/swap.rs`):** Reads `/proc/swaps` and exposes `hostSwapAvailable`. Create and Quotas show a warning when the host has no active swap. AIBox never creates host swap automatically.
+- **Configurable swap choices:** Added `swapOptions` to the configuration model. Settings → Create Options exposes a swap chip editor (up to 4 choices) that accepts `Off`, `Host`, or a size such as `4GiB`, canonicalizes boolean aliases, rejects duplicates or invalid values, and resets with the other create defaults.
+- **UI and localization:** Added swap chips to Create and Edit Quotas, a VM note for guest-managed swap, and a Swap Memory card to the environment inspector. Updated `src/i18n/en.json` and `da.json`.
+- **Tests:** Added swap validation, script, parser, host-swap parser, and quota-editing coverage. Updated provision golden arguments to include `swapLimit`.
+
 ### QML UI: Fix Empty Quota/Settings Forms in Lazy-Loaded Dialogs, Size Unit Chips & Safer Toggle Saves (`src/qml/dialogs/EditQuotasDialog.qml`, `src/qml/panels/SettingsPanel.qml`, `src/qml/panels/settings/`, `src/qml/components/SizeUnitChips.qml`)
 
 - **Lazy-loaded dialogs now populate saved values (`DialogHost.qml` loaders, `EditQuotasDialog.qml`, `SettingsPanel.qml`):** The lazily created dialogs open with `open` already true, so their `visibleChanged` handlers never ran and every form showed only placeholders. Both dialogs now load their state on `Component.onCompleted` as well as on later visibility changes, restoring the current instance quotas and the saved safety, create-option, and appearance settings.

@@ -145,6 +145,15 @@ pub fn default_cpu_options() -> Vec<i32> {
     vec![2, 4, 6, 8]
 }
 
+pub fn default_swap_options() -> Vec<String> {
+    vec![
+        "Off".to_string(),
+        "Host".to_string(),
+        "4GiB".to_string(),
+        "8GiB".to_string(),
+    ]
+}
+
 pub fn default_diff_excludes() -> Vec<String> {
     vec![
         ".git/".to_string(),

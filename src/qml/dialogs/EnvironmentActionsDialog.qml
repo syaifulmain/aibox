@@ -47,7 +47,7 @@ ModalDialog {
 
     MenuRow {
         label: qsTr("Quotas & Limits")
-        detail: qsTr("Edit CPU, memory, disk, process and I/O limits")
+        detail: qsTr("Edit CPU, memory, swap, disk, process and I/O limits")
         disabled: backend.busy
         onClicked: actionsDialogRoot.openAction(function () { app.openEditQuotasDialog() })
     }

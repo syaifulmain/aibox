@@ -76,6 +76,7 @@ ApplicationWindow {
     property bool netAllowlistEditing: false
     property var diskChoiceDraft: []
     property var ramChoiceDraft: []
+    property var swapChoiceDraft: []
     property var cpuChoiceDraft: []
     property bool autoSnapEnabledDraft: backend.autoSnapshotEnabled
     property bool watchdogEnabledDraft: backend.watchdogEnabled
@@ -99,6 +100,7 @@ ApplicationWindow {
     property bool staleConfirmDeleteWs: true
     property string newEnvProcLimit: backend.defaultProcessLimit
     property string newEnvIoLimit: backend.defaultIoLimit
+    property string newEnvSwap: "Off"
     property bool historyVisible: false
     property string selectedHistoryId: ""
     property string selectedHistoryLog: ""
@@ -118,6 +120,7 @@ ApplicationWindow {
     property string editQuotaDisk: ""
     property string editQuotaProc: ""
     property string editQuotaIo: ""
+    property string editQuotaSwap: "Host"
     property bool backupsVisible: false
     property bool backupIncludeWorkspace: true
     property string backupError: ""
@@ -279,6 +282,7 @@ ApplicationWindow {
         win.newEnvCpu = backend.defaultCpu
         win.newEnvProcLimit = backend.defaultProcessLimit
         win.newEnvIoLimit = backend.defaultIoLimit
+        win.newEnvSwap = "Off"
         if (templateName && templateName.length > 0) {
             win.createFromTemplate = true
             win.newEnvTemplateName = templateName
@@ -316,6 +320,7 @@ ApplicationWindow {
                       ? env.diskWriteLimit
                       : ((env.diskReadLimit && env.diskReadLimit.length > 0) ? env.diskReadLimit : "Unlimited")
         win.editQuotaIo = ioVal
+        win.editQuotaSwap = (env.swapLimit && env.swapLimit.length > 0) ? env.swapLimit : "Host"
         win.editQuotaError = ""
         win.editQuotasVisible = true
     }
@@ -490,6 +495,7 @@ ApplicationWindow {
     function syncCreateChoiceDrafts() {
         win.diskChoiceDraft = (backend.diskOptions || []).slice()
         win.ramChoiceDraft = (backend.ramOptions || []).slice()
+        win.swapChoiceDraft = (backend.swapOptions || []).slice()
         const cpus = backend.cpuOptions || []
         const cpu = []
         for (let i = 0; i < cpus.length; ++i)
@@ -505,24 +511,29 @@ ApplicationWindow {
 
     // Chips persist instantly: every add/remove writes through the backend.
     function updateCreateChoices(kind, nextValues) {
-        const next = win.sortedChoices(nextValues)
+        const next = kind === "swap" ? nextValues.slice() : win.sortedChoices(nextValues)
         let disk = win.diskChoiceDraft
         let ram = win.ramChoiceDraft
+        let swap = win.swapChoiceDraft
         let cpu = win.cpuChoiceDraft
         if (kind === "disk")
             disk = next
         else if (kind === "ram")
             ram = next
+        else if (kind === "swap")
+            swap = next
         else if (kind === "cpu")
             cpu = next
 
-        const error = backend.saveCreateOptions(disk.join(", "), ram.join(", "), cpu.join(", "))
+        const error = backend.saveCreateOptions(disk.join(", "), ram.join(", "),
+                                                swap.join(", "), cpu.join(", "))
         if (error.length > 0) {
             win.showConfigNotice(error, true)
             return
         }
         win.diskChoiceDraft = disk
         win.ramChoiceDraft = ram
+        win.swapChoiceDraft = swap
         win.cpuChoiceDraft = cpu
         win.showConfigNotice(qsTr("Create options saved."), false)
     }

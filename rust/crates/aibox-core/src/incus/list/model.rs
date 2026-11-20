@@ -120,6 +120,10 @@ pub struct Environment {
     pub network_allowlist: String,
     pub network_blocked: bool,
     pub egress_recording: bool,
+    /// Explicit container swap value: `Off`, a size such as `4GiB`, or empty
+    /// when the instance follows the Incus default (`Host`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub swap_limit: String,
 }
 
 pub fn environment_by_name<'a>(envs: &'a [Environment], name: &str) -> Option<&'a Environment> {

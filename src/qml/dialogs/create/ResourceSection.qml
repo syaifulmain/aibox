@@ -6,6 +6,23 @@ import "../../components"
 ColumnLayout {
     id: root
     property QtObject app: null
+    readonly property bool isVmPreset: {
+        const items = backend.presets || []
+        for (let i = 0; i < items.length; ++i) {
+            if (items[i].id === root.app.newEnvPreset)
+                return String(items[i].flags || "").indexOf("--vm") >= 0
+        }
+        return false
+    }
+    readonly property var swapChoices: {
+        const base = backend.swapOptions || []
+        const out = []
+        for (let i = 0; i < base.length; ++i)
+            out.push(base[i])
+        if (out.indexOf(root.app.newEnvSwap) < 0)
+            out.unshift(root.app.newEnvSwap)
+        return out
+    }
 
     Layout.fillWidth: true
     spacing: Style.padCard
@@ -171,6 +188,54 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    // Container swap allowance. Incus applies swap from the host, not the pool.
+    RowLayout {
+        visible: !root.isVmPreset
+        Layout.fillWidth: true
+        spacing: Style.padSection
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: Style.gapSm
+
+            Text {
+                text: qsTr("Swap Memory (Container)")
+                color: theme.textPrimary
+                font.family: Style.fontSans
+                font.pixelSize: Style.fontBody
+                font.weight: Font.Medium
+            }
+
+            RowLayout {
+                spacing: Style.gapSm
+
+                Repeater {
+                    model: root.swapChoices
+                    delegate: SelectChip {
+                        required property string modelData
+                        Layout.fillWidth: true
+                        Layout.preferredWidth: 0
+                        text: modelData
+                        selected: root.app.newEnvSwap === modelData
+                        stretchText: true
+                        compact: true
+                        onClicked: root.app.newEnvSwap = modelData
+                    }
+                }
+            }
+        }
+    }
+
+    Text {
+        visible: !root.isVmPreset && !backend.hostSwapAvailable
+        Layout.fillWidth: true
+        text: qsTr("Host has no active swap. Swap limits will not be used.")
+        color: theme.warningText
+        wrapMode: Text.WordWrap
+        font.family: Style.fontSans
+        font.pixelSize: Style.fontSmall
     }
 
     // Storage pool overcommit warning (non-blocking)

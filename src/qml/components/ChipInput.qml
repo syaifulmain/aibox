@@ -9,6 +9,7 @@ Rectangle {
     property string unit: ""
     property int maxChips: 4
     property int maxValue: 1024
+    property bool allowText: false
     property string placeholder: ""
     readonly property int count: values ? values.length : 0
     readonly property bool atLimit: count >= maxChips
@@ -23,25 +24,29 @@ Rectangle {
     border.color: chipInput.activeFocus ? theme.borderFocus : (chipHover.hovered ? theme.borderStrong : theme.borderSubtle)
 
     HoverHandler { id: chipHover }
+    IntValidator { id: chipValidator; bottom: 1; top: chipRoot.maxValue }
 
     function submit() {
         const raw = chipInput.text.trim()
         if (raw.length === 0)
             return
-        const digits = raw.replace(/\s+/g, "")
-        if (!/^\d+$/.test(digits) || parseInt(digits, 10) < 1) {
-            app.showConfigNotice(qsTr("Enter a whole number greater than zero."), true)
-            return
-        }
-        if (parseInt(digits, 10) > chipRoot.maxValue) {
-            app.showConfigNotice(qsTr("The maximum value is %1.").arg(chipRoot.maxValue), true)
-            return
-        }
         if (chipRoot.atLimit) {
             app.showConfigNotice(qsTr("Limit is %1 choices. Remove one first.").arg(chipRoot.maxChips), true)
             return
         }
-        const value = digits + chipRoot.unit
+        let value = raw.replace(/\s+/g, "")
+        if (!chipRoot.allowText) {
+            const digits = value
+            if (!/^\d+$/.test(digits) || parseInt(digits, 10) < 1) {
+                app.showConfigNotice(qsTr("Enter a whole number greater than zero."), true)
+                return
+            }
+            if (parseInt(digits, 10) > chipRoot.maxValue) {
+                app.showConfigNotice(qsTr("The maximum value is %1.").arg(chipRoot.maxValue), true)
+                return
+            }
+            value = digits + chipRoot.unit
+        }
         for (let i = 0; i < chipRoot.count; ++i) {
             if (String(chipRoot.values[i]).toLowerCase() === value.toLowerCase()) {
                 app.showConfigNotice(qsTr("%1 is already in the list.").arg(value), true)
@@ -138,10 +143,10 @@ Rectangle {
                 selectedTextColor: theme.selectionText
                 selectByMouse: true
                 clip: true
-                inputMethodHints: Qt.ImhDigitsOnly
+                inputMethodHints: chipRoot.allowText ? Qt.ImhNone : Qt.ImhDigitsOnly
                 font.family: Style.fontMono
                 font.pixelSize: Style.fontBody
-                validator: IntValidator { bottom: 1; top: chipRoot.maxValue }
+                validator: chipRoot.allowText ? null : chipValidator
                 onAccepted: chipRoot.submit()
                 Keys.onBackPressed: {
                     if (text.length === 0 && chipRoot.count > 1)

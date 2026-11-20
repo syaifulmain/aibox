@@ -88,6 +88,53 @@ mod tests {
     }
 
     #[test]
+    fn parse_incus_json_maps_container_swap_limits() {
+        let sample = br#"[
+            {
+                "name": "swap-off",
+                "status": "Stopped",
+                "type": "container",
+                "config": { "limits.memory.swap": "false" },
+                "devices": {}
+            },
+            {
+                "name": "swap-size",
+                "status": "Stopped",
+                "type": "container",
+                "config": { "limits.memory.swap": "4GiB" },
+                "devices": {}
+            },
+            {
+                "name": "swap-host",
+                "status": "Stopped",
+                "type": "container",
+                "config": { "limits.memory.swap": "true" },
+                "devices": {}
+            },
+            {
+                "name": "swap-vm",
+                "status": "Stopped",
+                "type": "virtual-machine",
+                "config": { "limits.memory.swap": "4GiB" },
+                "devices": {}
+            }
+        ]"#;
+        let mut state = CounterState::new();
+        let envs = parse(
+            sample,
+            "/tmp/ws",
+            &mut state,
+            0,
+            ParseDefaults::default(),
+            false,
+        );
+        assert_eq!(envs[0].swap_limit, "Off");
+        assert_eq!(envs[1].swap_limit, "4GiB");
+        assert_eq!(envs[2].swap_limit, "");
+        assert_eq!(envs[3].swap_limit, "");
+    }
+
+    #[test]
     fn parse_incus_json_uses_workspace_device_source_match_qt_test() {
         let sample = br#"[
             {

@@ -7,12 +7,12 @@ use serde_json::Value;
 
 use crate::config::defaults::{
     default_cpu_options, default_disk_options, default_os_entries, default_presets,
-    default_ram_options, OsEntry,
+    default_ram_options, default_swap_options, OsEntry,
 };
 use crate::config::error::ConfigError;
 use crate::config::model::Config;
 use crate::util::csv::parse_csv;
-use crate::util::size::{validated_cpu_options, validated_size_options};
+use crate::util::size::{validated_cpu_options, validated_size_options, validated_swap_options};
 
 fn os_id_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -145,6 +145,7 @@ pub fn save_create_options(
     cfg: &Config,
     disk_csv: &str,
     ram_csv: &str,
+    swap_csv: &str,
     cpu_csv: &str,
 ) -> Result<Config, ConfigError> {
     let raw_disk = parse_csv(disk_csv);
@@ -177,6 +178,27 @@ pub fn save_create_options(
         ));
     }
 
+    let raw_swap = parse_csv(swap_csv);
+    let swap = validated_swap_options(&raw_swap);
+    if swap.is_empty() {
+        return Err(ConfigError::invalid(
+            "swapOptions",
+            "Add at least one swap choice, for example Off, Host, or 4GiB.",
+        ));
+    }
+    if swap.len() != raw_swap.len() {
+        return Err(ConfigError::invalid(
+            "swapOptions",
+            "Swap choices must be Off, Host, or a size such as 4GiB, without duplicates.",
+        ));
+    }
+    if swap.len() > 4 {
+        return Err(ConfigError::invalid(
+            "swapOptions",
+            "Keep at most 4 swap choices.",
+        ));
+    }
+
     let mut cpu_values = Vec::new();
     for raw in parse_csv(cpu_csv) {
         let Ok(cores) = raw.trim().parse::<i32>() else {
@@ -204,6 +226,7 @@ pub fn save_create_options(
     let mut next = cfg.clone();
     next.disk_options = disk;
     next.ram_options = ram;
+    next.swap_options = swap;
     next.cpu_options = cpus;
     next.normalize_defaults();
     Ok(next)
@@ -243,6 +266,7 @@ pub fn reset_create_options(cfg: &Config) -> Config {
     next.presets = default_presets();
     next.disk_options = default_disk_options();
     next.ram_options = default_ram_options();
+    next.swap_options = default_swap_options();
     next.cpu_options = default_cpu_options();
     next.default_preset_id = "full".to_string();
     next.default_disk = "35GiB".to_string();
@@ -310,17 +334,30 @@ mod tests {
     #[test]
     fn create_options_are_editable_and_validated() {
         let cfg = Config::new_defaults("/tmp/ws", "/tmp/os");
-        assert!(save_create_options(&cfg, "", "4GiB", "2").is_err());
-        assert!(save_create_options(&cfg, "35GiB, bad", "4GiB", "2").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "", "2").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "bad", "2").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "0").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "1025").is_err());
-        assert!(save_create_options(&cfg, "35GiB", "4GiB", "").is_err());
+        assert!(save_create_options(&cfg, "", "4GiB", "Off", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB, bad", "4GiB", "Off", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "", "Off", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "bad", "Off", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "", "2").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off, bogus", "2").is_err());
+        assert!(
+            save_create_options(&cfg, "35GiB", "4GiB", "Off, Host, 2GiB, 4GiB, 8GiB", "2").is_err()
+        );
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "0").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "1025").is_err());
+        assert!(save_create_options(&cfg, "35GiB", "4GiB", "Off", "").is_err());
 
-        let updated = save_create_options(&cfg, "20GiB, 50GiB", "4GiB, 16GiB", "2, 8").expect("ok");
+        let updated = save_create_options(
+            &cfg,
+            "20GiB, 50GiB",
+            "4GiB, 16GiB",
+            "Off, Host, 4GiB",
+            "2, 8",
+        )
+        .expect("ok");
         assert_eq!(updated.disk_options, vec!["20GiB", "50GiB"]);
         assert_eq!(updated.ram_options, vec!["4GiB", "16GiB"]);
+        assert_eq!(updated.swap_options, vec!["Off", "Host", "4GiB"]);
         assert_eq!(updated.cpu_options, vec![2, 8]);
         assert_eq!(updated.default_disk, "20GiB");
         assert_eq!(updated.default_ram, "4GiB");
@@ -336,6 +373,7 @@ mod tests {
 
         let reset = reset_create_options(&with_preset);
         assert_eq!(reset.disk_options, default_disk_options());
+        assert_eq!(reset.swap_options, default_swap_options());
         assert_eq!(reset.default_disk, "35GiB");
         assert_eq!(reset.default_cpu, 4);
     }

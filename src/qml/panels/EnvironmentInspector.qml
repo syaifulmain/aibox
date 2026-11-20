@@ -201,6 +201,30 @@ Item {
                 }
             }
 
+            Card {
+                Layout.fillWidth: true
+                title: qsTr("Swap Memory")
+                subtitle: (backend.selectedEnvironment.type === "VIRTUAL-MACHINE"
+                           || backend.selectedEnvironment.type === "VM")
+                          ? qsTr("VM swap is managed inside the guest.")
+                          : qsTr("Container swap is provided by the host.")
+
+                KeyValue {
+                    label: qsTr("Allowance")
+                    value: {
+                        const env = backend.selectedEnvironment
+                        if ((env.type || "") === "VIRTUAL-MACHINE" || (env.type || "") === "VM")
+                            return qsTr("Guest-managed")
+                        const raw = env.swapLimit || ""
+                        if (raw.length === 0)
+                            return qsTr("Host")
+                        if (raw === "Off")
+                            return qsTr("Off")
+                        return raw
+                    }
+                }
+            }
+
             // Shared workspace & Root file access cards
             GridLayout {
                 Layout.fillWidth: true

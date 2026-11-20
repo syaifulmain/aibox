@@ -1,6 +1,9 @@
 use crate::config::defaults::OsEntry;
 use crate::provision::templates::{render_template, PREFETCH_IMAGE_TEMPLATE};
-use crate::provision::{is_valid_size_spec, validate_limits, ProvisionError};
+use crate::provision::{
+    is_host_swap_value, is_valid_size_spec, swap_config_value, validate_limits,
+    validate_swap_limit, ProvisionError,
+};
 use crate::util::paths::cache_base_path;
 use crate::util::shell::shell_quote;
 use crate::util::size::parse_size_bytes;
@@ -17,6 +20,7 @@ pub struct OsImageTaskPlan {
     pub script: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_resources_script(
     name: &str,
     cpu_cores: i32,
@@ -24,6 +28,7 @@ pub fn update_resources_script(
     disk_gib: &str,
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     is_vm: bool,
 ) -> String {
     let q_name = shell_quote(name);
@@ -55,6 +60,20 @@ pub fn update_resources_script(
                 "incus config set {q_name} limits.processes {}",
                 shell_quote(clean_proc)
             ));
+        }
+
+        let clean_swap = swap_limit.trim();
+        if !clean_swap.is_empty() {
+            if is_host_swap_value(clean_swap) {
+                lines.push(format!(
+                    "incus config unset {q_name} limits.memory.swap >/dev/null 2>&1 || true"
+                ));
+            } else if let Some(swap_value) = swap_config_value(clean_swap) {
+                lines.push(format!(
+                    "incus config set {q_name} limits.memory.swap {}",
+                    shell_quote(&swap_value)
+                ));
+            }
         }
     }
 
@@ -95,6 +114,7 @@ pub fn validate_and_prepare_update_resources(
     disk_gib: &str,
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     env_exists: bool,
     used_bytes: i64,
     disk_usage_label: &str,
@@ -117,6 +137,7 @@ pub fn validate_and_prepare_update_resources(
     }
 
     let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
+    validate_swap_limit(swap_limit)?;
 
     if !env_exists {
         return Err(ProvisionError::NotFound(name.to_string()));
@@ -140,6 +161,7 @@ pub fn validate_and_prepare_update_resources(
             disk_gib,
             &clean_proc,
             &clean_io,
+            swap_limit,
             is_vm,
         ),
     })
@@ -238,21 +260,24 @@ mod tests {
         assert_eq!(parse_size_bytes("512MiB"), 536_870_912);
 
         let ct_update =
-            update_resources_script("box1", 6, "12GiB", "80GiB", "2048", "200MB", false);
+            update_resources_script("box1", 6, "12GiB", "80GiB", "2048", "200MB", "4GiB", false);
         assert!(ct_update.contains("limits.cpu '6'"));
         assert!(ct_update.contains("limits.memory '12GiB'"));
         assert!(ct_update.contains("limits.processes '2048'"));
+        assert!(ct_update.contains("limits.memory.swap '4GiB'"));
         assert!(ct_update.contains("root size='80GiB'"));
         assert!(ct_update.contains("limits.read='200MB' limits.write='200MB'"));
 
         let vm_update =
-            update_resources_script("vm1", 4, "8GiB", "60GiB", "2048", "Unlimited", true);
+            update_resources_script("vm1", 4, "8GiB", "60GiB", "2048", "Unlimited", "4GiB", true);
         assert!(!vm_update.contains("limits.processes"));
+        assert!(!vm_update.contains("limits.memory.swap"));
         assert!(vm_update.contains("device unset 'vm1' root limits.read"));
 
         let shrink_reset =
-            update_resources_script("box1", 2, "4GiB", "20GiB", "Unlimited", "", false);
+            update_resources_script("box1", 2, "4GiB", "20GiB", "Unlimited", "", "Host", false);
         assert!(shrink_reset.contains("config unset 'box1' limits.processes"));
+        assert!(shrink_reset.contains("config unset 'box1' limits.memory.swap"));
 
         let shrink_err = validate_and_prepare_update_resources(
             "box1",
@@ -261,6 +286,7 @@ mod tests {
             "4GiB",
             "10GiB",
             "Unlimited",
+            "",
             "",
             true,
             20 * 1024 * 1024 * 1024,
@@ -271,6 +297,25 @@ mod tests {
         assert_eq!(
             shrink_err.to_string(),
             "Cannot shrink disk quota (10GiB) below current usage (20.0 GiB)."
+        );
+
+        assert_eq!(
+            validate_and_prepare_update_resources(
+                "box1",
+                false,
+                2,
+                "4GiB",
+                "20GiB",
+                "Unlimited",
+                "",
+                "bogus",
+                true,
+                0,
+                "",
+                false,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidSwapLimit
         );
     }
 

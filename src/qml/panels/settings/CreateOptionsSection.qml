@@ -18,6 +18,18 @@ ColumnLayout {
         app.syncCreateChoiceDrafts()
     }
 
+    function swapChoice(value) {
+        const text = String(value).trim().replace(/\s+/g, "")
+        if (/^\d+$/.test(text))
+            return text + "GiB"
+        if (text.toLowerCase() === "off" || text.toLowerCase() === "false")
+            return "Off"
+        if (text.toLowerCase() === "host" || text.toLowerCase() === "default"
+                || text.toLowerCase() === "true")
+            return "Host"
+        return text
+    }
+
     Card {
         title: qsTr("Capability presets")
         contentSpacing: Style.gap
@@ -147,7 +159,7 @@ ColumnLayout {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically; press × on a chip to remove it.")
+            text: qsTr("Type a number and press Enter to add a choice (up to 4). Disk and RAM units are appended automatically. Swap accepts Off, Host, or a size such as 4GiB; press × on a chip to remove it.")
             color: theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.fontSmall
@@ -196,6 +208,29 @@ ColumnLayout {
                     const next = app.ramChoiceDraft.slice()
                     next.splice(index, 1)
                     app.updateCreateChoices("ram", next)
+                }
+            }
+        }
+
+        FormRow {
+            label: qsTr("Swap limit")
+            labelWidth: root.labelWidth
+
+            ChipInput {
+                app: root.app
+                Layout.fillWidth: true
+                values: app.swapChoiceDraft
+                maxChips: 4
+                allowText: true
+                placeholder: qsTr("Off, Host, or a size")
+                onAddRequested: function (value) {
+                    app.updateCreateChoices("swap",
+                        app.swapChoiceDraft.concat([root.swapChoice(value)]))
+                }
+                onRemoveRequested: function (index) {
+                    const next = app.swapChoiceDraft.slice()
+                    next.splice(index, 1)
+                    app.updateCreateChoices("swap", next)
                 }
             }
         }

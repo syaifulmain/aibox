@@ -653,6 +653,7 @@ fn test_backend_and_cli_produce_identical_environment_model() {
             "cpuCores",
             "cpuLimit",
             "memoryLimit",
+            "swapLimit",
             "diskLimit",
             "workspacePath",
             "snapshots",

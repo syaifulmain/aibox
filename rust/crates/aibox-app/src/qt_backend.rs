@@ -13,11 +13,13 @@ use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, Q
 
 use aibox_core::config::defaults::{
     default_cpu_options, default_disk_options, default_presets, default_ram_options,
+    default_swap_options,
 };
 use aibox_core::config::settings::stale_day_options;
 use aibox_core::engine::Engine;
 use aibox_core::health::idle::IdleCpuSample;
 use aibox_core::health::pool::StoragePoolInfo;
+use aibox_core::health::swap::host_swap_info;
 use aibox_core::incus::catalog::catalog_for_entries;
 use aibox_core::incus::demo::build_demo_state_now;
 use aibox_core::incus::list::{templates as extract_templates, Environment};
@@ -142,6 +144,14 @@ pub mod qobject {
         )]
         #[qproperty(QString, default_process_limit, cxx_name = "defaultProcessLimit", READ, NOTIFY = create_options_changed)]
         #[qproperty(QString, default_io_limit, cxx_name = "defaultIoLimit", READ, NOTIFY = create_options_changed)]
+        #[qproperty(QStringList, swap_options, cxx_name = "swapOptions", READ, NOTIFY = create_options_changed)]
+        #[qproperty(
+            bool,
+            host_swap_available,
+            cxx_name = "hostSwapAvailable",
+            READ,
+            CONSTANT
+        )]
         #[qproperty(bool, watchdog_enabled, cxx_name = "watchdogEnabled", READ, NOTIFY = watchdog_settings_changed)]
         #[qproperty(i32, watchdog_disk_warn, cxx_name = "watchdogDiskWarn", READ, NOTIFY = watchdog_settings_changed)]
         #[qproperty(i32, watchdog_disk_critical, cxx_name = "watchdogDiskCritical", READ, NOTIFY = watchdog_settings_changed)]
@@ -336,6 +346,7 @@ pub mod qobject {
             cpu_cores: i32,
             process_limit: &QString,
             io_limit: &QString,
+            swap_limit: &QString,
             workspace_parent: &QString,
         );
 
@@ -359,6 +370,7 @@ pub mod qobject {
             start_after: bool,
             process_limit: &QString,
             io_limit: &QString,
+            swap_limit: &QString,
             workspace_parent: &QString,
         );
 
@@ -563,6 +575,7 @@ pub mod qobject {
             disk_gib: &QString,
             process_limit: &QString,
             io_limit: &QString,
+            swap_limit: &QString,
         ) -> QString;
 
         #[qinvokable]
@@ -840,6 +853,7 @@ pub mod qobject {
             self: Pin<&mut Backend>,
             disk_csv: &QString,
             ram_csv: &QString,
+            swap_csv: &QString,
             cpu_csv: &QString,
         ) -> QString;
 
@@ -918,8 +932,10 @@ pub struct BackendRust {
     auto_snapshot_keep: i32,
     process_limit_options: QStringList,
     io_limit_options: QStringList,
+    swap_options: QStringList,
     default_process_limit: QString,
     default_io_limit: QString,
+    host_swap_available: bool,
     watchdog_enabled: bool,
     pub(crate) watchdog_disk_warn: i32,
     pub(crate) watchdog_disk_critical: i32,
@@ -1006,6 +1022,7 @@ impl Default for BackendRust {
         let default_sys = default_system_path();
         let default_ws = default_workspace_path();
         let default_os = default_os_storage_path();
+        let host_swap = host_swap_info();
 
         Self {
             count: 0,
@@ -1052,8 +1069,10 @@ impl Default for BackendRust {
                 "100MB".to_string(),
                 "250MB".to_string(),
             ]),
+            swap_options: strings_to_qstringlist(&default_swap_options()),
             default_process_limit: QString::from("4096"),
             default_io_limit: QString::from("Unlimited"),
+            host_swap_available: host_swap.available(),
             watchdog_enabled: true,
             watchdog_disk_warn: 90,
             watchdog_disk_critical: 97,
@@ -1366,6 +1385,8 @@ impl qobject::Backend {
             rust.secrets_store_path = secrets_store_path;
             rust.secrets_error = secrets_error;
         }
+        let swap_options = strings_to_qstringlist(&self.engine.config.swap_options);
+        self.as_mut().rust_mut().swap_options = swap_options;
 
         self.as_mut().system_path_changed();
         self.as_mut().workspace_base_changed();

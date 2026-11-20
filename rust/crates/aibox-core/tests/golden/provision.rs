@@ -18,6 +18,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
                 args["x11"].as_bool().expect("x11"),
                 args["processLimit"].as_str().expect("processLimit"),
                 args["ioLimit"].as_str().expect("ioLimit"),
+                args["swapLimit"].as_str().expect("swapLimit"),
                 args["isVm"].as_bool().expect("isVm"),
             ))
         }
@@ -41,6 +42,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
                 &cidrs,
                 args["processLimit"].as_str().expect("processLimit"),
                 args["ioLimit"].as_str().expect("ioLimit"),
+                args["swapLimit"].as_str().expect("swapLimit"),
                 args["isVm"].as_bool().expect("isVm"),
             ))
         }
@@ -52,6 +54,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
                 args["diskGiB"].as_str().expect("diskGiB"),
                 args["processLimit"].as_str().expect("processLimit"),
                 args["ioLimit"].as_str().expect("ioLimit"),
+                args["swapLimit"].as_str().expect("swapLimit"),
                 args["isVm"].as_bool().expect("isVm"),
             ))
         }

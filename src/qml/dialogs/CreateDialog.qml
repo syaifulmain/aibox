@@ -99,12 +99,12 @@ ModalDialog {
                     backend.cloneEnvironment(app.newEnvTemplateName, app.newEnvName,
                                              app.newEnvDisk, app.newEnvRam, app.newEnvCpu, true,
                                              app.newEnvProcLimit, app.newEnvIoLimit,
-                                             app.newEnvSharedPath)
+                                             app.newEnvSwap, app.newEnvSharedPath)
                 } else {
                     backend.createEnvironment(app.newEnvName, app.newEnvOsId, app.newEnvPreset,
                                               app.newEnvDisk, app.newEnvRam, app.newEnvCpu,
                                               app.newEnvProcLimit, app.newEnvIoLimit,
-                                              app.newEnvSharedPath)
+                                              app.newEnvSwap, app.newEnvSharedPath)
                 }
             }
         }

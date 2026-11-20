@@ -76,6 +76,43 @@ pub fn validated_size_options(values: &[String]) -> Vec<String> {
     result
 }
 
+/// Validates and canonicalizes swap choices: `Off`, `Host`, or a size spec.
+///
+/// Boolean aliases are mapped to the UI labels so the configuration stays
+/// readable. Duplicates are removed case-insensitively.
+pub fn validated_swap_options(values: &[String]) -> Vec<String> {
+    let re = size_option_regex();
+    let mut result: Vec<String> = Vec::new();
+    for raw in values {
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let canonical = if value.eq_ignore_ascii_case("off")
+            || value.eq_ignore_ascii_case("false")
+            || value == "0"
+        {
+            "Off".to_string()
+        } else if value.eq_ignore_ascii_case("host")
+            || value.eq_ignore_ascii_case("default")
+            || value.eq_ignore_ascii_case("true")
+        {
+            "Host".to_string()
+        } else if re.is_match(value) {
+            value.to_string()
+        } else {
+            continue;
+        };
+        if !result
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&canonical))
+        {
+            result.push(canonical);
+        }
+    }
+    result
+}
+
 /// Convenience wrapper for FFI callers passing a JSON-encoded array of CPU options.
 pub fn validated_cpu_options_json(json_array: &str) -> Vec<i32> {
     let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json_array) else {
@@ -121,6 +158,24 @@ mod tests {
         assert_eq!(parse_size_bytes("100"), 100 * 1024 * 1024);
         assert_eq!(parse_size_bytes(" 1.5 GiB "), 1_610_612_736);
         assert_eq!(parse_size_bytes("0.5 B"), 1);
+    }
+
+    #[test]
+    fn validated_swap_options_canonicalize_and_deduplicate() {
+        let values = vec![
+            "false".to_string(),
+            "Off".to_string(),
+            "true".to_string(),
+            "Host".to_string(),
+            "4GiB".to_string(),
+            "4gib".to_string(),
+            "bogus".to_string(),
+        ];
+        assert_eq!(validated_swap_options(&values), vec!["Off", "Host", "4GiB"]);
+        assert_eq!(
+            validated_swap_options(&["0".to_string()]),
+            vec!["Off".to_string()]
+        );
     }
 
     #[test]

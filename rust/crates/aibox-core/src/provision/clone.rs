@@ -2,7 +2,8 @@ use crate::network::acl::acl_apply_shell_snippet;
 use crate::network::allowlist::{parse_allowlist_entries, resolve_allowlist_cidrs, HostResolver};
 use crate::provision::templates::{render_template, rollback_trap_snippet, CLONE_SCRIPT_TEMPLATE};
 use crate::provision::{
-    is_valid_size_spec, validate_limits, validate_new_env_name, ProvisionError,
+    is_host_swap_value, is_valid_size_spec, swap_config_value, validate_limits,
+    validate_new_env_name, validate_swap_limit, ProvisionError,
 };
 use crate::snapshot::workspace::workspace_create_snippet;
 use crate::util::paths::{resolve_workspace_path, CONTAINER_WORKSPACE_PATH};
@@ -29,6 +30,7 @@ pub fn clone_environment_script(
     resolved_cidrs: &[String],
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     is_vm: bool,
 ) -> String {
     clone_environment_script_with_source(
@@ -45,6 +47,7 @@ pub fn clone_environment_script(
         resolved_cidrs,
         process_limit,
         io_limit,
+        swap_limit,
         is_vm,
     )
 }
@@ -64,6 +67,7 @@ pub fn clone_environment_script_with_source(
     resolved_cidrs: &[String],
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     is_vm: bool,
 ) -> String {
     let q_new = shell_quote(new_name);
@@ -87,6 +91,17 @@ pub fn clone_environment_script_with_source(
             "incus config set {q_new} limits.processes {}\n",
             shell_quote(clean_proc)
         ));
+    }
+    let clean_swap = swap_limit.trim();
+    if !is_vm && !clean_swap.is_empty() {
+        if is_host_swap_value(clean_swap) {
+            quota_lines.push_str(&format!("incus config unset {q_new} limits.memory.swap\n"));
+        } else if let Some(swap_value) = swap_config_value(clean_swap) {
+            quota_lines.push_str(&format!(
+                "incus config set {q_new} limits.memory.swap {}\n",
+                shell_quote(&swap_value)
+            ));
+        }
     }
     let trimmed_disk = disk_gib.trim();
     if !trimmed_disk.is_empty() {
@@ -159,6 +174,7 @@ pub fn prepare_clone_environment<R: HostResolver>(
     start_after: bool,
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     workspace_parent: &str,
     workspace_base: &str,
     resolver: &R,
@@ -182,6 +198,7 @@ pub fn prepare_clone_environment<R: HostResolver>(
     }
 
     let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
+    validate_swap_limit(swap_limit)?;
 
     let resolved_cidrs = if source_net_mode == "allowlist" {
         let entries = parse_allowlist_entries(source_net_allowlist);
@@ -207,6 +224,7 @@ pub fn prepare_clone_environment<R: HostResolver>(
         &resolved_cidrs,
         &clean_proc,
         &clean_io,
+        swap_limit,
         is_vm,
     );
 
@@ -267,6 +285,7 @@ mod tests {
             &[],
             "",
             "",
+            "",
             false,
         );
         fs::write(&script_path, script).unwrap();
@@ -312,10 +331,12 @@ mod tests {
             &[],
             "1024",
             "100MB",
+            "Off",
             false,
         );
         assert!(clone_script.contains("limits.processes '1024'"));
         assert!(clone_script.contains("limits.read='100MB' limits.write='100MB'"));
+        assert!(clone_script.contains("limits.memory.swap 'false'"));
     }
 
     #[test]
@@ -347,6 +368,7 @@ mod tests {
                 "512",
                 "100MB",
                 "",
+                "",
                 "/tmp/ws",
                 &resolver,
             )
@@ -356,7 +378,7 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "missing", false, "online", "", "CT", "", "dst", &existing, "40GiB", "8GiB",
-                4, false, "512", "100MB", "", "/tmp/ws", &resolver,
+                4, false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::SourceNotFound("missing".into())
@@ -364,7 +386,7 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "src", true, "online", "", "CT", "", "!!!", &existing, "40GiB", "8GiB", 4,
-                false, "512", "100MB", "", "/tmp/ws", &resolver,
+                false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::InvalidName
@@ -372,7 +394,7 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "src", true, "online", "", "CT", "", "taken", &existing, "40GiB", "8GiB", 4,
-                false, "512", "100MB", "", "/tmp/ws", &resolver,
+                false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::AlreadyExists("taken".into())
@@ -380,7 +402,7 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "src", true, "online", "", "CT", "", "dst", &existing, "40GiB", "8GiB", -1,
-                false, "512", "100MB", "", "/tmp/ws", &resolver,
+                false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::InvalidCpuCores
@@ -388,7 +410,7 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "src", true, "online", "", "CT", "", "dst", &existing, "bad", "8GiB", 4,
-                false, "512", "100MB", "", "/tmp/ws", &resolver,
+                false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::InvalidDiskQuota
@@ -396,10 +418,18 @@ mod tests {
         assert_eq!(
             prepare_clone_environment(
                 false, "src", true, "online", "", "CT", "", "dst", &existing, "40GiB", "bad", 4,
-                false, "512", "100MB", "", "/tmp/ws", &resolver,
+                false, "512", "100MB", "", "", "/tmp/ws", &resolver,
             )
             .unwrap_err(),
             ProvisionError::InvalidRamLimit
+        );
+        assert_eq!(
+            prepare_clone_environment(
+                false, "src", true, "online", "", "CT", "", "dst", &existing, "40GiB", "8GiB", 4,
+                false, "512", "100MB", "bogus", "", "/tmp/ws", &resolver,
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidSwapLimit
         );
     }
 
@@ -444,6 +474,7 @@ mod tests {
             "online",
             "",
             &[],
+            "",
             "",
             "",
             false,
@@ -521,6 +552,7 @@ exit 0
                 "online",
                 "",
                 &[],
+                "",
                 "",
                 "",
                 false,

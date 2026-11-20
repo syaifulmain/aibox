@@ -33,6 +33,7 @@ impl qobject::Backend {
         cpu_cores: i32,
         process_limit: &QString,
         io_limit: &QString,
+        swap_limit: &QString,
         workspace_parent: &QString,
     ) {
         let existing_names: Vec<String> = self
@@ -55,6 +56,7 @@ impl qobject::Backend {
             cpu_cores,
             &process_limit.to_string(),
             &io_limit.to_string(),
+            &swap_limit.to_string(),
             &workspace_parent.to_string(),
             &self.engine.config.workspace_base,
             &self.engine.config.os_storage_path,
@@ -86,6 +88,7 @@ impl qobject::Backend {
             &empty,
             &empty,
             &empty,
+            &empty,
         );
     }
 
@@ -100,6 +103,7 @@ impl qobject::Backend {
         start_after: bool,
         process_limit: &QString,
         io_limit: &QString,
+        swap_limit: &QString,
         workspace_parent: &QString,
     ) {
         let src_s = source_name.to_string();
@@ -136,6 +140,7 @@ impl qobject::Backend {
             start_after,
             &process_limit.to_string(),
             &io_limit.to_string(),
+            &swap_limit.to_string(),
             &workspace_parent.to_string(),
             &self.engine.config.workspace_base,
             &resolver,
@@ -225,6 +230,7 @@ impl qobject::Backend {
             .run_shell_task(&plan.title, &plan.script, "", &name_s);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_environment_resources(
         mut self: Pin<&mut Self>,
         name: &QString,
@@ -233,6 +239,7 @@ impl qobject::Backend {
         disk_gib: &QString,
         process_limit: &QString,
         io_limit: &QString,
+        swap_limit: &QString,
     ) -> QString {
         let name_s = name.to_string();
         let env = environment_by_name(&self.engine.environments, &name_s);
@@ -244,6 +251,7 @@ impl qobject::Backend {
             &disk_gib.to_string(),
             &process_limit.to_string(),
             &io_limit.to_string(),
+            &swap_limit.to_string(),
             env.is_some(),
             env.as_ref().map_or(0, |e| e.disk_usage_bytes),
             env.as_ref().map(|e| e.disk_usage.as_str()).unwrap_or(""),

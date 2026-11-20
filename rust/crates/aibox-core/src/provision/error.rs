@@ -25,6 +25,8 @@ pub enum ProvisionError {
     InvalidProcessLimit,
     #[error("The disk I/O limit is invalid. Use a rate such as 200MB or 2500iops.")]
     InvalidIoLimit,
+    #[error("The swap limit is invalid. Use Host, Off, or a size such as 4GiB.")]
+    InvalidSwapLimit,
     #[error("{0}")]
     InvalidWorkspacePath(String),
     #[error("Cannot shrink disk quota ({target}) below current usage ({current}).")]
@@ -60,6 +62,10 @@ mod tests {
             }
             .to_string(),
             "Cannot shrink disk quota (10GiB) below current usage (20.0 GiB)."
+        );
+        assert_eq!(
+            ProvisionError::InvalidSwapLimit.to_string(),
+            "The swap limit is invalid. Use Host, Off, or a size such as 4GiB."
         );
     }
 }

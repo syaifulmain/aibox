@@ -531,6 +531,29 @@ pub fn parse_with_now(
             .map(String::as_str)
             .unwrap_or("Unlimited")
             .to_string();
+        let swap_limit = if env_type == "VIRTUAL-MACHINE" {
+            String::new()
+        } else {
+            let raw_swap = config
+                .get("limits.memory.swap")
+                .map(String::as_str)
+                .unwrap_or("")
+                .trim();
+            if raw_swap.eq_ignore_ascii_case("false")
+                || raw_swap.eq_ignore_ascii_case("off")
+                || raw_swap == "0"
+            {
+                "Off".to_string()
+            } else if raw_swap.is_empty()
+                || raw_swap.eq_ignore_ascii_case("true")
+                || raw_swap.eq_ignore_ascii_case("host")
+                || raw_swap.eq_ignore_ascii_case("default")
+            {
+                String::new()
+            } else {
+                raw_swap.to_string()
+            }
+        };
 
         let limits =
             extract_root_limits(item.devices.get("root"), item.expanded_devices.get("root"));
@@ -832,6 +855,7 @@ pub fn parse_with_now(
             network_allowlist: net_allowlist,
             network_blocked,
             egress_recording,
+            swap_limit,
         });
     }
 

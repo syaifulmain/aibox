@@ -9,13 +9,13 @@ use serde_json::{Map, Value};
 
 use crate::config::defaults::{
     default_cpu_options, default_diff_excludes, default_disk_options, default_os_entries,
-    default_presets, default_ram_options, OsEntry, Preset,
+    default_presets, default_ram_options, default_swap_options, OsEntry, Preset,
 };
 use crate::config::error::ConfigError;
 use crate::util::error::IoError;
 use crate::util::json::{to_json_compact, to_json_indented};
 use crate::util::paths::{atomic_write, normalized_path};
-use crate::util::size::{validated_cpu_options, validated_size_options};
+use crate::util::size::{validated_cpu_options, validated_size_options, validated_swap_options};
 
 /// Current configuration schema version.
 pub const CURRENT_SCHEMA_VERSION: u32 = 2;
@@ -56,6 +56,7 @@ pub struct Config {
     pub presets: Vec<Preset>,
     pub disk_options: Vec<String>,
     pub ram_options: Vec<String>,
+    pub swap_options: Vec<String>,
     pub cpu_options: Vec<i32>,
     pub default_preset_id: String,
     pub default_os_id: String,
@@ -97,6 +98,7 @@ impl Config {
             presets: default_presets(),
             disk_options: default_disk_options(),
             ram_options: default_ram_options(),
+            swap_options: default_swap_options(),
             cpu_options: default_cpu_options(),
             default_preset_id: "full".to_string(),
             default_os_id: "ubuntu-24.04".to_string(),
@@ -147,6 +149,10 @@ impl Config {
 
         if !self.cpu_options.contains(&self.default_cpu) {
             self.default_cpu = self.cpu_options.first().copied().unwrap_or(4);
+        }
+
+        if self.swap_options.is_empty() {
+            self.swap_options = default_swap_options();
         }
 
         if !self.os_catalog.iter().any(|e| e.id == self.default_os_id) {
@@ -386,6 +392,13 @@ fn apply_object(
         let ram = validated_size_options(&json_strings(arr));
         if !ram.is_empty() {
             cfg.ram_options = ram;
+        }
+    }
+
+    if let Some(arr) = obj.get("swapOptions").and_then(|v| v.as_array()) {
+        let swap = validated_swap_options(&json_strings(arr));
+        if !swap.is_empty() {
+            cfg.swap_options = swap;
         }
     }
 

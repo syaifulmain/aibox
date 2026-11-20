@@ -8,6 +8,16 @@ ModalDialog {
     property string ramUnit: "GiB"
     property string diskUnit: "GiB"
     property string ioUnit: "MB"
+    property string swapValue: "Host"
+    readonly property var swapChoices: {
+        const base = backend.swapOptions || []
+        const out = []
+        for (let i = 0; i < base.length; ++i)
+            out.push(base[i])
+        if (out.indexOf(swapValue) < 0)
+            out.unshift(swapValue)
+        return out
+    }
     readonly property var ramUnits: unitOptions(["GiB", "MiB", "TiB"], ramUnit)
     readonly property var diskUnits: unitOptions(["GiB", "MiB", "TiB"], diskUnit)
     readonly property var ioUnits: unitOptions(["MB", "MiB", "GB", "GiB"], ioUnit)
@@ -54,13 +64,14 @@ ModalDialog {
         quotaProcField.text = app.editQuotaProc
         ioUnit = unitOf(app.editQuotaIo, "MB")
         quotaIoField.text = numberPart(app.editQuotaIo)
+        swapValue = app.editQuotaSwap.length > 0 ? app.editQuotaSwap : "Host"
     }
 
     ModalHeader {
         title: qsTr("Edit Resource Quotas · %1").arg(app.editQuotaEnvName)
         subtitle: app.editQuotaIsVm
                   ? qsTr("VMs require a restart for CPU or RAM changes; process limits apply to containers only.")
-                  : qsTr("Applies CPU, memory, disk quota, process cap, and I/O limits live.")
+                  : qsTr("Applies CPU, memory, swap, disk quota, process cap, and I/O limits live.")
         onClosed: app.editQuotasVisible = false
     }
 
@@ -100,6 +111,47 @@ ModalDialog {
             current: editQuotasOverlay.ramUnit
             onSelected: function (unit) { editQuotasOverlay.ramUnit = unit }
         }
+    }
+
+    FormRow {
+        visible: !app.editQuotaIsVm
+        label: qsTr("Swap Limit")
+        hint: qsTr("Host follows the Incus default; Off disables swap.")
+
+        Repeater {
+            model: editQuotasOverlay.swapChoices
+
+            delegate: SelectChip {
+                required property string modelData
+                Layout.fillWidth: true
+                Layout.preferredWidth: 0
+                text: modelData
+                selected: editQuotasOverlay.swapValue === modelData
+                stretchText: true
+                compact: true
+                onClicked: editQuotasOverlay.swapValue = modelData
+            }
+        }
+    }
+
+    Text {
+        visible: !app.editQuotaIsVm && !backend.hostSwapAvailable
+        Layout.fillWidth: true
+        text: qsTr("Host has no active swap. Swap limits will not be used.")
+        color: theme.warningText
+        wrapMode: Text.WordWrap
+        font.family: Style.fontSans
+        font.pixelSize: Style.fontSmall
+    }
+
+    Text {
+        visible: app.editQuotaIsVm
+        Layout.fillWidth: true
+        text: qsTr("VM swap is managed inside the guest.")
+        color: theme.textMuted
+        wrapMode: Text.WordWrap
+        font.family: Style.fontSans
+        font.pixelSize: Style.fontSmall
     }
 
     FormRow {
@@ -171,13 +223,17 @@ ModalDialog {
             disabled: backend.busy
             onClicked: {
                 const cpu = parseInt(quotaCpuField.text.trim(), 10)
+                const swapLimit = editQuotasOverlay.swapValue.length > 0
+                                 ? editQuotasOverlay.swapValue
+                                 : "Host"
                 const err = backend.updateEnvironmentResources(
                     app.editQuotaEnvName,
                     isNaN(cpu) ? 0 : cpu,
                     editQuotasOverlay.composeSize(quotaRamField.text, editQuotasOverlay.ramUnit),
                     editQuotasOverlay.composeSize(quotaDiskField.text, editQuotasOverlay.diskUnit),
                     quotaProcField.text,
-                    editQuotasOverlay.composeSize(quotaIoField.text, editQuotasOverlay.ioUnit))
+                    editQuotasOverlay.composeSize(quotaIoField.text, editQuotasOverlay.ioUnit),
+                    swapLimit)
                 if (err.length > 0) {
                     app.editQuotaError = err
                 } else {

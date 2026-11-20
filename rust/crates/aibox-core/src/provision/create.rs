@@ -1,7 +1,8 @@
 use crate::config::defaults::{OsEntry, Preset};
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
-    is_valid_size_spec, validate_limits, validate_new_env_name, ProvisionError,
+    is_valid_size_spec, swap_config_value, validate_limits, validate_new_env_name,
+    validate_swap_limit, ProvisionError,
 };
 use crate::snapshot::workspace::workspace_create_snippet;
 use crate::util::paths::{cache_base_path, resolve_workspace_path, CONTAINER_WORKSPACE_PATH};
@@ -28,6 +29,7 @@ pub fn create_environment_script(
     x11: bool,
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     is_vm: bool,
 ) -> String {
     let mut root_opts = format!("size={}", disk_gib.trim());
@@ -44,6 +46,11 @@ pub fn create_environment_script(
     let clean_proc = process_limit.trim();
     if !is_vm && !clean_proc.is_empty() && !clean_proc.eq_ignore_ascii_case("unlimited") {
         quota_args.push_str(&format!(" -c limits.processes={clean_proc}"));
+    }
+    if !is_vm {
+        if let Some(swap_value) = swap_config_value(swap_limit) {
+            quota_args.push_str(&format!(" -c limits.memory.swap={swap_value}"));
+        }
     }
 
     let ws_snippet = workspace_create_snippet(workspace);
@@ -84,6 +91,7 @@ pub fn prepare_create_environment(
     cpu_cores: i32,
     process_limit: &str,
     io_limit: &str,
+    swap_limit: &str,
     workspace_parent: &str,
     workspace_base: &str,
     os_storage_path: &str,
@@ -105,6 +113,7 @@ pub fn prepare_create_environment(
     }
 
     let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
+    validate_swap_limit(swap_limit)?;
 
     let os_entry = os_entries
         .iter()
@@ -138,6 +147,7 @@ pub fn prepare_create_environment(
         preset.x11,
         &clean_proc,
         &clean_io,
+        swap_limit,
         is_vm,
     );
 
@@ -196,6 +206,7 @@ mod tests {
             true,
             "",
             "",
+            "",
             false,
         );
         fs::write(&script_path, script).unwrap();
@@ -239,10 +250,12 @@ mod tests {
             false,
             "512",
             "200MB",
+            "Off",
             false,
         );
         assert!(ct_script.contains("limits.processes=512"));
         assert!(ct_script.contains("limits.read=200MB,limits.write=200MB"));
+        assert!(ct_script.contains("limits.memory.swap=false"));
 
         let vm_script = create_environment_script(
             "vm-box",
@@ -257,9 +270,11 @@ mod tests {
             false,
             "512",
             "200MB",
+            "4GiB",
             true,
         );
         assert!(!vm_script.contains("limits.processes="));
+        assert!(!vm_script.contains("limits.memory.swap="));
         assert!(vm_script.contains("limits.read=200MB,limits.write=200MB"));
     }
 
@@ -284,7 +299,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 true, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::Busy
@@ -292,7 +307,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "!!!", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidName
@@ -300,7 +315,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "taken", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::AlreadyExists("taken".into())
@@ -308,7 +323,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 0,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidCpuCores
@@ -316,7 +331,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "bad", "6GiB", 4,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidDiskQuota
@@ -324,7 +339,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "bad", 4,
-                "512", "200MB", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidRamLimit
@@ -332,7 +347,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "1", "200MB", "", "/tmp/ws", "/tmp/os"
+                "1", "200MB", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidProcessLimit
@@ -340,7 +355,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "bad", "", "/tmp/ws", "/tmp/os"
+                "512", "bad", "", "", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidIoLimit
@@ -348,7 +363,7 @@ mod tests {
         assert!(matches!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "/etc/bad", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "/etc/bad", "/tmp/ws", "/tmp/os"
             )
             .unwrap_err(),
             ProvisionError::InvalidWorkspacePath(_)
@@ -368,6 +383,7 @@ mod tests {
                 4,
                 "512",
                 "200MB",
+                "",
                 "",
                 "/tmp/ws",
                 "/tmp/os"
@@ -390,6 +406,7 @@ mod tests {
                 4,
                 "512",
                 "200MB",
+                "",
                 "",
                 "/tmp/ws",
                 "/tmp/os"
@@ -449,6 +466,7 @@ exit 0
                 false,
                 "",
                 "",
+                "",
                 false,
             );
             fs::write(&script_path, script).unwrap();
@@ -501,6 +519,7 @@ exit 0
             "35GiB",
             4,
             false,
+            "",
             "",
             "",
             false,

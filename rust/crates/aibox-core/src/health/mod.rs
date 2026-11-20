@@ -4,4 +4,5 @@ pub mod checks;
 pub mod idle;
 pub mod limits;
 pub mod pool;
+pub mod swap;
 pub mod watchdog;

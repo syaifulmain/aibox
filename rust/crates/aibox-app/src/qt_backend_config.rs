@@ -298,6 +298,7 @@ impl qobject::Backend {
         mut self: Pin<&mut Self>,
         disk_csv: &QString,
         ram_csv: &QString,
+        swap_csv: &QString,
         cpu_csv: &QString,
     ) -> QString {
         if *self.busy() {
@@ -307,6 +308,7 @@ impl qobject::Backend {
             &self.engine.config,
             &disk_csv.to_string(),
             &ram_csv.to_string(),
+            &swap_csv.to_string(),
             &cpu_csv.to_string(),
         ) {
             Ok(c) => c,

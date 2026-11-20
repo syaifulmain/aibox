@@ -196,6 +196,7 @@ fn dispatch_settings(
                 cfg,
                 args["disk"].as_str().unwrap(),
                 args["ram"].as_str().unwrap(),
+                args["swap"].as_str().unwrap(),
                 args["cpu"].as_str().unwrap(),
             ) {
                 Ok(next) => {
