@@ -2,7 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
 use chrono::{Local, Utc};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
@@ -23,6 +23,7 @@ use crate::session::{
 };
 use crate::snapshot::auto::decide_auto_snapshot;
 use crate::snapshot::workspace::container_workspace_path_for;
+use crate::workspace::file_access::attach_file_access_fields;
 
 fn build_auto_snapshot_if_needed(engine: &Engine, env: &Environment) -> String {
     let now = Local::now();
@@ -164,21 +165,7 @@ pub fn run_list(engine: &mut Engine, io: &mut dyn CliIo, runner: &dyn CommandRun
     let mut rows: Vec<Value> = Vec::with_capacity(engine.environments.len());
     for (idx, env) in engine.environments.iter().enumerate() {
         let mut val = serde_json::to_value(env).unwrap_or(Value::Null);
-        if let Some(obj) = val.as_object_mut() {
-            let fa = engine.file_access.envs.get(idx);
-            obj.insert(
-                "fileAccessActive".to_string(),
-                json!(fa.map(|f| f.active).unwrap_or(false)),
-            );
-            obj.insert(
-                "fileAccessPort".to_string(),
-                json!(fa.map(|f| f.port).unwrap_or(0)),
-            );
-            obj.insert(
-                "fileAccessUrl".to_string(),
-                json!(fa.map(|f| f.url.as_str()).unwrap_or("")),
-            );
-        }
+        attach_file_access_fields(&mut val, engine.file_access.envs.get(idx));
         rows.push(val);
     }
 

@@ -243,6 +243,26 @@ pub fn apply_file_access_state(
     result
 }
 
+/// Adds the `fileAccessActive`/`fileAccessPort`/`fileAccessUrl` keys that the
+/// GUI and CLI expose next to the persisted environment fields.
+pub fn attach_file_access_fields(value: &mut Value, output: Option<&FileAccessEnvOutput>) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "fileAccessActive".to_string(),
+        json!(output.map(|f| f.active).unwrap_or(false)),
+    );
+    obj.insert(
+        "fileAccessPort".to_string(),
+        json!(output.map(|f| f.port).unwrap_or(0)),
+    );
+    obj.insert(
+        "fileAccessUrl".to_string(),
+        json!(output.map(|f| f.url.as_str()).unwrap_or("")),
+    );
+}
+
 pub fn file_access_url(port: i32) -> String {
     if !(1..=65535).contains(&port) {
         return String::new();
@@ -398,6 +418,27 @@ pub fn read_file_access_failure_detail(log_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attach_file_access_fields_uses_gui_key_names() {
+        let mut val = json!({ "name": "dev", "running": true });
+        let output = FileAccessEnvOutput {
+            active: true,
+            port: 2222,
+            url: "sftp://root@127.0.0.1:2222/".to_string(),
+        };
+        attach_file_access_fields(&mut val, Some(&output));
+        assert_eq!(val["fileAccessActive"], json!(true));
+        assert_eq!(val["fileAccessPort"], json!(2222));
+        assert_eq!(val["fileAccessUrl"], json!("sftp://root@127.0.0.1:2222/"));
+        assert!(val.get("fileAccessEnabled").is_none());
+
+        let mut off = json!({ "name": "dev" });
+        attach_file_access_fields(&mut off, None);
+        assert_eq!(off["fileAccessActive"], json!(false));
+        assert_eq!(off["fileAccessPort"], json!(0));
+        assert_eq!(off["fileAccessUrl"], json!(""));
+    }
 
     #[test]
     fn file_access_url_and_port_selection_match_qt_test() {

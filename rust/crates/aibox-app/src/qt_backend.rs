@@ -33,7 +33,7 @@ use aibox_core::workspace::diff::{default_diff_excludes, WorkspaceDiffCache};
 use crate::qt_backend_refresh::SchedulerState;
 use crate::qt_convert::{
     i32s_to_qvariant_list, json_array_to_qvariant_list, json_object_to_qvariant_map,
-    serialize_to_qvariant_list, serialize_to_qvariant_map, strings_to_qstringlist,
+    serialize_to_qvariant_list, strings_to_qstringlist,
 };
 
 type QListQVariant = QList<QVariant>;
@@ -1169,21 +1169,6 @@ impl cxx_qt::Initialize for qobject::Backend {
 }
 
 impl qobject::Backend {
-    pub fn selected_environment(&self) -> QMapQStringQVariant {
-        if self.selected_index >= 0 {
-            if self.demo_mode {
-                if let Some(serde_json::Value::Object(map)) =
-                    self.demo_environments.get(self.selected_index as usize)
-                {
-                    return json_object_to_qvariant_map(map);
-                }
-            } else if let Some(env) = self.engine.environments.get(self.selected_index as usize) {
-                return serialize_to_qvariant_map(env);
-            }
-        }
-        QMapQStringQVariant::default()
-    }
-
     pub fn templates(&self) -> QListQVariant {
         if self.demo_mode {
             let tmpls: Vec<serde_json::Value> = self

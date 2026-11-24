@@ -23,6 +23,7 @@ bool aibox_test_backend_selected_env_empty(void *ptr);
 int aibox_test_backend_env_count(void *ptr);
 void aibox_test_backend_enter_environment(void *ptr, const char *name);
 int aibox_test_backend_environments_json(void *ptr, char *buf, int buf_len);
+int aibox_test_backend_selected_env_json(void *ptr, char *buf, int buf_len);
 void aibox_test_backend_refresh(void *ptr);
 void *aibox_test_backend_environments_spy_new(void *ptr);
 int aibox_test_backend_environments_spy_count(void *spy);

@@ -339,6 +339,11 @@ impl Engine {
             delta.environments_changed = envs != self.environments;
             self.templates = extract_templates(&envs).into_iter().cloned().collect();
             self.environments = envs;
+        }
+
+        // Root file access lives outside `incus list`, so its state must be
+        // re-evaluated on every refresh, not only when the list JSON changes.
+        if !self.environments.is_empty() {
             self.refresh_file_access();
         }
 

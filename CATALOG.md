@@ -63,6 +63,15 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Root Files Toggle Stuck on `OFF` (`rust/crates/aibox-core/src/workspace/file_access.rs`, `src/engine.rs`, `cli/commands/env.rs`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_refresh.rs`, `qt_backend_workspace.rs`, `tests/backend_qobject.rs`)
+
+- **Toggle state source (`qt_backend.rs`):** `selectedEnvironment` now attaches the live `fileAccessActive` / `fileAccessPort` / `fileAccessUrl` keys, so the **Root Files** card reflects an already running SFTP listener. Previously only the environment list carried these keys, so the inspector toggle stayed `OFF` while the listener was up, and clicking it called `enableFileAccess`, which returned early because the process was alive.
+- **Key name mismatch (`qt_backend_refresh.rs`):** The refresh path wrote `fileAccessEnabled` while every QML and CLI consumer reads `fileAccessActive`; both paths now share `attach_file_access_fields` from `aibox-core`.
+- **Refresh cadence (`engine.rs`, `qt_backend_refresh.rs`):** Root file access state is re-evaluated on every refresh and the environment model hash is compared every poll. Previously a listener start or stop never changed `incus list` JSON, so the model stayed stale until an unrelated environment field changed.
+- **Stale engine cache (`qt_backend_refresh.rs`):** `sync_environments_from_engine` now stores the recomputed file-access state in `engine.file_access`, so enable/disable take effect immediately instead of after the next poll.
+- **Idempotent enable (`qt_backend_workspace.rs`):** `enableFileAccess` on an already running listener now resyncs the model instead of returning silently.
+- **Tests:** Added `attach_file_access_fields_uses_gui_key_names` in `aibox-core` and `selected_environment_reports_live_root_file_access` in `tests/backend_qobject.rs`, covering a live listener fixture, the selected-environment map, the environment list, and the disable path.
+
 ### Container Swap Limits, Host Swap Warning & Live Quota Editing (`incus/list`, `provision`, `aibox-app`, `src/qml`)
 
 - **Container swap controls (`limits.memory.swap`):** Added `swapLimit` to the environment model and parser. Containers expose `Off`, `Host` (Incus default), and fixed sizes (`2GiB`, `4GiB`, `8GiB`). New environments default to `Off`, while `Host` leaves the Incus default untouched. VMs hide the control because their swap is guest-managed.

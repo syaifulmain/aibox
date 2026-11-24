@@ -205,6 +205,13 @@ int aibox_test_backend_environments_json(void *ptr, char *buf, int buf_len) {
     return copy_to_buf(json, buf, buf_len);
 }
 
+int aibox_test_backend_selected_env_json(void *ptr, char *buf, int buf_len) {
+    auto *b = static_cast<Backend *>(ptr);
+    const QJsonObject obj = QJsonObject::fromVariantMap(b->selected_environment());
+    const QString json = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    return copy_to_buf(json, buf, buf_len);
+}
+
 void aibox_test_backend_refresh(void *ptr) {
     auto *b = static_cast<Backend *>(ptr);
     b->refresh();

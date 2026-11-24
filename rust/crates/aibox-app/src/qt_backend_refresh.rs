@@ -20,12 +20,13 @@ use aibox_core::process::SystemRunner;
 use aibox_core::session::scan_recorded_sessions;
 use aibox_core::snapshot::{compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes};
 use aibox_core::workspace::file_access::{
-    apply_file_access_state, ApplyFileAccessResult, FileAccessEnvInput,
+    apply_file_access_state, attach_file_access_fields, ApplyFileAccessResult, FileAccessEnvInput,
 };
 
 use crate::qt_backend::qobject;
 use crate::qt_convert::{
     json_array_to_qvariant_list, json_object_to_qvariant_map, serialize_to_qvariant_list,
+    value_to_qvariant_map,
 };
 
 type QMapQStringQVariant = QMap<QMapPair_QString_QVariant>;
@@ -218,12 +219,8 @@ pub(crate) fn build_environment_json_values(
         .iter()
         .map(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null))
         .collect();
-    for (val, fa_env) in env_values.iter_mut().zip(fa.envs.iter()) {
-        if let Some(obj) = val.as_object_mut() {
-            obj.insert("fileAccessEnabled".into(), serde_json::json!(fa_env.active));
-            obj.insert("fileAccessPort".into(), serde_json::json!(fa_env.port));
-            obj.insert("fileAccessUrl".into(), serde_json::json!(fa_env.url));
-        }
+    for (idx, val) in env_values.iter_mut().enumerate() {
+        attach_file_access_fields(val, fa.envs.get(idx));
     }
     env_values
 }
@@ -282,11 +279,8 @@ pub(crate) fn parse_refresh_in_worker(
         .apply_snapshot(&snapshot, &input.ctx)
         .map_err(|e| e.to_string())?;
 
-    let env_values = if delta.list_parsed {
-        build_environment_json_values(&temp_engine.environments, &temp_engine.file_access)
-    } else {
-        Vec::new()
-    };
+    let env_values =
+        build_environment_json_values(&temp_engine.environments, &temp_engine.file_access);
 
     let pool_json = if snapshot.include_pool {
         let pool_json_str = temp_engine
@@ -322,6 +316,33 @@ pub(crate) fn parse_refresh_in_worker(
 }
 
 impl qobject::Backend {
+    /// The inspector reads root file access state from this map, so the live
+    /// `file-access` keys must ride along with the selected environment.
+    pub fn selected_environment(&self) -> QMapQStringQVariant {
+        if self.selected_index >= 0 {
+            if self.demo_mode {
+                if let Some(serde_json::Value::Object(map)) =
+                    self.demo_environments.get(self.selected_index as usize)
+                {
+                    let mut val = serde_json::Value::Object(map.clone());
+                    attach_file_access_fields(&mut val, None);
+                    return value_to_qvariant_map(&val);
+                }
+            } else if let Some(env) = self.engine.environments.get(self.selected_index as usize) {
+                let mut val = serde_json::to_value(env).unwrap_or(serde_json::Value::Null);
+                attach_file_access_fields(
+                    &mut val,
+                    self.engine
+                        .file_access
+                        .envs
+                        .get(self.selected_index as usize),
+                );
+                return value_to_qvariant_map(&val);
+            }
+        }
+        QMapQStringQVariant::default()
+    }
+
     pub fn set_window_active(mut self: Pin<&mut Self>, active: bool) {
         let was_active = self.window_active.swap(active, Ordering::Relaxed);
         if active && !was_active {
@@ -377,6 +398,9 @@ impl qobject::Backend {
         self.has_running_envs.store(has_running, Ordering::Relaxed);
         {
             let mut rust = self.as_mut().rust_mut();
+            // Keep the engine cache in step so `selectedEnvironment` reports the
+            // same root file access state as the environment list.
+            rust.engine.file_access = fa_result;
             rust.environments = q_envs;
             rust.environments_arc = envs_arc;
             rust.last_environments_hash = model_hash;
@@ -678,12 +702,14 @@ impl qobject::Backend {
             }
 
             let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
-            let envs_changed = if output.delta.list_parsed {
+            if output.delta.list_parsed {
                 rust.last_list_hash = output.snapshot_list_hash;
                 rust.last_list_json = output.list_json;
-                let mut envs_vec = output.environments.to_vec();
-                let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
-                let mut cache_modified_env = false;
+            }
+            let mut envs_vec = output.environments.to_vec();
+            let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
+            let mut cache_modified_env = false;
+            if output.delta.list_parsed {
                 for env in &mut envs_vec {
                     if !env.snapshot_sizes.is_empty() {
                         cache.insert_incus(&env.name, env.snapshot_sizes.clone());
@@ -712,42 +738,42 @@ impl qobject::Backend {
                         ));
                     }
                 }
-                rust.snapshot_size_cache = cache;
+            }
+            rust.snapshot_size_cache = cache;
 
-                if cache_modified_env {
-                    output.env_values =
-                        build_environment_json_values(&envs_vec, &output.file_access);
-                }
+            if cache_modified_env {
+                output.env_values = build_environment_json_values(&envs_vec, &output.file_access);
+            }
 
-                let model_hash = hash_json_values(&output.env_values);
-                let changed = model_hash != rust.last_environments_hash
-                    || (rust.environments.is_empty() && !envs_vec.is_empty());
+            let model_hash = hash_json_values(&output.env_values);
+            // Root file access changes do not touch `incus list`, so the model
+            // hash must be compared on every refresh, not only when the list
+            // JSON changed.
+            let changed = model_hash != rust.last_environments_hash
+                || (rust.environments.is_empty() && !envs_vec.is_empty());
 
-                if changed {
-                    let final_arc: Arc<[Environment]> = if cache_modified_env {
-                        Arc::from(envs_vec.clone())
-                    } else {
-                        Arc::clone(&output.environments)
-                    };
-                    let has_running = final_arc.iter().any(|e| e.running && !e.is_template);
-                    rust.has_running_envs.store(has_running, Ordering::Relaxed);
-                    rust.engine.environments = envs_vec;
-                    rust.engine.templates = output.templates;
-                    rust.engine.file_access = output.file_access;
-                    rust.environments_arc = final_arc;
-                    rust.environments = json_array_to_qvariant_list(&output.env_values);
-                    rust.count = rust.engine.environments.len() as i32;
-                    rust.last_environments_hash = model_hash;
-                }
+            if changed {
+                let final_arc: Arc<[Environment]> = if cache_modified_env {
+                    Arc::from(envs_vec.clone())
+                } else {
+                    Arc::clone(&output.environments)
+                };
+                let has_running = final_arc.iter().any(|e| e.running && !e.is_template);
+                rust.has_running_envs.store(has_running, Ordering::Relaxed);
+                rust.engine.environments = envs_vec;
+                rust.engine.templates = output.templates;
+                rust.engine.file_access = output.file_access;
+                rust.environments_arc = final_arc;
+                rust.environments = json_array_to_qvariant_list(&output.env_values);
+                rust.count = rust.engine.environments.len() as i32;
+                rust.last_environments_hash = model_hash;
+            }
 
-                let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
-                if rust.selected_index >= rust.engine.environments.len() as i32 {
-                    rust.selected_index = max_idx;
-                }
-                changed
-            } else {
-                false
-            };
+            let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
+            if rust.selected_index >= rust.engine.environments.len() as i32 {
+                rust.selected_index = max_idx;
+            }
+            let envs_changed = changed;
 
             (envs_changed, pool_changed, catalog_changed, pending_sizes)
         };

@@ -73,6 +73,8 @@ impl qobject::Backend {
         let state_dir = self.engine.paths.state_dir.clone();
         if let Some(existing) = load_file_access_state(&state_dir, &name_s) {
             if file_access_process_alive(existing.pid, &name_s) {
+                // The listener already runs; resync so the toggle reflects it.
+                self.as_mut().sync_environments_from_engine();
                 return QString::default();
             }
         }

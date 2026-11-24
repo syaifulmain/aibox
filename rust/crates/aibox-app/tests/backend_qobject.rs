@@ -34,6 +34,11 @@ extern "C" {
         buf: *mut c_char,
         buf_len: c_int,
     ) -> c_int;
+    fn aibox_test_backend_selected_env_json(
+        ptr: *mut c_void,
+        buf: *mut c_char,
+        buf_len: c_int,
+    ) -> c_int;
     fn aibox_test_backend_refresh(ptr: *mut c_void);
     fn aibox_test_backend_environments_spy_new(ptr: *mut c_void) -> *mut c_void;
     fn aibox_test_backend_environments_spy_count(spy: *mut c_void) -> c_int;
@@ -155,6 +160,21 @@ impl BackendHandle {
         };
         if len <= 0 {
             return "[]".to_string();
+        }
+        String::from_utf8_lossy(&buf[..len as usize]).to_string()
+    }
+
+    fn selected_env_json(&self) -> String {
+        let mut buf = vec![0u8; 65536];
+        let len = unsafe {
+            aibox_test_backend_selected_env_json(
+                self.0,
+                buf.as_mut_ptr() as *mut c_char,
+                buf.len() as c_int,
+            )
+        };
+        if len <= 0 {
+            return "{}".to_string();
         }
         String::from_utf8_lossy(&buf[..len as usize]).to_string()
     }
@@ -737,12 +757,129 @@ exit 0
     std::env::set_var("PATH", orig_path);
 }
 
+fn test_selected_environment_reports_live_root_file_access() {
+    let dir = TempDir::new("selected-file-access");
+    let bin_dir = dir.path().join("bin");
+    let proj_dir = dir.path().join("proj");
+    let state_dir = proj_dir.join(".aibox/state");
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::create_dir_all(&state_dir).unwrap();
+    fs::write(
+        proj_dir.join(".aibox/config.json"),
+        r#"{"firstRunCompleted":true}"#,
+    )
+    .unwrap();
+
+    let list_json_file = dir.path().join("list.json");
+    fs::write(
+        &list_json_file,
+        r#"[{"name":"probe-box","status":"Running","type":"container","config":{},"snapshots":[]}]"#,
+    )
+    .unwrap();
+
+    let incus_stub = format!(
+        r#"#!/bin/sh
+if [ "$1" = "list" ]; then
+    cat "{}"
+    exit 0
+fi
+if [ "$1" = "image" ]; then
+    echo '[]'
+    exit 0
+fi
+if [ "$1" = "file" ]; then
+    exec sleep 60
+fi
+if [ "$1" = "monitor" ]; then
+    sleep 30
+    exit 0
+fi
+exit 0
+"#,
+        list_json_file.display()
+    );
+    write_executable(&bin_dir.join("incus"), &incus_stub);
+
+    let old_path = std::env::var("PATH").unwrap_or_default();
+    let new_path = format!("{}:{old_path}", bin_dir.display());
+    std::env::set_var("PATH", &new_path);
+
+    // Fake listener whose argv still looks like `incus file mount probe-box`.
+    // The trailing `exit 0` keeps the shell alive instead of exec'ing `sleep`.
+    let listener_script = dir.path().join("fake-listener.sh");
+    fs::write(&listener_script, "#!/bin/sh\nsleep 60\nexit 0\n").unwrap();
+    fs::set_permissions(&listener_script, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut listener = std::process::Command::new(&listener_script)
+        .args(["file", "mount", "probe-box"])
+        .spawn()
+        .expect("spawn fake listener");
+    std::thread::sleep(Duration::from_millis(150));
+    let fa_dir = state_dir.join("file-access");
+    fs::create_dir_all(&fa_dir).unwrap();
+    fs::write(
+        fa_dir.join("probe-box.json"),
+        format!(
+            r#"{{"name":"probe-box","pid":{},"port":2222,"startedAt":"2026-01-01T00:00:00"}}"#,
+            listener.id()
+        ),
+    )
+    .unwrap();
+
+    let backend = BackendHandle::new();
+    backend.configure(&proj_dir, true);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while backend.env_count() == 0 && Instant::now() < deadline {
+        unsafe { aibox_test_process_events(50) };
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(backend.env_count(), 1);
+
+    let selected: serde_json::Value =
+        serde_json::from_str(&backend.selected_env_json()).expect("selected env json");
+    assert_eq!(
+        selected.get("fileAccessActive"),
+        Some(&serde_json::json!(true)),
+        "selectedEnvironment must report live root file access: {selected}"
+    );
+    assert_eq!(
+        selected.get("fileAccessUrl"),
+        Some(&serde_json::json!("sftp://root@127.0.0.1:2222/"))
+    );
+
+    let envs: serde_json::Value =
+        serde_json::from_str(&backend.environments_json()).expect("env list json");
+    assert_eq!(
+        envs[0].get("fileAccessActive"),
+        Some(&serde_json::json!(true)),
+        "environment list must use the fileAccessActive key: {envs}"
+    );
+
+    backend.disable_file_access("probe-box");
+    let selected_off: serde_json::Value =
+        serde_json::from_str(&backend.selected_env_json()).expect("selected env json");
+    assert_eq!(
+        selected_off.get("fileAccessActive"),
+        Some(&serde_json::json!(false))
+    );
+    assert!(!fa_dir.join("probe-box.json").exists());
+
+    let _ = listener.kill();
+    let _ = listener.wait();
+    drop(backend);
+    std::env::set_var("PATH", old_path);
+}
+
 fn main() {
     let _ = aibox_app::ensure_cxx_qt_linked();
     unsafe { aibox_test_init_gui_app() };
 
     let tests: &[(&str, fn())] = &[
         ("primary_action_counts", test_primary_action_counts),
+        (
+            "selected_environment_reports_live_root_file_access",
+            test_selected_environment_reports_live_root_file_access,
+        ),
         (
             "enable_file_access_requires_known_running_environment",
             test_enable_file_access_requires_known_running_environment,
