@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::secrets::redact::StreamingRedactor;
-use crate::secrets::store::{default_secrets_store_path, load_secrets_store};
+use crate::secrets::store::{
+    default_secrets_store_path, instance_secrets_dir_path, load_secrets_store,
+};
+use crate::secrets::zeroize_string;
 use crate::util::format::format_bytes;
 use crate::util::names::sanitize_name;
 use crate::util::paths::{atomic_write_with, atomic_write_with_mode, clean_path};
@@ -367,9 +370,33 @@ pub fn redact_session_log_file(log_file_path: &str, secret_values: &[String]) ->
         return false;
     }
     let path = Path::new(log_file_path);
-    let Ok(in_file) = File::open(path) else {
+    let Ok(mut in_file) = File::open(path) else {
         return false;
     };
+
+    // Scan first so logs without matching secrets avoid creating/writing a temp copy.
+    {
+        let mut reader = BufReader::with_capacity(STREAM_CHUNK_BYTES, &mut in_file);
+        let mut scanner = StreamingRedactor::new(secret_values);
+        let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
+        loop {
+            let Ok(n) = reader.read(&mut buf) else {
+                return false;
+            };
+            if n == 0 {
+                break;
+            }
+            let _ = scanner.feed(&buf[..n]);
+        }
+        let (_, modified) = scanner.finish_with_status();
+        if !modified {
+            return false;
+        }
+    }
+
+    if in_file.seek(SeekFrom::Start(0)).is_err() {
+        return false;
+    }
 
     let res = atomic_write_with(path, Some(0o600), |out_file| {
         let mut reader = BufReader::with_capacity(STREAM_CHUNK_BYTES, in_file);
@@ -541,7 +568,31 @@ pub fn prune_recorded_sessions(sessions_dir: &str, max_per_env: i32, max_total_b
         let dir_mtime_ms = file_mtime_ns(&dir_meta);
 
         let mut pairs = match prev_envs.get(&env_name) {
-            Some(cached) if cached.dir_mtime_ms == dir_mtime_ms => cached.entries.clone(),
+            Some(cached) if cached.dir_mtime_ms == dir_mtime_ms => {
+                let mut refreshed = cached.entries.clone();
+                // Re-stat entries so an active session that grew after an initial
+                // 0-byte `touch` is accurately counted against `max_total_bytes`.
+                for pair in &mut refreshed {
+                    let Ok(log_meta) = fs::metadata(&pair.log_path) else {
+                        continue;
+                    };
+                    let timing_bytes = if pair.timing_path.is_empty() {
+                        0
+                    } else {
+                        fs::metadata(&pair.timing_path)
+                            .map(|m| m.len() as i64)
+                            .unwrap_or(0)
+                    };
+                    let next_total = log_meta.len() as i64 + timing_bytes;
+                    let next_mtime = file_mtime_ns(&log_meta);
+                    if next_total != pair.total_bytes || next_mtime != pair.mtime_ms {
+                        pair.total_bytes = next_total;
+                        pair.mtime_ms = next_mtime;
+                        index_dirty = true;
+                    }
+                }
+                refreshed
+            }
             _ => {
                 index_dirty = true;
                 scan_env_session_pairs(&env_dir)
@@ -769,10 +820,25 @@ pub fn delete_recorded_session(
         return Err(clean_root);
     }
 
+    let canon_root = fs::canonicalize(&clean_root).map_err(|_| clean_root.clone())?;
+    let log_parent = Path::new(&clean_log)
+        .parent()
+        .ok_or_else(|| clean_root.clone())?;
+    let canon_log_parent = fs::canonicalize(log_parent).map_err(|_| clean_root.clone())?;
+    if !canon_log_parent.starts_with(&canon_root) {
+        return Err(clean_root);
+    }
+
     let _ = fs::remove_file(&clean_log);
     let clean_timing = clean_path(timing_path.trim());
     if !clean_timing.is_empty() && clean_timing.starts_with(&prefix) {
-        let _ = fs::remove_file(&clean_timing);
+        if let Some(timing_parent) = Path::new(&clean_timing).parent() {
+            if let Ok(canon_timing_parent) = fs::canonicalize(timing_parent) {
+                if canon_timing_parent.starts_with(&canon_root) {
+                    let _ = fs::remove_file(&clean_timing);
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -783,17 +849,44 @@ pub fn redact_session_main(log_path: &str, sessions_dir: &str) -> i32 {
         Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
         _ => default_secrets_store_path(),
     };
-    let secret_values: Vec<String> = load_secrets_store(&store_path)
-        .map(|pairs| {
-            pairs
-                .into_iter()
-                .filter(|(_, v)| !v.is_empty())
-                .map(|(_, v)| v)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut secret_values: Vec<String> = Vec::new();
+    if let Ok(pairs) = load_secrets_store(&store_path) {
+        for (_, mut v) in pairs {
+            if !v.is_empty() && !secret_values.iter().any(|s| s == &v) {
+                secret_values.push(v);
+            } else {
+                zeroize_string(&mut v);
+            }
+        }
+    }
+
+    let instance_dir = instance_secrets_dir_path(&store_path);
+    if !instance_dir.is_empty() && Path::new(&instance_dir).is_dir() {
+        if let Ok(entries) = fs::read_dir(&instance_dir) {
+            let mut paths: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("json"))
+                .collect();
+            paths.sort();
+            for p in paths {
+                if let Ok(pairs) = load_secrets_store(&p.to_string_lossy()) {
+                    for (_, mut v) in pairs {
+                        if !v.is_empty() && !secret_values.iter().any(|s| s == &v) {
+                            secret_values.push(v);
+                        } else {
+                            zeroize_string(&mut v);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     redact_session_log_file(log_path, &secret_values);
+    for val in &mut secret_values {
+        zeroize_string(val);
+    }
     let _ = fs::set_permissions(log_path, fs::Permissions::from_mode(0o600));
     if !sessions_dir.is_empty() {
         prune_recorded_sessions(

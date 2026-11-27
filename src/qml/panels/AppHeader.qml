@@ -6,6 +6,7 @@ import "../components"
 Rectangle {
     id: appHeaderRoot
     property QtObject app: null
+    readonly property int envCount: backend.count
     Layout.fillWidth: true
     Layout.preferredHeight: Style.headerHeight
     color: theme.surfaceCanvas
@@ -36,7 +37,7 @@ Rectangle {
             Layout.leftMargin: Style.padCard
             Layout.alignment: Qt.AlignVCenter
             tabs: [
-                { label: qsTr("%n Environments", "", backend.environments.length), key: "1", value: 0 },
+                { label: qsTr("%n Environments", "", appHeaderRoot.envCount), key: "1", value: 0 },
                 { label: qsTr("OS Images"), key: "2", value: 1 }
             ]
             currentValue: app.activeTab

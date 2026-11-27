@@ -3,13 +3,14 @@
 use crate::health::checks::HealthCheckResult;
 use crate::process::CommandRunner;
 
-/// Inspects `incus profile show ai-gui` for `security.nesting`, `gpu`, and `kvm` devices.
-pub(crate) fn inspect_ai_gui_profile(runner: &dyn CommandRunner) -> (bool, String) {
+fn inspect_ai_gui_profile_with_stdout(
+    runner: &dyn CommandRunner,
+) -> (bool, String, Option<String>) {
     let out = runner.run("incus", &["profile", "show", "ai-gui"]);
     if out.exit_code != 0 {
-        return (false, "Profile ai-gui does not exist.".to_string());
+        return (false, "Profile ai-gui does not exist.".to_string(), None);
     }
-    let txt = &out.std_out;
+    let txt = out.std_out;
     let mut missing = Vec::new();
     if !txt.contains("security.nesting") {
         missing.push("security.nesting=true");
@@ -24,11 +25,13 @@ pub(crate) fn inspect_ai_gui_profile(runner: &dyn CommandRunner) -> (bool, Strin
         return (
             false,
             format!("Profile ai-gui missing: {}", missing.join(", ")),
+            Some(txt),
         );
     }
     (
         true,
         "Profile ai-gui configured with nesting, gpu, and kvm.".to_string(),
+        Some(txt),
     )
 }
 
@@ -46,30 +49,47 @@ pub fn check_ai_gui_profile(
         title: "ai-gui profile (nesting, gpu, kvm)".to_string(),
         ..Default::default()
     };
-    let (ok_now, mut detail_now) = inspect_ai_gui_profile(runner);
+    let fix_cmd = "incus profile create ai-gui; incus profile set ai-gui security.nesting=true; incus profile device add ai-gui gpu gpu; incus profile device add ai-gui kvm unix-char path=/dev/kvm";
+    if !daemon_reachable {
+        r.needs_root = true;
+        r.detail = "Profile ai-gui does not exist.".to_string();
+        r.fix_command = fix_cmd.to_string();
+        return r;
+    }
+
+    let (ok_now, mut detail_now, initial_stdout) = inspect_ai_gui_profile_with_stdout(runner);
     if ok_now {
         r.ok = true;
         r.detail = detail_now;
         return r;
     }
 
-    if fix && daemon_reachable {
-        let show_before = runner.run("incus", &["profile", "show", "ai-gui"]);
-        if show_before.exit_code != 0 {
+    if fix {
+        if initial_stdout.is_none() {
             runner.run("incus", &["profile", "create", "ai-gui"]);
         }
-        runner.run(
-            "incus",
-            &["profile", "set", "ai-gui", "security.nesting=true"],
-        );
-        let show_mid = runner.run("incus", &["profile", "show", "ai-gui"]);
-        if !show_mid.std_out.contains("gpu:") {
+        let needs_nesting = initial_stdout
+            .as_deref()
+            .is_none_or(|txt| !txt.contains("security.nesting"));
+        if needs_nesting {
+            runner.run(
+                "incus",
+                &["profile", "set", "ai-gui", "security.nesting=true"],
+            );
+        }
+        let needs_gpu = initial_stdout
+            .as_deref()
+            .is_none_or(|txt| !txt.contains("gpu:"));
+        if needs_gpu {
             runner.run(
                 "incus",
                 &["profile", "device", "add", "ai-gui", "gpu", "gpu"],
             );
         }
-        if !show_mid.std_out.contains("kvm:") && !show_mid.std_out.contains("/dev/kvm") {
+        let needs_kvm = initial_stdout
+            .as_deref()
+            .is_none_or(|txt| !txt.contains("kvm:") && !txt.contains("/dev/kvm"));
+        if needs_kvm {
             runner.run(
                 "incus",
                 &[
@@ -83,7 +103,7 @@ pub fn check_ai_gui_profile(
                 ],
             );
         }
-        let (ok_after, detail_after) = inspect_ai_gui_profile(runner);
+        let (ok_after, detail_after, _) = inspect_ai_gui_profile_with_stdout(runner);
         if ok_after {
             r.ok = true;
             r.repaired = true;
@@ -93,8 +113,8 @@ pub fn check_ai_gui_profile(
         detail_now = detail_after;
     }
 
-    r.needs_root = !daemon_reachable;
+    r.needs_root = false;
     r.detail = detail_now;
-    r.fix_command = "incus profile create ai-gui; incus profile set ai-gui security.nesting=true; incus profile device add ai-gui gpu gpu; incus profile device add ai-gui kvm unix-char path=/dev/kvm".to_string();
+    r.fix_command = fix_cmd.to_string();
     r
 }

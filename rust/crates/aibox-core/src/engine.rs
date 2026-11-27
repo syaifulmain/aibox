@@ -297,14 +297,29 @@ impl Engine {
     ) -> Result<RefreshDelta, EngineError> {
         let defaults = self.parse_defaults();
         let parsed_envs = if ctx.force_reparse || !ctx.track_cpu_and_net {
-            Some(parse_incus_list_checked(
+            let envs = parse_incus_list_checked(
                 &raw.list_json,
                 &self.paths.workspace_base,
                 &mut self.counter_state,
                 ctx.elapsed_wall_ns,
                 defaults,
                 ctx.track_cpu_and_net,
-            ))
+            )
+            .map_err(|source| EngineError::InvalidJson {
+                context: "incus list",
+                source,
+            })?;
+            if ctx.track_cpu_and_net {
+                self.counter_state.last_list_hash = Some(crate::incus::list::hash_list_inputs(
+                    &raw.list_json,
+                    &self.paths.workspace_base,
+                    defaults,
+                ));
+                self.counter_state.last_parse_had_active_rates = envs.iter().any(|e| {
+                    e.running && (e.cpu_percent > 0 || e.net_rx_rate > 0 || e.net_tx_rate > 0)
+                });
+            }
+            Some(envs)
         } else {
             parse_incus_list_if_changed_checked(
                 &raw.list_json,
@@ -314,18 +329,10 @@ impl Engine {
                 defaults,
                 ctx.track_cpu_and_net,
             )
-            .transpose()
-        };
-
-        let parsed_envs = match parsed_envs {
-            Some(Ok(envs)) => Some(envs),
-            Some(Err(source)) => {
-                return Err(EngineError::InvalidJson {
-                    context: "incus list",
-                    source,
-                });
-            }
-            None => None,
+            .map_err(|source| EngineError::InvalidJson {
+                context: "incus list",
+                source,
+            })?
         };
 
         let mut delta = RefreshDelta::default();
@@ -349,7 +356,7 @@ impl Engine {
 
         // Root file access lives outside `incus list`, so its state must be
         // re-evaluated on every refresh, not only when the list JSON changes.
-        if !self.environments.is_empty() {
+        if delta.list_parsed || !self.environments.is_empty() || !self.file_access.envs.is_empty() {
             self.refresh_file_access();
         }
 
@@ -428,7 +435,7 @@ impl Engine {
         script: &str,
     ) -> i32 {
         let started_at = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-        let out = runner.run("/bin/bash", &["-c", script]);
+        let out = runner.run_with_timeout("/bin/bash", &["-c", script], None);
         let mut combined = Vec::new();
         combined.extend_from_slice(out.std_out.as_bytes());
         if !out.std_err.is_empty() {

@@ -275,8 +275,9 @@ pub fn run_diff(
     };
 
     let ws_path = workspace_path_for_env(engine, &env);
+    let snap_dir = workspace_snapshot_dir(&ws_path, &parsed.env_name);
     let snap_name = if parsed.snapshot_name.is_empty() {
-        let Some(last) = env.workspace_snapshots.last() else {
+        if env.workspace_snapshots.is_empty() {
             io.write_stderr(
                 format!(
                     "Error: No workspace snapshots found for '{}'.\n",
@@ -285,13 +286,51 @@ pub fn run_diff(
                 .as_bytes(),
             );
             return ExitCode::Failed.as_i32();
-        };
-        last.clone()
+        }
+        let newest = env
+            .workspace_snapshots
+            .iter()
+            .max_by(|a, b| {
+                let ts_a = crate::snapshot::auto::parse_auto_snapshot_timestamp_epoch(a)
+                    .or_else(|| {
+                        std::fs::metadata(format!("{snap_dir}/{a}"))
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                    })
+                    .unwrap_or(i64::MIN);
+                let ts_b = crate::snapshot::auto::parse_auto_snapshot_timestamp_epoch(b)
+                    .or_else(|| {
+                        std::fs::metadata(format!("{snap_dir}/{b}"))
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs() as i64)
+                    })
+                    .unwrap_or(i64::MIN);
+                ts_a.cmp(&ts_b).then_with(|| a.cmp(b))
+            })
+            .cloned()
+            .unwrap_or_default();
+        newest
     } else {
-        parsed.snapshot_name.clone()
+        let candidate = &parsed.snapshot_name;
+        let is_safe = !candidate.is_empty()
+            && candidate != "."
+            && candidate != ".."
+            && !candidate.contains('/')
+            && !candidate.contains('\0')
+            && env.workspace_snapshots.iter().any(|s| s == candidate);
+        if !is_safe {
+            io.write_stderr(
+                format!("Error: Workspace snapshot '{candidate}' was not found.\n").as_bytes(),
+            );
+            return ExitCode::Failed.as_i32();
+        }
+        candidate.clone()
     };
 
-    let snap_dir = workspace_snapshot_dir(&ws_path, &parsed.env_name);
     let snap_path = format!("{snap_dir}/{snap_name}");
     if snap_dir.is_empty() || !Path::new(&snap_path).is_dir() {
         io.write_stderr(
@@ -303,7 +342,7 @@ pub fn run_diff(
     let excludes = engine.config.diff_excludes.clone();
     let args = build_workspace_diff_args(&snap_path, &ws_path, &excludes);
     let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let out = runner.run("rsync", &arg_refs);
+    let out = runner.run_with_timeout("rsync", &arg_refs, None);
     if out.exit_code != 0 && out.exit_code != 24 {
         let err = out.std_err.trim();
         let msg = if err.is_empty() {

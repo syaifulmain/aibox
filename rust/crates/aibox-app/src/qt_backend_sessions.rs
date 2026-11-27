@@ -26,7 +26,12 @@ impl qobject::Backend {
     }
 
     pub fn clear_operation_history(mut self: Pin<&mut Self>) {
-        if !self.demo_mode {
+        if self.demo_mode {
+            self.as_mut()
+                .rust_mut()
+                .engine
+                .set_history_cache(Vec::new());
+        } else {
             self.as_mut().rust_mut().engine.clear_history();
         }
         {

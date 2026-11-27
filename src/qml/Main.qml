@@ -20,10 +20,13 @@ AppState {
             win.activeTab = 0
         }
         function onSelectedIndexChanged() {
-            win.syncSelectedNetworkDraft()
+            const curName = backend.selectedEnvironment.name || ""
+            if (curName !== win.networkDraftEnvName || !win.netAllowlistEditing)
+                win.syncSelectedNetworkDraft()
         }
         function onEnvironmentsChanged() {
-            if (!win.netAllowlistEditing || win.netAllowlistDraft.length === 0)
+            const curName = backend.selectedEnvironment.name || ""
+            if (curName !== win.networkDraftEnvName || !win.netAllowlistEditing)
                 win.syncSelectedNetworkDraft()
         }
         function onAppearanceSettingsChanged() {

@@ -490,9 +490,12 @@ fn apply_object(
     if let Some(v) = obj.get("watchdogDiskCritical") {
         if v.is_number() {
             let crit = json_val_to_int(v).unwrap_or(97);
-            cfg.watchdog_disk_critical = crit.clamp(cfg.watchdog_disk_warn + 1, 99);
+            cfg.watchdog_disk_critical = crit;
         }
     }
+    cfg.watchdog_disk_critical = cfg
+        .watchdog_disk_critical
+        .clamp(cfg.watchdog_disk_warn + 1, 99);
     if let Some(v) = obj.get("watchdogAutoStop") {
         cfg.watchdog_auto_stop = v.as_bool().unwrap_or(false);
     }
@@ -545,6 +548,7 @@ fn apply_object(
         "presets",
         "diskOptions",
         "ramOptions",
+        "swapOptions",
         "cpuOptions",
         "defaultPresetId",
         "defaultOsId",
@@ -855,6 +859,33 @@ mod tests {
         save(&cfg_path_str, &cfg).unwrap();
         let mtime_third = fs::metadata(&cfg_path).unwrap().modified().unwrap();
         assert!(mtime_third > mtime_second);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn swap_options_update_persists_without_extra_overwrite() {
+        let tmp = env::temp_dir().join(format!("aibox-cfg-swap-persist-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let cfg_path = tmp.join("config.json");
+        let cfg_path_str = cfg_path.to_string_lossy().into_owned();
+
+        let initial = r#"{
+            "version": 1,
+            "schemaVersion": 2,
+            "swapOptions": ["Off", "Host", "2GiB", "4GiB"]
+        }"#;
+        let mut cfg = load_from_str_checked(initial, "/tmp/ws", "/tmp/os").expect("load");
+        assert!(!cfg.extra.contains_key("swapOptions"));
+        cfg.swap_options = vec!["Off".into(), "Host".into(), "8GiB".into()];
+        save(&cfg_path_str, &cfg).unwrap();
+
+        let reloaded = load_checked(&cfg_path_str, "/tmp/ws", "/tmp/os").expect("reload");
+        assert_eq!(
+            reloaded.swap_options,
+            vec!["Off".to_string(), "Host".to_string(), "8GiB".to_string()]
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }

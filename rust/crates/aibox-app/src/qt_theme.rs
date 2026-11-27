@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
+
+use aibox_core::process::{CommandRunner, SystemRunner};
 
 use cxx_qt::{CxxQtType, Initialize, Threading};
 use cxx_qt_lib::QString;
@@ -503,31 +504,14 @@ fn theme_content_hash(directory: &Path, opts: aibox_core::theme::PaletteOptions)
 }
 
 fn query_hyprctl_rounding(hyprctl: &str) -> Option<i32> {
-    let child = Command::new(hyprctl)
-        .args(["-j", "getoption", "decoration:rounding"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-
-    let pid = child.id();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-
-    match rx.recv_timeout(Duration::from_millis(500)) {
-        Ok(Ok(output)) if output.status.success() => {
-            aibox_core::theme::parse_rounding(&output.stdout)
-        }
-        Ok(_) => None,
-        Err(_) => {
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
-            }
-            None
-        }
+    let out = SystemRunner.run_with_timeout(
+        hyprctl,
+        &["-j", "getoption", "decoration:rounding"],
+        Some(Duration::from_millis(500)),
+    );
+    if out.exit_code == 0 {
+        aibox_core::theme::parse_rounding(out.std_out.as_bytes())
+    } else {
+        None
     }
 }

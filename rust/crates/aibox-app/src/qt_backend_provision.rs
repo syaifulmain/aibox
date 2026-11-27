@@ -1,11 +1,14 @@
+use std::path::Path;
 use std::pin::Pin;
 
-use cxx_qt::CxxQtType;
+use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use aibox_core::incus::list::environment_by_name;
 use aibox_core::network::acl::build_allowlist_refresh_if_needed;
-use aibox_core::network::allowlist::SystemResolver;
+use aibox_core::network::allowlist::{
+    extract_allowlist_hostnames, parse_allowlist_entries, SystemResolver,
+};
 use aibox_core::provision::clone::prepare_clone_environment;
 use aibox_core::provision::create::prepare_create_environment;
 use aibox_core::provision::lifecycle::{
@@ -16,10 +19,12 @@ use aibox_core::provision::resources::{
     validate_and_prepare_update_resources,
 };
 use aibox_core::snapshot::auto::decide_auto_snapshot;
+use aibox_core::task::lock::is_task_lock_active;
 use aibox_core::util::paths::{cache_base_path, CONTAINER_WORKSPACE_PATH};
 use aibox_core::util::time::{now_compact_stamp, now_epoch_secs};
 
 use crate::qt_backend::{find_executable, qobject};
+use crate::qt_backend_task::NoopResolver;
 
 impl qobject::Backend {
     #[allow(clippy::too_many_arguments)]
@@ -106,54 +111,125 @@ impl qobject::Backend {
         swap_limit: &QString,
         workspace_parent: &QString,
     ) {
+        let busy_now = *self.busy();
         let src_s = source_name.to_string();
         let src_env = environment_by_name(&self.engine.environments, &src_s);
+        let src_exists = src_env.is_some();
+        let src_net_mode = src_env
+            .as_ref()
+            .map(|e| e.network_mode.clone())
+            .unwrap_or_default();
+        let src_net_allowlist = src_env
+            .as_ref()
+            .map(|e| e.network_allowlist.clone())
+            .unwrap_or_default();
+        let src_env_type = src_env
+            .as_ref()
+            .map(|e| e.env_type.clone())
+            .unwrap_or_default();
+        let src_ws_path = src_env
+            .as_ref()
+            .map(|e| e.workspace_path.clone())
+            .unwrap_or_default();
         let existing_names: Vec<String> = self
             .engine
             .environments
             .iter()
             .map(|e| e.name.clone())
             .collect();
-        let resolver = SystemResolver;
-        let plan = match prepare_clone_environment(
-            *self.busy(),
-            &src_s,
-            src_env.is_some(),
-            src_env
-                .as_ref()
-                .map(|e| e.network_mode.as_str())
-                .unwrap_or(""),
-            src_env
-                .as_ref()
-                .map(|e| e.network_allowlist.as_str())
-                .unwrap_or(""),
-            src_env.as_ref().map(|e| e.env_type.as_str()).unwrap_or(""),
-            src_env
-                .as_ref()
-                .map(|e| e.workspace_path.as_str())
-                .unwrap_or(""),
-            &new_name.to_string(),
-            &existing_names,
-            &disk_gib.to_string(),
-            &ram_gib.to_string(),
-            cpu_cores,
-            start_after,
-            &process_limit.to_string(),
-            &io_limit.to_string(),
-            &swap_limit.to_string(),
-            &workspace_parent.to_string(),
-            &self.engine.config.workspace_base,
-            &resolver,
-        ) {
-            Ok(p) => p,
-            Err(err) => {
-                self.as_mut().set_error_message(&err.to_string());
-                return;
-            }
-        };
+        let new_name_s = new_name.to_string();
+        let disk_s = disk_gib.to_string();
+        let ram_s = ram_gib.to_string();
+        let process_s = process_limit.to_string();
+        let io_s = io_limit.to_string();
+        let swap_s = swap_limit.to_string();
+        let ws_parent_s = workspace_parent.to_string();
+        let ws_base = self.engine.config.workspace_base.clone();
+
+        let needs_dns = !busy_now
+            && !self.demo_mode
+            && src_exists
+            && src_net_mode.trim().eq_ignore_ascii_case("allowlist")
+            && !extract_allowlist_hostnames(&parse_allowlist_entries(&src_net_allowlist))
+                .is_empty();
+
+        if !needs_dns {
+            let plan = match prepare_clone_environment(
+                busy_now,
+                &src_s,
+                src_exists,
+                &src_net_mode,
+                &src_net_allowlist,
+                &src_env_type,
+                &src_ws_path,
+                &new_name_s,
+                &existing_names,
+                &disk_s,
+                &ram_s,
+                cpu_cores,
+                start_after,
+                &process_s,
+                &io_s,
+                &swap_s,
+                &ws_parent_s,
+                &ws_base,
+                &NoopResolver,
+            ) {
+                Ok(p) => p,
+                Err(err) => {
+                    self.as_mut().set_error_message(&err.to_string());
+                    return;
+                }
+            };
+
+            self.as_mut()
+                .run_shell_task(&plan.title, &plan.script, &plan.new_name, &plan.new_name);
+            return;
+        }
 
         self.as_mut()
-            .run_shell_task(&plan.title, &plan.script, &plan.new_name, &plan.new_name);
+            .set_busy(true, "Resolving network allowlist...");
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let resolver = SystemResolver;
+            let res = prepare_clone_environment(
+                false,
+                &src_s,
+                src_exists,
+                &src_net_mode,
+                &src_net_allowlist,
+                &src_env_type,
+                &src_ws_path,
+                &new_name_s,
+                &existing_names,
+                &disk_s,
+                &ram_s,
+                cpu_cores,
+                start_after,
+                &process_s,
+                &io_s,
+                &swap_s,
+                &ws_parent_s,
+                &ws_base,
+                &resolver,
+            );
+            let _ = qt_thread.queue(move |mut backend| {
+                backend.as_mut().set_busy(false, "");
+                match res {
+                    Ok(plan) => {
+                        backend.as_mut().run_shell_task(
+                            &plan.title,
+                            &plan.script,
+                            &plan.new_name,
+                            &plan.new_name,
+                        );
+                    }
+                    Err(err) => {
+                        backend.as_mut().set_error_message(&err.to_string());
+                    }
+                }
+            });
+        });
     }
 
     pub fn toggle_start_stop(mut self: Pin<&mut Self>, name: &QString) {
@@ -188,34 +264,82 @@ impl qobject::Backend {
             .unwrap_or_default()
         };
 
-        let allow_refresh = if !env.is_template && !env.running {
-            let resolver = SystemResolver;
-            build_allowlist_refresh_if_needed(
-                &name_s,
-                &env.network_mode,
-                &env.network_allowlist,
-                env.egress_recording,
-                &resolver,
-            )
-        } else {
-            String::new()
-        };
+        let needs_dns = !self.demo_mode
+            && !env.is_template
+            && !env.running
+            && env.network_mode.trim().eq_ignore_ascii_case("allowlist")
+            && !extract_allowlist_hostnames(&parse_allowlist_entries(&env.network_allowlist))
+                .is_empty();
 
-        let plan = match prepare_toggle_start_stop(
-            &name_s,
-            env.is_template,
-            env.running,
-            &auto_snap,
-            &allow_refresh,
-        ) {
-            Ok(p) => p,
-            Err(err) => {
-                self.as_mut().set_error_message(&err.to_string());
-                return;
-            }
-        };
+        if !needs_dns {
+            let allow_refresh = if !env.is_template && !env.running {
+                build_allowlist_refresh_if_needed(
+                    &name_s,
+                    &env.network_mode,
+                    &env.network_allowlist,
+                    env.egress_recording,
+                    &NoopResolver,
+                )
+            } else {
+                String::new()
+            };
+
+            let plan = match prepare_toggle_start_stop(
+                &name_s,
+                env.is_template,
+                env.running,
+                &auto_snap,
+                &allow_refresh,
+            ) {
+                Ok(p) => p,
+                Err(err) => {
+                    self.as_mut().set_error_message(&err.to_string());
+                    return;
+                }
+            };
+            self.as_mut()
+                .run_shell_task(&plan.title, &plan.script, "", &name_s);
+            return;
+        }
+
+        let net_mode = env.network_mode.clone();
+        let net_allowlist = env.network_allowlist.clone();
+        let egress_recording = env.egress_recording;
+        let is_template = env.is_template;
+        let running = env.running;
         self.as_mut()
-            .run_shell_task(&plan.title, &plan.script, "", &name_s);
+            .set_busy(true, "Resolving network allowlist...");
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let resolver = SystemResolver;
+            let allow_refresh = build_allowlist_refresh_if_needed(
+                &name_s,
+                &net_mode,
+                &net_allowlist,
+                egress_recording,
+                &resolver,
+            );
+            let res = prepare_toggle_start_stop(
+                &name_s,
+                is_template,
+                running,
+                &auto_snap,
+                &allow_refresh,
+            );
+            let _ = qt_thread.queue(move |mut backend| {
+                backend.as_mut().set_busy(false, "");
+                match res {
+                    Ok(plan) => {
+                        backend
+                            .as_mut()
+                            .run_shell_task(&plan.title, &plan.script, "", &name_s);
+                    }
+                    Err(err) => {
+                        backend.as_mut().set_error_message(&err.to_string());
+                    }
+                }
+            });
+        });
     }
 
     pub fn set_environment_template(mut self: Pin<&mut Self>, name: &QString, is_template: bool) {
@@ -255,7 +379,8 @@ impl qobject::Backend {
             env.is_some(),
             env.as_ref().map_or(0, |e| e.disk_usage_bytes),
             env.as_ref().map(|e| e.disk_usage.as_str()).unwrap_or(""),
-            env.as_ref().is_some_and(|e| e.env_type == "VM"),
+            env.as_ref()
+                .is_some_and(|e| aibox_core::provision::is_vm_env_type(&e.env_type)),
         ) {
             Ok(p) => p,
             Err(err) => return QString::from(err.to_string().as_str()),
@@ -269,6 +394,11 @@ impl qobject::Backend {
     pub fn download_os_image(mut self: Pin<&mut Self>, os_id: &QString) {
         let os_s = os_id.to_string();
         if os_s.is_empty() || *self.busy() {
+            return;
+        }
+        if is_task_lock_active(Path::new(&self.engine.paths.state_dir), false).0 {
+            self.as_mut()
+                .set_error_message("Another AIBox task is currently running.");
             return;
         }
         let Some(entry) = self.engine.config.os_entry_by_id(&os_s).cloned() else {

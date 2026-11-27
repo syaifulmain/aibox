@@ -54,7 +54,10 @@ pub fn validate_extra_mount_path(
         Err(_) => clean_path(&expanded),
     };
 
-    let home_clean = clean_path(&home_dir().to_string_lossy());
+    let home_clean = match fs::canonicalize(home_dir()) {
+        Ok(p) => p.to_string_lossy().into_owned(),
+        Err(_) => clean_path(&home_dir().to_string_lossy()),
+    };
     if EXACT_BLOCKED.contains(&canonical.as_str()) || canonical == home_clean {
         return Err(format!(
             "Refusing to mount system root or home directory '{canonical}'. Pick a specific project/data subfolder."
@@ -76,7 +79,10 @@ pub fn validate_extra_mount_path(
     }
 
     for cfg in forbidden_config_paths {
-        let clean_cfg = clean_path(cfg);
+        let clean_cfg = match fs::canonicalize(cfg) {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(_) => clean_path(cfg),
+        };
         if !clean_cfg.is_empty()
             && (canonical == clean_cfg || canonical.starts_with(&format!("{clean_cfg}/")))
         {
@@ -166,7 +172,7 @@ pub fn prepare_add_extra_mount(
 
     let resolved_source = fs::canonicalize(&expanded)
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_err(|_| format!("Host path '{expanded}' does not exist or is not accessible."))?;
     let device_name = extra_mount_device_name(&clean_mount);
     let container_path = format!("{CONTAINER_WORKSPACE_PATH}/{clean_mount}");
 

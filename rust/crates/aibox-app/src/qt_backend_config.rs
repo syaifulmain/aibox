@@ -134,6 +134,7 @@ impl qobject::Backend {
             rust.diff_excludes = diff_excludes;
             rust.secrets_store_path = secrets_store_path;
             rust.secrets_error = secrets_error;
+            rust.rebuild_secrets_list_cache();
         }
 
         self.as_mut().system_path_changed();
@@ -221,6 +222,7 @@ impl qobject::Backend {
         }
 
         self.as_mut().sync_config_properties();
+        self.as_mut().reconfigure_task_watch();
         self.as_mut().refresh_backups();
         self.as_mut().rebuild_os_catalog();
 
@@ -475,6 +477,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
+            rust.env_config_gen = rust.env_config_gen.wrapping_add(1);
             for env in &mut rust.engine.environments {
                 if env.auto_snapshot_override.is_empty() {
                     env.auto_snapshot_enabled = enabled;
@@ -516,6 +519,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
+            rust.env_config_gen = rust.env_config_gen.wrapping_add(1);
             for env in &mut rust.engine.environments {
                 if env.auto_stop_override.is_empty() {
                     env.auto_stop_on_critical = auto_stop;
@@ -583,6 +587,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
+            rust.env_config_gen = rust.env_config_gen.wrapping_add(1);
             for env in &mut rust.engine.environments {
                 if env.record_override.is_empty() || env.record_override == "inherit" {
                     env.record_enabled = enabled;

@@ -92,7 +92,7 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
 }
 
 pub fn file_access_process_alive(pid: i64, name: &str) -> bool {
-    if pid <= 0 {
+    if pid <= 0 || name.is_empty() {
         return false;
     }
     if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {

@@ -23,8 +23,8 @@ ModalDialog {
         SegmentedTabs {
             Layout.alignment: Qt.AlignVCenter
             tabs: [
-                { label: qsTr("Tasks (%1)").arg(backend.operationHistory.length), value: 0 },
-                { label: qsTr("Sessions (%1)").arg(backend.recordedSessions.length), value: 1 }
+                { label: qsTr("Tasks (%1)").arg(historyListView.count), value: 0 },
+                { label: qsTr("Sessions (%1)").arg(sessionsListView.count), value: 1 }
             ]
             currentValue: app.historyTab
             textSize: Style.fontSmall
@@ -58,7 +58,7 @@ ModalDialog {
 
             Text {
                 anchors.centerIn: parent
-                visible: backend.operationHistory.length === 0
+                visible: historyListView.count === 0
                 text: qsTr("No recorded operations yet.")
                 color: theme.textMuted
                 font.family: Style.fontSans
@@ -226,7 +226,7 @@ ModalDialog {
                 width: parent.width - Style.padModal
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                visible: backend.recordedSessions.length === 0
+                visible: sessionsListView.count === 0
                 text: qsTr("No recorded interactive sessions yet. Enable Session Recording in Settings -> Safety or per environment.")
                 color: theme.textMuted
                 font.family: Style.fontSans
@@ -384,7 +384,7 @@ ModalDialog {
             visible: app.historyTab === 0
             label: qsTr("Clear")
             variant: "danger"
-            disabled: backend.operationHistory.length === 0
+            disabled: historyListView.count === 0
             onClicked: {
                 backend.clearOperationHistory()
                 app.selectedHistoryId = ""

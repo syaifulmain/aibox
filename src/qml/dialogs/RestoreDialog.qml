@@ -5,13 +5,14 @@ import "../components"
 ModalDialog {
     id: restoreDialogRoot
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     open: app.restoreDialogVisible
     size: "sm"
     onDismissed: app.restoreDialogVisible = false
 
     ModalHeader {
         title: qsTr("Restore Snapshot '%1'").arg(app.restoreSnapName)
-        subtitle: qsTr("Choose what to restore for environment '%1':").arg(backend.selectedEnvironment.name || "")
+        subtitle: qsTr("Choose what to restore for environment '%1':").arg(restoreDialogRoot.env.name || "")
         onClosed: app.restoreDialogVisible = false
     }
 
@@ -106,8 +107,8 @@ ModalDialog {
             anchors.margins: Style.gapMd
             wrapMode: Text.WordWrap
             lineHeight: 1.3
-            text: (backend.selectedEnvironment.running || false)
-                  ? qsTr("A safety snapshot (pre-restore) of your current %1 will be created first, and '%2' will be stopped automatically before swapping %1.").arg(backend.containerWorkspacePath).arg(backend.selectedEnvironment.name || "")
+            text: (restoreDialogRoot.env.running || false)
+                  ? qsTr("A safety snapshot (pre-restore) of your current %1 will be created first, and '%2' will be stopped automatically before swapping %1.").arg(backend.containerWorkspacePath).arg(restoreDialogRoot.env.name || "")
                   : qsTr("A safety snapshot (pre-restore) of your current %1 will be created before swapping %1.").arg(backend.containerWorkspacePath)
             color: theme.textMuted
             font.family: Style.fontSans
@@ -119,8 +120,9 @@ ModalDialog {
         ActionButton {
             label: qsTr("Restore Snapshot")
             variant: "primary"
+            disabled: backend.busy
             onClicked: {
-                backend.restoreSnapshot(backend.selectedEnvironment.name || "", app.restoreSnapName, app.restoreMode)
+                backend.restoreSnapshot(restoreDialogRoot.env.name || "", app.restoreSnapName, app.restoreMode)
                 app.restoreDialogVisible = false
             }
         }

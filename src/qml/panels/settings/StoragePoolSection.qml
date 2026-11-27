@@ -6,6 +6,7 @@ import "../../components"
 ColumnLayout {
     id: root
     property QtObject app: null
+    readonly property var pool: backend.poolInfo
 
     Layout.fillWidth: true
     spacing: Style.gap
@@ -19,7 +20,7 @@ ColumnLayout {
 
     // Pool details unavailable
     Card {
-        visible: !(backend.poolInfo.valid || false)
+        visible: !(root.pool.valid || false)
         title: qsTr("Pool details unavailable")
         contentSpacing: Style.gapMd
 
@@ -47,22 +48,22 @@ ColumnLayout {
 
     // Live pool summary card
     Card {
-        visible: backend.poolInfo.valid || false
+        visible: root.pool.valid || false
         title: qsTr("Incus storage pool")
         contentSpacing: Style.gapMd
-        borderColor: backend.poolInfo.alertLevel === 2
+        borderColor: root.pool.alertLevel === 2
                      ? theme.dangerBorder
-                     : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
+                     : (root.pool.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
 
         actions: [
             Text {
                 text: qsTr("%1 / %2 (%3%)")
-                          .arg(backend.poolInfo.usedText || "0 MiB")
-                          .arg(backend.poolInfo.totalText || "0 MiB")
-                          .arg(backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0)
-                color: backend.poolInfo.alertLevel === 2
+                          .arg(root.pool.usedText || "0 MiB")
+                          .arg(root.pool.totalText || "0 MiB")
+                          .arg(root.pool.usedPercent !== undefined ? root.pool.usedPercent : 0)
+                color: root.pool.alertLevel === 2
                        ? theme.dangerText
-                       : (backend.poolInfo.alertLevel === 1 ? theme.warningText : theme.textMuted)
+                       : (root.pool.alertLevel === 1 ? theme.warningText : theme.textMuted)
                 font.family: Style.fontMono
                 font.pixelSize: Style.fontCaption
             }
@@ -70,27 +71,27 @@ ColumnLayout {
 
         MeterBar {
             Layout.fillWidth: true
-            value: backend.poolInfo.usedPercent || 0
+            value: root.pool.usedPercent || 0
             trackColor: theme.surfaceTrack
             minFillWidth: Style.gapXs
             showAtZero: true
             animationMs: 0
-            fillColor: backend.poolInfo.alertLevel === 2
+            fillColor: root.pool.alertLevel === 2
                        ? theme.danger
-                       : (backend.poolInfo.alertLevel === 1 ? theme.warning : theme.accent)
+                       : (root.pool.alertLevel === 1 ? theme.warning : theme.accent)
         }
 
         Text {
             Layout.fillWidth: true
             elide: Text.ElideMiddle
-            text: backend.poolInfo.resizable
+            text: root.pool.resizable
                   ? qsTr("%1 · %2 · loop file size %3")
-                        .arg(backend.poolInfo.name || "default")
-                        .arg(backend.poolInfo.driver || "btrfs")
-                        .arg(backend.poolInfo.sizeText || "—")
+                        .arg(root.pool.name || "default")
+                        .arg(root.pool.driver || "btrfs")
+                        .arg(root.pool.sizeText || "—")
                   : qsTr("%1 · %2 · directory-backed (follows host free space)")
-                        .arg(backend.poolInfo.name || "default")
-                        .arg(backend.poolInfo.driver || "btrfs")
+                        .arg(root.pool.name || "default")
+                        .arg(root.pool.driver || "btrfs")
             color: theme.textMuted
             font.family: Style.fontMono
             font.pixelSize: Style.fontCaption
@@ -99,13 +100,13 @@ ColumnLayout {
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            visible: (backend.poolInfo.allocatedBytes || 0) > 0
+            visible: (root.pool.allocatedBytes || 0) > 0
             text: qsTr("Allocated quotas: %1%2")
-                      .arg(backend.poolInfo.allocatedText || "0 MiB")
-                      .arg((backend.poolInfo.unboundedCount || 0) > 0
-                           ? qsTr(" · %1 without quota").arg(backend.poolInfo.unboundedCount)
+                      .arg(root.pool.allocatedText || "0 MiB")
+                      .arg((root.pool.unboundedCount || 0) > 0
+                           ? qsTr(" · %1 without quota").arg(root.pool.unboundedCount)
                            : "")
-            color: (backend.poolInfo.overcommitted || false) ? theme.warningText : theme.textMuted
+            color: (root.pool.overcommitted || false) ? theme.warningText : theme.textMuted
             font.family: Style.fontSans
             font.pixelSize: Style.fontSmall
         }
@@ -113,14 +114,14 @@ ColumnLayout {
 
     // Pool resize card
     Card {
-        visible: backend.poolInfo.valid || false
+        visible: root.pool.valid || false
         title: qsTr("Grow storage pool")
         contentSpacing: Style.gapMd
 
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
-            text: backend.poolInfo.resizable
+            text: root.pool.resizable
                   ? qsTr("Grow the loop file in place, for example 60GiB (plain numbers mean GiB). Incus grows the Btrfs filesystem online; pools can never be shrunk.")
                   : qsTr("This pool is backed by a Btrfs subvolume on the host filesystem, so it grows automatically with the host and cannot be resized here.")
             color: theme.textMuted
@@ -129,7 +130,7 @@ ColumnLayout {
         }
 
         FormRow {
-            visible: backend.poolInfo.resizable || false
+            visible: root.pool.resizable || false
             label: qsTr("Target size")
             labelWidth: Style.buttonMinWidth + Style.padModal
 
@@ -137,7 +138,7 @@ ColumnLayout {
                 id: poolSizeField
                 Layout.fillWidth: true
                 mono: true
-                placeholder: backend.poolInfo.sizeText || "60GiB"
+                placeholder: root.pool.sizeText || "60GiB"
                 onAccepted: {
                     app.poolResizeDraft = poolSizeField.text
                     app.preparePoolResize()
@@ -184,8 +185,8 @@ ColumnLayout {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     text: qsTr("Grow pool '%1' from %2 to %3? The loop file is resized in place and this cannot be undone.")
-                              .arg(backend.poolInfo.name || "default")
-                              .arg(backend.poolInfo.totalText || "0 MiB")
+                              .arg(root.pool.name || "default")
+                              .arg(root.pool.totalText || "0 MiB")
                               .arg(app.poolResizeDraft.trim())
                     color: theme.warningText
                     font.family: Style.fontSans
@@ -195,10 +196,14 @@ ColumnLayout {
                 Text {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
-                    text: app.runningEnvironmentCount() > 0
-                          ? qsTr("%1 environment(s) are running. Incus grows Btrfs pools online, but stop them first if you want maximum safety.")
-                                .arg(app.runningEnvironmentCount())
-                          : qsTr("No environment is running.")
+                    text: {
+                        if (!app.poolResizeConfirmVisible)
+                            return ""
+                        const running = app.runningEnvironmentCount()
+                        return running > 0
+                               ? qsTr("%1 environment(s) are running. Incus grows Btrfs pools online, but stop them first if you want maximum safety.").arg(running)
+                               : qsTr("No environment is running.")
+                    }
                     color: theme.textMuted
                     font.family: Style.fontSans
                     font.pixelSize: Style.fontCaption

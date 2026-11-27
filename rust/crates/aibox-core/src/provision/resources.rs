@@ -171,8 +171,11 @@ pub fn download_os_image_script(os_id: &str, alias: &str, cache_base: &str) -> O
     let local_alias = format!("aibox-{os_id}");
     let remote_image = format!("images:{alias}");
     let cache_root = format!("{cache_base}.root");
+    let q_dl_msg = shell_quote(&format!(
+        "@@STAGE:5:Downloading {os_id} from the official image server..."
+    ));
     let script = format!(
-        "\nset -euo pipefail\nLOCAL_ALIAS={}\nREMOTE_IMAGE={}\nCACHE={}\nCACHE_ROOT={}\n\nmkdir -p \"$(dirname \"$CACHE\")\"\nif incus image info \"$LOCAL_ALIAS\" >/dev/null 2>&1; then\n    echo \"@@STAGE:45:OS image is already in the local Incus store...\"\nelif [ -s \"$CACHE\" ] && [ -s \"$CACHE_ROOT\" ]; then\n    echo \"@@STAGE:35:Importing OS image from OS storage...\"\n    incus image import \"$CACHE\" \"$CACHE_ROOT\" --alias \"$LOCAL_ALIAS\"\nelse\n    echo \"@@STAGE:5:Downloading {os_id} from the official image server...\"\n    script -q -e -c \"incus image copy \\\"$REMOTE_IMAGE\\\" local: --alias \\\"$LOCAL_ALIAS\\\" --auto-update\" /dev/null\nfi\n\nif [ ! -s \"$CACHE\" ] || [ ! -s \"$CACHE_ROOT\" ]; then\n    echo \"@@STAGE:85:Saving OS image to OS storage...\"\n    rm -f \"$CACHE\" \"$CACHE_ROOT\"\n    incus image export \"$LOCAL_ALIAS\" \"$CACHE\" >/dev/null\nfi\necho \"@@STAGE:100:Download complete!\"\n",
+        "\nset -euo pipefail\nLOCAL_ALIAS={}\nREMOTE_IMAGE={}\nCACHE={}\nCACHE_ROOT={}\n\nmkdir -p \"$(dirname \"$CACHE\")\"\nif incus image info \"$LOCAL_ALIAS\" >/dev/null 2>&1; then\n    echo \"@@STAGE:45:OS image is already in the local Incus store...\"\nelif [ -s \"$CACHE\" ] && [ -s \"$CACHE_ROOT\" ]; then\n    echo \"@@STAGE:35:Importing OS image from OS storage...\"\n    incus image import \"$CACHE\" \"$CACHE_ROOT\" --alias \"$LOCAL_ALIAS\"\nelse\n    echo {q_dl_msg}\n    script -q -e -c \"incus image copy \\\"$REMOTE_IMAGE\\\" local: --alias \\\"$LOCAL_ALIAS\\\" --auto-update\" /dev/null\nfi\n\nif [ ! -s \"$CACHE\" ] || [ ! -s \"$CACHE_ROOT\" ]; then\n    echo \"@@STAGE:85:Saving OS image to OS storage...\"\n    rm -f \"$CACHE\" \"$CACHE_ROOT\"\n    incus image export \"$LOCAL_ALIAS\" \"$CACHE\" >/dev/null\nfi\necho \"@@STAGE:100:Download complete!\"\n",
         shell_quote(&local_alias),
         shell_quote(&remote_image),
         shell_quote(cache_base),

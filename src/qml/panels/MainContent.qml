@@ -24,7 +24,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: backend.environments.length === 0
+            visible: backend.count === 0
             color: theme.surfaceCard
             radius: theme.radius
             border.width: Style.hairline
@@ -88,7 +88,7 @@ Item {
             app: mainContentRoot.app
             Layout.preferredWidth: 352
             Layout.fillHeight: true
-            visible: backend.environments.length > 0
+            visible: backend.count > 0
         }
 
         EnvironmentInspector {
@@ -96,7 +96,7 @@ Item {
             app: mainContentRoot.app
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: backend.environments.length > 0
+            visible: backend.count > 0
         }
     }
 

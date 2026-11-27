@@ -14,6 +14,11 @@ use regex::Regex;
 use crate::health::limits::{is_valid_io_limit, is_valid_process_limit};
 use crate::util::names::sanitize_name;
 
+pub fn is_vm_env_type(env_type: &str) -> bool {
+    let trimmed = env_type.trim();
+    trimmed.eq_ignore_ascii_case("VM") || trimmed.eq_ignore_ascii_case("VIRTUAL-MACHINE")
+}
+
 pub(crate) fn is_valid_size_spec(value: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {

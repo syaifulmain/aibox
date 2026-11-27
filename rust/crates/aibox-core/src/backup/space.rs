@@ -75,9 +75,11 @@ pub fn available_disk_bytes(path: &str) -> i64 {
     while !probe.is_empty() && !Path::new(&probe).exists() {
         let parent = Path::new(&probe)
             .parent()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if parent.is_empty() || parent == probe {
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_string_lossy()
+            .into_owned();
+        if parent == probe {
             break;
         }
         probe = parent;
@@ -119,7 +121,7 @@ pub fn check_export_space(
         workspace_bytes = directory_size_bytes(&ws);
     }
 
-    let estimated_bytes = instance_bytes + workspace_bytes;
+    let estimated_bytes = instance_bytes.saturating_add(workspace_bytes);
     let available_bytes = if demo_mode {
         DEMO_AVAILABLE_BYTES
     } else {

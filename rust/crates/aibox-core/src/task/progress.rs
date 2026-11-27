@@ -9,9 +9,10 @@ use regex::Regex;
 use crate::history::{record_operation_history, RecordOperationParams};
 use crate::secrets::redact::{redact_secrets, redact_secrets_bytes};
 use crate::task::files::{
-    clear_task_files, read_task_meta, read_task_pid, task_log_path, write_task_result, TaskResult,
+    clear_task_files, read_process_start_time, read_task_lock, read_task_meta, task_log_path,
+    write_task_result, TaskResult,
 };
-use crate::task::lock::{is_task_lock_active, send_signal_group};
+use crate::task::lock::{is_pid_alive, is_task_lock_active, send_signal_group};
 use crate::util::paths::atomic_write;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -366,6 +367,31 @@ pub fn evaluate_check_background_task(
         };
     }
 
+    // Drain any final bytes written between the initial read and process exit.
+    if !alive && !progress.has_exit_code {
+        if let Ok(mut f) = File::open(&log_path) {
+            if let Ok(meta) = f.metadata() {
+                let file_len = meta.len() as i64;
+                if file_len < new_offset {
+                    new_offset = 0;
+                    progress.line_buffer.clear();
+                }
+                if file_len > new_offset {
+                    let _ = f.seek(SeekFrom::Start(new_offset as u64));
+                    let mut buf = Vec::new();
+                    if f.read_to_end(&mut buf).is_ok() {
+                        new_offset = new_offset.saturating_add(buf.len() as i64);
+                        if feed_process_output_streaming(&mut progress, &buf, secret_values)
+                            .progress_changed
+                        {
+                            progress_changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if flush_process_output_streaming(&mut progress, secret_values).progress_changed {
         progress_changed = true;
     }
@@ -442,10 +468,32 @@ pub fn cancel_running_task(
     secret_values: &[String],
     max_history_entries: i32,
 ) -> String {
-    let pid = read_task_pid(state_dir);
-    if pid > 0 {
-        send_signal_group(pid, libc::SIGTERM);
-        send_signal_group(pid, libc::SIGKILL);
+    let lock = read_task_lock(state_dir);
+    let pid_matches = lock.pid > 0
+        && is_pid_alive(lock.pid)
+        && lock
+            .start_time
+            .is_none_or(|st| read_process_start_time(lock.pid) == Some(st));
+    if pid_matches {
+        send_signal_group(lock.pid, libc::SIGTERM);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        while std::time::Instant::now() < deadline {
+            if !is_pid_alive(lock.pid)
+                || lock
+                    .start_time
+                    .is_some_and(|st| read_process_start_time(lock.pid) != Some(st))
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if is_pid_alive(lock.pid)
+            && lock
+                .start_time
+                .is_none_or(|st| read_process_start_time(lock.pid) == Some(st))
+        {
+            send_signal_group(lock.pid, libc::SIGKILL);
+        }
     }
 
     let mut desc = task_stage.to_string();

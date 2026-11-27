@@ -86,7 +86,7 @@ Item {
 
     DialogLoader {
         id: settingsLoader
-        dialogOpen: host.app ? (host.app.settingsVisible || host.app.osEditorVisible) : false
+        dialogOpen: host.app ? host.app.settingsVisible : false
         dialogSource: "panels/SettingsPanel.qml"
     }
 

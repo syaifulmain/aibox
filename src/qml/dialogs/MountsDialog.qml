@@ -6,6 +6,7 @@ import "../components"
 ModalDialog {
     id: mountsOverlay
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     open: app.mountsVisible
     zOrder: 88
     clipCard: true
@@ -15,7 +16,7 @@ ModalDialog {
 
     function submitMount() {
         const err = backend.addExtraMount(
-            backend.selectedEnvironment.name || "",
+            mountsOverlay.env.name || "",
             extraMountPathInput.text,
             extraMountNameInput.text,
             app.mountReadOnlyDraft,
@@ -32,7 +33,7 @@ ModalDialog {
     }
 
     ModalHeader {
-        title: qsTr("Extra Host Mounts · %1").arg(backend.selectedEnvironment.name || "")
+        title: qsTr("Extra Host Mounts · %1").arg(mountsOverlay.env.name || "")
         subtitle: qsTr("Mounts additional folders under /home/workspace/<name> (Read-Only by default; system/sensitive paths blocked)")
         onClosed: app.mountsVisible = false
     }
@@ -67,7 +68,7 @@ ModalDialog {
 
         Text {
             anchors.centerIn: parent
-            visible: !backend.selectedEnvironment.extraMounts || backend.selectedEnvironment.extraMounts.length === 0
+            visible: mountsListView.count === 0
             text: qsTr("No extra host mounts attached.")
             color: theme.textMuted
             font.family: Style.fontSans
@@ -80,7 +81,7 @@ ModalDialog {
             anchors.margins: Style.gapMd
             clip: true
             spacing: Style.gapSm
-            model: backend.selectedEnvironment.extraMounts || []
+            model: mountsOverlay.env.extraMounts || []
             delegate: Rectangle {
                 required property var modelData
                 width: mountsListView.width

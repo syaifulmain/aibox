@@ -1,6 +1,5 @@
 use std::fs;
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -93,17 +92,66 @@ impl ThemeColors {
     }
 }
 
+fn parse_toml_kv_line(line: &str) -> Option<(&str, &str)> {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('[') {
+        return None;
+    }
+    let (lhs, rhs) = trimmed.split_once('=')?;
+    let k = lhs.trim();
+    if k.is_empty() {
+        return None;
+    }
+    Some((k, rhs.trim_start()))
+}
+
+fn parse_quoted_hex6(rhs: &str) -> Option<&str> {
+    let bytes = rhs.as_bytes();
+    if bytes.len() < 9 {
+        return None;
+    }
+    let quote = bytes[0];
+    if quote != b'"' && quote != b'\'' {
+        return None;
+    }
+    if bytes[1] != b'#' {
+        return None;
+    }
+    if !bytes[2..8].iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    if bytes[8] != b'"' && bytes[8] != b'\'' {
+        return None;
+    }
+    Some(&rhs[1..8])
+}
+
+fn parse_quoted_string(rhs: &str) -> Option<&str> {
+    let bytes = rhs.as_bytes();
+    let first = *bytes.first()?;
+    if first != b'"' && first != b'\'' {
+        return None;
+    }
+    let rest = &rhs[1..];
+    let end = rest.find(['"', '\'', '\r', '\n'])?;
+    let val = rest[..end].trim();
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
 /// Reads a `#RRGGBB` hex color for `key` from Omarchy `colors.toml` text,
 /// falling back to `fallback` when missing or malformed.
 pub fn read_key(toml_text: &str, key: &str, fallback: &str) -> String {
-    let pattern = format!(
-        r#"(?m)^\s*{}\s*=\s*["'](#[0-9a-fA-F]{{6}})["']"#,
-        regex::escape(key)
-    );
-    if let Ok(re) = Regex::new(&pattern) {
-        if let Some(caps) = re.captures(toml_text) {
-            if let Some(m) = caps.get(1) {
-                return m.as_str().to_string();
+    for line in toml_text.lines() {
+        let Some((k, rhs)) = parse_toml_kv_line(line) else {
+            continue;
+        };
+        if k == key {
+            if let Some(hex) = parse_quoted_hex6(rhs) {
+                return hex.to_string();
             }
         }
     }
@@ -112,18 +160,17 @@ pub fn read_key(toml_text: &str, key: &str, fallback: &str) -> String {
 
 /// Reads a quoted string value for `key` from `colors.toml` text (e.g. `mode = "light"`).
 pub fn read_string_key(toml_text: &str, key: &str) -> Option<String> {
-    let pattern = format!(
-        r#"(?m)^\s*{}\s*=\s*["']([^"'\r\n]+)["']"#,
-        regex::escape(key)
-    );
-    let re = Regex::new(&pattern).ok()?;
-    let caps = re.captures(toml_text)?;
-    let val = caps.get(1)?.as_str().trim();
-    if val.is_empty() {
-        None
-    } else {
-        Some(val.to_string())
+    for line in toml_text.lines() {
+        let Some((k, rhs)) = parse_toml_kv_line(line) else {
+            continue;
+        };
+        if k == key {
+            if let Some(val) = parse_quoted_string(rhs) {
+                return Some(val.to_string());
+            }
+        }
     }
+    None
 }
 
 /// Reads `accent` from `colors.toml` text with `#FFD60A` fallback.
@@ -131,18 +178,77 @@ pub fn read_accent(toml_text: &str) -> String {
     read_key(toml_text, "accent", "#FFD60A")
 }
 
-/// Parses all theme colors from `colors.toml` text.
+/// Parses all theme colors from `colors.toml` text in a single pass.
 pub fn parse_colors(toml_text: &str) -> ThemeColors {
     let dark_defaults = ThemeColors::default();
     let light_defaults = ThemeColors::default_light();
 
-    let mode_raw = read_string_key(toml_text, "mode").map(|s| s.to_ascii_lowercase());
+    let mut mode_raw: Option<String> = None;
+    let mut accent: Option<&str> = None;
+    let mut background: Option<&str> = None;
+    let mut dark_background: Option<&str> = None;
+    let mut darker_background: Option<&str> = None;
+    let mut lighter_background: Option<&str> = None;
+    let mut foreground: Option<&str> = None;
+    let mut bright_foreground: Option<&str> = None;
+    let mut dark_foreground: Option<&str> = None;
+    let mut light_foreground: Option<&str> = None;
+    let mut raw_muted: Option<&str> = None;
+    let mut selection: Option<&str> = None;
+    let mut green: Option<&str> = None;
+    let mut red: Option<&str> = None;
+    let mut yellow: Option<&str> = None;
+    let mut orange: Option<&str> = None;
+    let mut cyan: Option<&str> = None;
+    let mut blue: Option<&str> = None;
+    let mut magenta: Option<&str> = None;
+
+    for line in toml_text.lines() {
+        let Some((k, rhs)) = parse_toml_kv_line(line) else {
+            continue;
+        };
+        if k == "mode" {
+            if mode_raw.is_none() {
+                if let Some(val) = parse_quoted_string(rhs) {
+                    mode_raw = Some(val.to_ascii_lowercase());
+                }
+            }
+            continue;
+        }
+        let slot = match k {
+            "accent" => &mut accent,
+            "background" => &mut background,
+            "dark_background" => &mut dark_background,
+            "darker_background" => &mut darker_background,
+            "lighter_background" => &mut lighter_background,
+            "foreground" => &mut foreground,
+            "bright_foreground" => &mut bright_foreground,
+            "dark_foreground" => &mut dark_foreground,
+            "light_foreground" => &mut light_foreground,
+            "muted" => &mut raw_muted,
+            "selection" => &mut selection,
+            "green" => &mut green,
+            "red" => &mut red,
+            "yellow" => &mut yellow,
+            "orange" => &mut orange,
+            "cyan" => &mut cyan,
+            "blue" => &mut blue,
+            "magenta" => &mut magenta,
+            _ => continue,
+        };
+        if slot.is_none() {
+            if let Some(hex) = parse_quoted_hex6(rhs) {
+                *slot = Some(hex);
+            }
+        }
+    }
+
     let is_dark = match mode_raw.as_deref() {
         Some("light") => false,
         Some("dark") => true,
         _ => {
-            let bg_hex = read_key(toml_text, "background", &dark_defaults.background);
-            let bg_rgb = Rgb::from_hex(&bg_hex).unwrap_or(Rgb::new(0x0e, 0x0e, 0x10));
+            let bg_hex = background.unwrap_or(&dark_defaults.background);
+            let bg_rgb = Rgb::from_hex(bg_hex).unwrap_or(Rgb::new(0x0e, 0x0e, 0x10));
             relative_luminance(bg_rgb) < 0.4
         }
     };
@@ -153,13 +259,15 @@ pub fn parse_colors(toml_text: &str) -> ThemeColors {
         &light_defaults
     };
 
-    let background = read_key(toml_text, "background", &defaults.background);
-    let base_foreground = read_key(toml_text, "foreground", &defaults.base_foreground);
-    let fg_compat_fallback = read_key(toml_text, "foreground", &defaults.foreground);
-    let bright_foreground = read_key(toml_text, "bright_foreground", &fg_compat_fallback);
-    let dark_foreground = read_key(toml_text, "dark_foreground", &defaults.dark_foreground);
-    let blue = read_key(toml_text, "blue", &defaults.blue);
-    let cyan_fallback = read_key(toml_text, "blue", &defaults.cyan);
+    let bg = background.unwrap_or(&defaults.background).to_string();
+    let base_fg = foreground.unwrap_or(&defaults.base_foreground).to_string();
+    let fg_compat = foreground.unwrap_or(&defaults.foreground);
+    let bright_fg = bright_foreground.unwrap_or(fg_compat).to_string();
+    let dark_fg = dark_foreground
+        .unwrap_or(&defaults.dark_foreground)
+        .to_string();
+    let blue_val = blue.unwrap_or(&defaults.blue).to_string();
+    let cyan_fallback = blue.unwrap_or(&defaults.cyan);
 
     ThemeColors {
         is_dark,
@@ -168,30 +276,34 @@ pub fn parse_colors(toml_text: &str) -> ThemeColors {
         } else {
             "light".to_string()
         },
-        accent: read_key(toml_text, "accent", &defaults.accent),
-        background,
-        dark_background: read_key(toml_text, "dark_background", &defaults.dark_background),
-        darker_background: read_key(toml_text, "darker_background", &defaults.darker_background),
-        lighter_background: read_key(
-            toml_text,
-            "lighter_background",
-            &defaults.lighter_background,
-        ),
-        foreground: bright_foreground.clone(),
-        base_foreground,
-        light_foreground: read_key(toml_text, "light_foreground", &defaults.light_foreground),
-        bright_foreground,
-        dark_foreground: dark_foreground.clone(),
-        muted: dark_foreground,
-        raw_muted: read_key(toml_text, "muted", &defaults.raw_muted),
-        selection: read_key(toml_text, "selection", &defaults.selection),
-        green: read_key(toml_text, "green", &defaults.green),
-        red: read_key(toml_text, "red", &defaults.red),
-        yellow: read_key(toml_text, "yellow", &defaults.yellow),
-        orange: read_key(toml_text, "orange", &defaults.orange),
-        cyan: read_key(toml_text, "cyan", &cyan_fallback),
-        blue,
-        magenta: read_key(toml_text, "magenta", &defaults.magenta),
+        accent: accent.unwrap_or(&defaults.accent).to_string(),
+        background: bg,
+        dark_background: dark_background
+            .unwrap_or(&defaults.dark_background)
+            .to_string(),
+        darker_background: darker_background
+            .unwrap_or(&defaults.darker_background)
+            .to_string(),
+        lighter_background: lighter_background
+            .unwrap_or(&defaults.lighter_background)
+            .to_string(),
+        foreground: bright_fg.clone(),
+        base_foreground: base_fg,
+        light_foreground: light_foreground
+            .unwrap_or(&defaults.light_foreground)
+            .to_string(),
+        bright_foreground: bright_fg,
+        dark_foreground: dark_fg.clone(),
+        muted: dark_fg,
+        raw_muted: raw_muted.unwrap_or(&defaults.raw_muted).to_string(),
+        selection: selection.unwrap_or(&defaults.selection).to_string(),
+        green: green.unwrap_or(&defaults.green).to_string(),
+        red: red.unwrap_or(&defaults.red).to_string(),
+        yellow: yellow.unwrap_or(&defaults.yellow).to_string(),
+        orange: orange.unwrap_or(&defaults.orange).to_string(),
+        cyan: cyan.unwrap_or(cyan_fallback).to_string(),
+        blue: blue_val,
+        magenta: magenta.unwrap_or(&defaults.magenta).to_string(),
     }
 }
 

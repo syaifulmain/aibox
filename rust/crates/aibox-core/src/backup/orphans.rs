@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use serde_json::{json, Value};
@@ -134,14 +133,14 @@ pub fn detect_orphans(
         if let Ok(entries) = fs::read_dir(&clean_backups_dir) {
             let mut tar_files: Vec<(String, String, i64)> = Vec::new();
             for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if !name.ends_with(".tar.gz") && !name.ends_with(".tar.zst") {
+                    continue;
+                }
                 let Ok(meta) = fs::metadata(entry.path()) else {
                     continue;
                 };
                 if !meta.is_file() {
-                    continue;
-                }
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if !name.ends_with(".tar.gz") && !name.ends_with(".tar.zst") {
                     continue;
                 }
                 let abs = clean_path(&entry.path().to_string_lossy());
@@ -220,26 +219,35 @@ pub fn validate_orphan_path(
     let clean_snap_root = clean_path(&format!("{workspace_base}/.snapshots"));
     let clean_backups = clean_path(backups_dir);
 
-    if kind == "workspace"
-        && (parent_dir != clean_ws_base || file_name == ".snapshots" || file_name.starts_with('.'))
-    {
-        return Err(format!(
-            "Refusing to delete path outside workspace directory: {clean}"
-        ));
-    }
-    if kind == "workspace-snapshot" && parent_dir != clean_snap_root {
-        return Err(format!(
-            "Refusing to delete path outside snapshot root: {clean}"
-        ));
-    }
-    if kind == "backup-workspace"
-        && (parent_dir != clean_backups
-            || (!file_name.ends_with("-workspace.tar.gz")
-                && !file_name.ends_with("-workspace.tar.zst")))
-    {
-        return Err(format!(
-            "Refusing to delete non-orphan archive outside backups directory: {clean}"
-        ));
+    match kind {
+        "workspace" => {
+            if parent_dir != clean_ws_base
+                || file_name == ".snapshots"
+                || file_name.starts_with('.')
+            {
+                return Err(format!(
+                    "Refusing to delete path outside workspace directory: {clean}"
+                ));
+            }
+        }
+        "workspace-snapshot" => {
+            if parent_dir != clean_snap_root {
+                return Err(format!(
+                    "Refusing to delete path outside snapshot root: {clean}"
+                ));
+            }
+        }
+        "backup-workspace" => {
+            if parent_dir != clean_backups
+                || (!file_name.ends_with("-workspace.tar.gz")
+                    && !file_name.ends_with("-workspace.tar.zst"))
+            {
+                return Err(format!(
+                    "Refusing to delete non-orphan archive outside backups directory: {clean}"
+                ));
+            }
+        }
+        _ => return Err(format!("Unknown orphan kind '{kind}'.")),
     }
     Ok(())
 }
@@ -368,12 +376,17 @@ pub fn prepare_delete_orphan_as_admin(
         ));
     }
     let text = admin_delete_script_text(kind, &clean);
-    if fs::write(&script_path, text.as_bytes()).is_err() {
+    if crate::util::paths::atomic_write_with_mode(
+        Path::new(&script_path),
+        text.as_bytes(),
+        Some(0o700),
+    )
+    .is_err()
+    {
         return Err(format!(
             "Could not write admin delete script to {script_path}."
         ));
     }
-    let _ = fs::set_permissions(&script_path, fs::Permissions::from_mode(0o700));
     let q_script = shell_quote(&script_path);
     let cmd = format!(
         "sudo -- sh {q_script}; RC=$?; echo; \

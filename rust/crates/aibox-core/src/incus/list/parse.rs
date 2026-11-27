@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
+use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use chrono::Utc;
@@ -11,8 +13,8 @@ use crate::secrets::store::parse_env_secret_names;
 use crate::session::effective_record_sessions;
 use crate::snapshot::auto::is_auto_snapshot_name;
 use crate::snapshot::workspace::{
-    find_orphan_workspace_snapshots, is_btrfs_filesystem, is_btrfs_subvolume,
-    list_workspace_snapshots, workspace_snapshot_dir,
+    find_orphan_workspace_snapshots, is_btrfs_filesystem, list_workspace_snapshots,
+    workspace_snapshot_dir,
 };
 use crate::util::format::{format_byte_rate, format_byte_total, format_bytes};
 use crate::util::paths::CONTAINER_WORKSPACE_PATH;
@@ -542,7 +544,11 @@ pub fn parse_with_now_checked(
     let mut next_net_snapshot = HashMap::new();
     let mut btrfs_parent_cache: HashMap<String, bool> = HashMap::new();
     let mut cached_host_swap_total: Option<i64> = None;
-    let host_core_weights = read_host_core_weights(state);
+    let host_core_weights = if track_cpu_and_net {
+        read_host_core_weights(state)
+    } else {
+        Vec::new()
+    };
     let poll_ctx = MetricPollContext {
         elapsed_wall_ns,
         now_utc_ms,
@@ -835,7 +841,10 @@ pub fn parse_with_now_checked(
                 res
             }
         };
-        let ws_is_subvolume = ws_exists && ws_on_btrfs && is_btrfs_subvolume(&workspace_path);
+        let ws_is_subvolume = ws_exists
+            && ws_on_btrfs
+            && fs::symlink_metadata(&workspace_path)
+                .is_ok_and(|meta| meta.file_type().is_dir() && meta.ino() == 256);
         let ws_snap_enabled = ws_is_subvolume && ws_snap_override != "false";
         let ws_snap_dir = workspace_snapshot_dir(&workspace_path, name);
         let ws_snapshots = list_workspace_snapshots(&workspace_path, name);

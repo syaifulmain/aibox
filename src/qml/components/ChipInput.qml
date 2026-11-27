@@ -159,12 +159,13 @@ Rectangle {
                 font.pixelSize: Style.fontBody
                 validator: chipRoot.allowText ? null : chipValidator
                 onAccepted: chipRoot.submit()
-                Keys.onBackPressed: {
-                    if (text.length !== 0 || chipRoot.count <= 1)
+                Keys.onPressed: function (event) {
+                    if (event.key !== Qt.Key_Backspace || text.length !== 0 || chipRoot.count <= 1)
                         return
                     const last = chipRoot.values[chipRoot.count - 1]
                     if (!chipRoot.isLocked(last))
                         chipRoot.removeRequested(chipRoot.count - 1)
+                    event.accepted = true
                 }
             }
 

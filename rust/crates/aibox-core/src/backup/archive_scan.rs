@@ -131,14 +131,14 @@ pub fn scan_backup_archives_with_stats(
 
     let mut entries: Vec<ArchiveFile> = Vec::new();
     for entry in read_dir.flatten() {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if !is_archive_file(&file_name) {
+            continue;
+        }
         let Ok(meta) = fs::metadata(entry.path()) else {
             continue;
         };
         if !meta.is_file() {
-            continue;
-        }
-        let file_name = entry.file_name().to_string_lossy().into_owned();
-        if !is_archive_file(&file_name) {
             continue;
         }
         let mtime_secs = meta
@@ -176,7 +176,9 @@ pub fn scan_backup_archives_with_stats(
         entries: BTreeMap::new(),
     };
     let mut stats = ScanCacheStats::default();
-    let ts_suffix_re = Regex::new(r"-\d{8}-\d{6}$").expect("valid regex");
+    static TS_SUFFIX_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let ts_suffix_re =
+        TS_SUFFIX_RE.get_or_init(|| Regex::new(r"-\d{8}-\d{6}$").expect("valid regex"));
     let mut result = Vec::new();
 
     for fi in &entries {

@@ -92,6 +92,9 @@ impl Rgba {
     pub fn from_hex(hex: &str) -> Option<Self> {
         let s = hex.trim();
         let digits = s.strip_prefix('#')?;
+        if !digits.is_ascii() {
+            return None;
+        }
         match digits.len() {
             6 => {
                 let rgb = Rgb::from_hex(s)?;

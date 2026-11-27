@@ -13,6 +13,47 @@ Card {
     readonly property bool offline: root.env.networkMode === "offline"
     readonly property bool template: root.env.isTemplate || false
 
+    component MetricCell: RowLayout {
+        id: metricCell
+        property string label: ""
+        property string value: "—"
+        property bool copyable: false
+        Layout.fillWidth: true
+        Layout.preferredWidth: 1
+        spacing: Style.gap
+
+        Text {
+            text: metricCell.label
+            color: theme.textMuted
+            font.family: Style.fontMono
+            font.pixelSize: Style.fontSmall
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Text {
+            readonly property bool canCopy: metricCell.copyable && metricCell.value !== "—"
+            text: metricCell.value
+            horizontalAlignment: Text.AlignRight
+            color: canCopy ? theme.accentText : theme.textPrimary
+            font.family: Style.fontMono
+            font.pixelSize: Style.fontSmall
+            ToolTip.visible: canCopy && metricHover.hovered
+            ToolTip.delay: 500
+            ToolTip.text: qsTr("Click to copy this address")
+
+            HoverHandler {
+                id: metricHover
+                cursorShape: parent.canCopy ? Qt.PointingHandCursor : Qt.ArrowCursor
+            }
+
+            TapHandler {
+                enabled: parent.canCopy
+                onTapped: backend.copyText(root.ipAddress, qsTr("IP address"))
+            }
+        }
+    }
+
     title: qsTr("Network")
     borderColor: root.offline
                  ? theme.warningBorder
@@ -112,54 +153,16 @@ Card {
             columnSpacing: Style.padModal
             rowSpacing: Style.gapSm
 
-            Repeater {
-                model: [
-                    { label: qsTr("Receiving"), value: root.env.netRxRateText || "—", accent: false },
-                    { label: qsTr("Sending"), value: root.env.netTxRateText || "—", accent: false },
-                    { label: qsTr("Downloaded"), value: root.env.netRxTotalText || "—", accent: false },
-                    { label: qsTr("Uploaded"), value: root.env.netTxTotalText || "—", accent: false },
-                    { label: qsTr("IP Address"), value: (root.ipAddress.length > 0 && !root.offline) ? root.ipAddress : "—", accent: true },
-                    { label: qsTr("Interface"), value: root.env.hostInterface || "—", accent: false }
-                ]
-
-                delegate: RowLayout {
-                    required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    spacing: Style.gap
-
-                    Text {
-                        text: modelData.label
-                        color: theme.textMuted
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.fontSmall
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Text {
-                        readonly property bool canCopy: modelData.accent && modelData.value !== "—"
-                        text: modelData.value
-                        horizontalAlignment: Text.AlignRight
-                        color: modelData.accent && modelData.value !== "—" ? theme.accentText : theme.textPrimary
-                        font.family: Style.fontMono
-                        font.pixelSize: Style.fontSmall
-                        ToolTip.visible: canCopy && metricHover.hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: qsTr("Click to copy this address")
-
-                        HoverHandler {
-                            id: metricHover
-                            cursorShape: parent.canCopy ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        }
-
-                        TapHandler {
-                            enabled: parent.canCopy
-                            onTapped: backend.copyText(root.ipAddress, qsTr("IP address"))
-                        }
-                    }
-                }
+            MetricCell { label: qsTr("Receiving"); value: root.env.netRxRateText || "—" }
+            MetricCell { label: qsTr("Sending"); value: root.env.netTxRateText || "—" }
+            MetricCell { label: qsTr("Downloaded"); value: root.env.netRxTotalText || "—" }
+            MetricCell { label: qsTr("Uploaded"); value: root.env.netTxTotalText || "—" }
+            MetricCell {
+                label: qsTr("IP Address")
+                value: (root.ipAddress.length > 0 && !root.offline) ? root.ipAddress : "—"
+                copyable: true
             }
+            MetricCell { label: qsTr("Interface"); value: root.env.hostInterface || "—" }
         }
     }
 

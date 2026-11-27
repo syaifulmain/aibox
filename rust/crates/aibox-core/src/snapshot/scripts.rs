@@ -138,9 +138,10 @@ pub fn wipe_environment_script(
     environment_secrets_path: &str,
 ) -> String {
     let mut script = format!(
-        "echo '@@STAGE:40:Wiping OS container...'; \
-incus delete {} --force; \
-incus network acl delete {} >/dev/null 2>&1 || true; \
+        "set -euo pipefail\n\
+echo '@@STAGE:40:Wiping OS container...'\n\
+incus delete {} --force\n\
+incus network acl delete {} >/dev/null 2>&1 || true\n\
 incus network acl delete {} >/dev/null 2>&1 || true",
         shell_quote(name),
         shell_quote(&format!("aibox-{name}")),
@@ -228,8 +229,8 @@ mod tests {
         write_executable(
             &stub_dir.join("stat"),
             "#!/bin/sh\n\
-if [ \"$1\" = -f ]; then echo btrfs; exit 0; fi\n\
-if [ \"$1\" = -c ]; then echo 256; exit 0; fi\n\
+if [ \"$1\" = -f ] && [ \"$2\" = -c ] && [ \"$3\" = \"%T\" ]; then echo btrfs; exit 0; fi\n\
+if [ \"$1\" = -c ] && [ \"$2\" = \"%i\" ]; then echo 256; exit 0; fi\n\
 exec /usr/bin/stat \"$@\"\n",
         );
         write_executable(
@@ -420,5 +421,18 @@ exit 0\n",
         assert!(log.contains("$HOME"));
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn wipe_environment_script_enables_strict_error_handling() {
+        let script = wipe_environment_script(
+            "dev-box",
+            "/tmp/ws/dev-box",
+            true,
+            "/tmp/state/sessions/dev-box",
+            "/tmp/secrets/dev-box.json",
+        );
+        assert!(script.starts_with("set -euo pipefail\n"));
+        assert!(script.contains("\nincus delete 'dev-box' --force\n"));
     }
 }

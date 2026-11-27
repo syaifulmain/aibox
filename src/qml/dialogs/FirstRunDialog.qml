@@ -34,12 +34,13 @@ Item {
             return base.length > 1 && base.endsWith("/") ? base.slice(0, -1) : base
         }
 
-        onVisibleChanged: {
-            if (visible) {
-                root.app.firstRunError = ""
-                firstRunPathField.text = backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
-            }
+        function syncFields() {
+            root.app.firstRunError = ""
+            firstRunPathField.text = backend.systemPath.length > 0 ? backend.systemPath : backend.defaultSystemPath
         }
+
+        Component.onCompleted: if (visible) syncFields()
+        onVisibleChanged: if (visible) syncFields()
 
         RowLayout {
             Layout.fillWidth: true

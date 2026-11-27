@@ -207,7 +207,7 @@ pub fn prepare_clone_environment<R: HostResolver>(
         Vec::new()
     };
 
-    let is_vm = source_type.eq_ignore_ascii_case("VM");
+    let is_vm = super::is_vm_env_type(source_type);
     let host_workspace = resolve_workspace_path(workspace_parent, &new_name, workspace_base)
         .map_err(ProvisionError::InvalidWorkspacePath)?;
     let script = clone_environment_script_with_source(
@@ -589,5 +589,35 @@ exit 0
         }
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prepare_clone_treats_virtual_machine_type_as_vm() {
+        let resolver = crate::network::allowlist::StaticResolver::default();
+        let existing = vec!["vm-src".to_string()];
+        let plan = prepare_clone_environment(
+            false,
+            "vm-src",
+            true,
+            "online",
+            "",
+            "VIRTUAL-MACHINE",
+            "/tmp/ws/vm-src",
+            "vm-copy",
+            &existing,
+            "40GiB",
+            "4GiB",
+            2,
+            false,
+            "100",
+            "10MiB",
+            "2GiB",
+            "",
+            "/tmp/ws",
+            &resolver,
+        )
+        .expect("vm clone plan");
+        assert!(!plan.script.contains("limits.processes"));
+        assert!(!plan.script.contains("limits.memory.swap"));
     }
 }

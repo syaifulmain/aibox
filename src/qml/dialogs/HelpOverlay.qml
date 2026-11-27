@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls
 import "../components"
 
 ModalDialog {
@@ -7,6 +8,8 @@ ModalDialog {
     property QtObject app: null
     open: app.helpVisible
     size: "sm"
+    clipCard: true
+    cardHeight: parent ? Math.min(parent.height - Style.modalGutter, 620) : 620
     contentSpacing: Style.gap
     onDismissed: app.helpVisible = false
 
@@ -15,7 +18,19 @@ ModalDialog {
         onClosed: app.helpVisible = false
     }
 
-    Repeater {
+    ScrollView {
+        id: shortcutsScroll
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+        ColumnLayout {
+            width: shortcutsScroll.availableWidth
+            spacing: Style.gap
+
+            Repeater {
         model: [
             { k: "Space / Enter", d: qsTr("Enter selected OS terminal in %1").arg(backend.containerWorkspacePath) },
             { k: "N", d: qsTr("Create a new isolated OS environment") },
@@ -63,12 +78,14 @@ ModalDialog {
                 }
             }
 
-            Text {
-                Layout.fillWidth: true
-                text: modelData.d
-                color: theme.textSecondary
-                font.family: Style.fontSans
-                font.pixelSize: Style.fontBody
+                    Text {
+                        Layout.fillWidth: true
+                        text: modelData.d
+                        color: theme.textSecondary
+                        font.family: Style.fontSans
+                        font.pixelSize: Style.fontBody
+                    }
+                }
             }
         }
     }

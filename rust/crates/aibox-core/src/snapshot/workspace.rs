@@ -97,7 +97,10 @@ pub fn list_workspace_snapshots(workspace_path: &str, env_name: &str) -> Vec<Str
     };
     let mut names = Vec::new();
     for entry in entries.flatten() {
-        if entry.path().is_dir() {
+        let is_dir = entry
+            .file_type()
+            .is_ok_and(|ft| ft.is_dir() || (ft.is_symlink() && entry.path().is_dir()));
+        if is_dir {
             if let Some(name) = entry.file_name().to_str() {
                 names.push(name.to_string());
             }
@@ -125,7 +128,7 @@ pub fn workspace_create_snippet(workspace_path: &str) -> String {
     format!(
         "mkdir -p \"$(dirname {q_ws})\"\n\
         if [ ! -e {q_ws} ]; then\n    \
-            if command -v btrfs >/dev/null 2>&1 && [[ \"$(stat -f -c %%T \"$(dirname {q_ws})\" 2>/dev/null || true)\" == \"btrfs\" ]]; then\n        \
+            if command -v btrfs >/dev/null 2>&1 && [[ \"$(stat -f -c %T \"$(dirname {q_ws})\" 2>/dev/null || true)\" == \"btrfs\" ]]; then\n        \
                 btrfs subvolume create {q_ws} >/dev/null\n    \
             else\n        \
                 mkdir -p {q_ws}\n    \
@@ -205,7 +208,7 @@ pub fn workspace_snapshot_snippet(workspace_path: &str, snap_dir: &str, snap_nam
     let q_dir = shell_quote(&clean_dir);
     let q_dst = shell_quote(&format!("{clean_dir}/{clean_snap}"));
     format!(
-        "if command -v btrfs >/dev/null 2>&1 && [ -d {q_ws} ] && [[ \"$(stat -f -c %%T {q_ws} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %%i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
+        "if command -v btrfs >/dev/null 2>&1 && [ -d {q_ws} ] && [[ \"$(stat -f -c %T {q_ws} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
             mkdir -p {q_dir}\n    \
             if [ ! -e {q_dst} ]; then\n        \
                 btrfs subvolume snapshot -r {q_ws} {q_dst} >/dev/null\n    \
@@ -228,7 +231,7 @@ pub fn workspace_delete_snapshot_snippet(snap_path: &str, warn_only: bool) -> St
     format!(
         "if [ -e {q_snap} ]; then\n    \
             if ! btrfs subvolume delete {q_snap} >/dev/null 2>&1; then\n        \
-                if command -v btrfs >/dev/null 2>&1 && [[ \"$(stat -f -c %%T {q_snap} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %%i {q_snap} 2>/dev/null || true)\" == \"256\" ]]; then\n            \
+                if command -v btrfs >/dev/null 2>&1 && [[ \"$(stat -f -c %T {q_snap} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %i {q_snap} 2>/dev/null || true)\" == \"256\" ]]; then\n            \
                     btrfs property set -ts {q_snap} ro false >/dev/null 2>&1 || true\n        \
                 fi\n        \
                 rm -rf {q_snap} >/dev/null 2>&1 || true\n    \
@@ -281,7 +284,7 @@ pub fn workspace_restore_snippet(
             exit 1\n\
         fi\n\
         mkdir -p {q_dir}\n\
-        if [ -d {q_ws} ] && [[ \"$(stat -f -c %%T {q_ws} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %%i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
+        if [ -d {q_ws} ] && [[ \"$(stat -f -c %T {q_ws} 2>/dev/null || true)\" == \"btrfs\" ]] && [[ \"$(stat -c %i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
             SAFETY_SNAP={safety_path_expr}\n    \
             [ -e \"$SAFETY_SNAP\" ] || btrfs subvolume snapshot -r {q_ws} \"$SAFETY_SNAP\" >/dev/null\n\
         fi\n\
@@ -326,11 +329,11 @@ pub fn convert_workspace_to_subvolume_script(env_name: &str, workspace_path: &st
             exit 1\n\
         fi\n\
         mkdir -p \"$(dirname {q_ws})\"\n\
-        if [[ \"$(stat -f -c %%T \"$(dirname {q_ws})\" 2>/dev/null || true)\" != \"btrfs\" ]]; then\n    \
+        if [[ \"$(stat -f -c %T \"$(dirname {q_ws})\" 2>/dev/null || true)\" != \"btrfs\" ]]; then\n    \
             echo \"Workspace filesystem is not Btrfs.\" >&2\n    \
             exit 1\n\
         fi\n\
-        if [ -d {q_ws} ] && [[ \"$(stat -c %%i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
+        if [ -d {q_ws} ] && [[ \"$(stat -c %i {q_ws} 2>/dev/null || true)\" == \"256\" ]]; then\n    \
             echo '@@STAGE:100:Workspace is already a Btrfs subvolume.'\n    \
             exit 0\n\
         fi\n\
@@ -580,5 +583,25 @@ mod tests {
         );
         assert!(restore.contains("btrfs tool is required for workspace snapshot restore."));
         assert!(restore.contains("does not exist."));
+    }
+
+    #[test]
+    fn btrfs_snippets_emit_single_percent_stat_formats() {
+        let create = workspace_create_snippet("/tmp/ws/dev-box");
+        let snap =
+            workspace_snapshot_snippet("/tmp/ws/dev-box", "/tmp/ws/.snapshots/dev-box", "s1");
+        let del = workspace_delete_snapshot_snippet("/tmp/ws/.snapshots/dev-box/s1", true);
+        let restore =
+            workspace_restore_snippet("/tmp/ws/dev-box", "/tmp/ws/.snapshots/dev-box", "s1", 100);
+        let convert = convert_workspace_to_subvolume_script("dev-box", "/tmp/ws/dev-box");
+
+        for s in [&create, &snap, &del, &restore, &convert] {
+            assert!(!s.contains("%%T"), "unexpected %%T in:\n{s}");
+            assert!(!s.contains("%%i"), "unexpected %%i in:\n{s}");
+            assert!(s.contains("%T"), "expected %T in:\n{s}");
+        }
+        for s in [&snap, &del, &restore, &convert] {
+            assert!(s.contains("%i"), "expected %i in:\n{s}");
+        }
     }
 }

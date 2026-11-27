@@ -1,5 +1,7 @@
 use std::pin::Pin;
 use std::process::Command;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
@@ -8,7 +10,9 @@ use aibox_core::incus::list::environment_by_name;
 use aibox_core::network::acl::{
     add_egress_destination_allowlist, prepare_set_egress_recording, prepare_set_network_mode,
 };
-use aibox_core::network::allowlist::SystemResolver;
+use aibox_core::network::allowlist::{
+    extract_allowlist_hostnames, parse_allowlist_entries, SystemResolver,
+};
 use aibox_core::network::egress::parse_kernel_egress_logs;
 use aibox_core::network::ports::{
     add_port_forward_script, open_forwarded_port_url, remove_port_forward_script,
@@ -16,6 +20,7 @@ use aibox_core::network::ports::{
 };
 
 use crate::qt_backend::{qobject, spawn_detached};
+use crate::qt_backend_task::NoopResolver;
 use crate::qt_convert::{json_array_to_qvariant_list, serialize_to_qvariant_list};
 
 impl qobject::Backend {
@@ -29,24 +34,62 @@ impl qobject::Backend {
         if name_s.is_empty() || *self.busy() {
             return;
         }
+        let mode_s = mode.to_string();
+        let allow_s = allowlist.to_string();
         let egress_logging = environment_by_name(&self.engine.environments, &name_s)
             .is_some_and(|e| e.egress_recording);
-        let resolver = SystemResolver;
-        match prepare_set_network_mode(
-            &name_s,
-            &mode.to_string(),
-            &allowlist.to_string(),
-            egress_logging,
-            &resolver,
-        ) {
-            Ok(plan) => {
-                self.as_mut()
-                    .run_shell_task(&plan.description, &plan.script, "", &name_s);
+
+        let needs_dns = mode_s.trim().eq_ignore_ascii_case("allowlist")
+            && !extract_allowlist_hostnames(&parse_allowlist_entries(&allow_s)).is_empty();
+        if !needs_dns {
+            match prepare_set_network_mode(
+                &name_s,
+                &mode_s,
+                &allow_s,
+                egress_logging,
+                &NoopResolver,
+            ) {
+                Ok(plan) => {
+                    self.as_mut()
+                        .run_shell_task(&plan.description, &plan.script, "", &name_s);
+                }
+                Err(err) => {
+                    self.as_mut().set_error_message(&err);
+                }
             }
-            Err(err) => {
-                self.as_mut().set_error_message(&err);
-            }
+            return;
         }
+
+        self.as_mut()
+            .set_busy(true, "Resolving network allowlist...");
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let res = prepare_set_network_mode(
+                &name_s,
+                &mode_s,
+                &allow_s,
+                egress_logging,
+                &SystemResolver,
+            );
+            let _ = qt_thread.queue(move |mut backend| {
+                backend.as_mut().rust_mut().busy = false;
+                backend.as_mut().busy_changed();
+                match res {
+                    Ok(plan) => {
+                        backend.as_mut().run_shell_task(
+                            &plan.description,
+                            &plan.script,
+                            "",
+                            &name_s,
+                        );
+                    }
+                    Err(err) => {
+                        backend.as_mut().set_busy(false, "");
+                        backend.as_mut().set_error_message(&err);
+                    }
+                }
+            });
+        });
     }
 
     pub fn refresh_network_allowlist(self: Pin<&mut Self>, name: &QString) {
@@ -70,34 +113,79 @@ impl qobject::Backend {
             };
             (env.network_mode.clone(), env.network_allowlist.clone())
         };
-        let resolver = SystemResolver;
-        match prepare_set_egress_recording(&name_s, &net_mode, &net_allowlist, enabled, &resolver) {
-            Ok(plan) => {
-                self.as_mut()
-                    .run_shell_task(&plan.description, &plan.script, "", &name_s);
+        let needs_dns = net_mode.trim().eq_ignore_ascii_case("allowlist")
+            && !extract_allowlist_hostnames(&parse_allowlist_entries(&net_allowlist)).is_empty();
+        if !needs_dns {
+            match prepare_set_egress_recording(
+                &name_s,
+                &net_mode,
+                &net_allowlist,
+                enabled,
+                &NoopResolver,
+            ) {
+                Ok(plan) => {
+                    self.as_mut()
+                        .run_shell_task(&plan.description, &plan.script, "", &name_s);
+                }
+                Err(err) => {
+                    self.as_mut().set_error_message(&err);
+                }
             }
-            Err(err) => {
-                self.as_mut().set_error_message(&err);
-            }
+            return;
         }
+
+        self.as_mut()
+            .set_busy(true, "Resolving network allowlist...");
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let res = prepare_set_egress_recording(
+                &name_s,
+                &net_mode,
+                &net_allowlist,
+                enabled,
+                &SystemResolver,
+            );
+            let _ = qt_thread.queue(move |mut backend| {
+                backend.as_mut().rust_mut().busy = false;
+                backend.as_mut().busy_changed();
+                match res {
+                    Ok(plan) => {
+                        backend.as_mut().run_shell_task(
+                            &plan.description,
+                            &plan.script,
+                            "",
+                            &name_s,
+                        );
+                    }
+                    Err(err) => {
+                        backend.as_mut().set_busy(false, "");
+                        backend.as_mut().set_error_message(&err);
+                    }
+                }
+            });
+        });
     }
 
     pub fn refresh_egress_log(mut self: Pin<&mut Self>, name: &QString) {
         let name_s = name.to_string();
-        if name_s.is_empty() {
+        if name_s.is_empty() || !self.env_exists_active(&name_s) {
             return;
         }
-        let (container_ip, host_iface) = {
-            let Some(env) = environment_by_name(&self.engine.environments, &name_s) else {
-                return;
-            };
-            (env.ipv4.clone(), env.host_interface.clone())
-        };
 
+        let switched_env = self.egress_logs_env_name.to_string() != name_s;
         {
             let mut rust = self.as_mut().rust_mut();
             rust.egress_logs_env_name = QString::from(name_s.as_str());
+            if switched_env {
+                rust.egress_logs = Default::default();
+            }
         }
+        if switched_env && !self.demo_mode {
+            self.as_mut().egress_logs_changed();
+        }
+
+        let gen = self.egress_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let gen_ref = Arc::clone(&self.egress_generation);
 
         if self.demo_mode {
             let demo_rows = serde_json::json!([
@@ -114,6 +202,13 @@ impl qobject::Backend {
             return;
         }
 
+        let (container_ip, host_iface) = {
+            let Some(env) = environment_by_name(&self.engine.environments, &name_s) else {
+                return;
+            };
+            (env.ipv4.clone(), env.host_interface.clone())
+        };
+
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let out = Command::new("journalctl")
@@ -124,7 +219,9 @@ impl qobject::Backend {
                 .unwrap_or_default();
             let entries = parse_kernel_egress_logs(&stdout_s, &container_ip, &host_iface, 100);
             let _ = qt_thread.queue(move |mut qobject| {
-                if qobject.egress_logs_env_name.to_string() != name_s {
+                if gen_ref.load(Ordering::SeqCst) != gen
+                    || qobject.egress_logs_env_name.to_string() != name_s
+                {
                     return;
                 }
                 let q_rows = serialize_to_qvariant_list(&entries);

@@ -18,6 +18,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.secrets_error = err;
+            rust.rebuild_secrets_list_cache();
         }
         self.as_mut().secrets_changed();
     }
@@ -37,6 +38,9 @@ impl qobject::Backend {
 
     fn assigned_secrets_for(&self, env_name: &str) -> Vec<String> {
         let trimmed = env_name.trim();
+        if self.demo_mode {
+            return self.demo_env_secret_names(trimmed);
+        }
         if let Some(env) = environment_by_name(&self.engine.environments, trimmed) {
             return env.secret_names.clone();
         }
@@ -118,7 +122,27 @@ impl qobject::Backend {
         visible: bool,
     ) -> QString {
         let name_s = name.to_string();
+        let clean = name_s.trim().to_string();
         let demo = self.demo_mode;
+        if !visible && !demo {
+            let referenced = self
+                .engine
+                .environments
+                .iter()
+                .any(|env| env.secret_names.iter().any(|s| s == &clean));
+            if referenced
+                && (*self.busy()
+                    || aibox_core::task::lock::is_task_lock_active(
+                        std::path::Path::new(&self.engine.paths.state_dir),
+                        false,
+                    )
+                    .0)
+            {
+                return QString::from(
+                    "Wait for the current operation to finish before hiding a secret from environments.",
+                );
+            }
+        }
         let res = {
             let mut rust = self.as_mut().rust_mut();
             rust.engine
@@ -130,32 +154,49 @@ impl qobject::Backend {
         }
 
         if !visible {
-            let clean = name_s.trim().to_string();
-            let mut updates: Vec<(String, Vec<String>)> = Vec::new();
-            let mut changed_envs = false;
-            {
-                let mut rust = self.as_mut().rust_mut();
-                for env in &mut rust.engine.environments {
-                    if env.secret_names.iter().any(|s| s == &clean) {
-                        env.secret_names.retain(|s| s != &clean);
-                        changed_envs = true;
-                        if !demo {
+            if demo {
+                let mut changed_demo = false;
+                {
+                    let mut rust = self.as_mut().rust_mut();
+                    for env in &mut rust.demo_environments {
+                        if let Some(arr) = env.get_mut("secretNames").and_then(|v| v.as_array_mut())
+                        {
+                            let before = arr.len();
+                            arr.retain(|v| v.as_str() != Some(clean.as_str()));
+                            if arr.len() != before {
+                                changed_demo = true;
+                            }
+                        }
+                    }
+                }
+                if changed_demo {
+                    self.as_mut().sync_demo_environments();
+                }
+            } else {
+                let mut updates: Vec<(String, Vec<String>)> = Vec::new();
+                let mut changed_envs = false;
+                {
+                    let mut rust = self.as_mut().rust_mut();
+                    for env in &mut rust.engine.environments {
+                        if env.secret_names.iter().any(|s| s == &clean) {
+                            env.secret_names.retain(|s| s != &clean);
+                            changed_envs = true;
                             updates.push((env.name.clone(), env.secret_names.clone()));
                         }
                     }
                 }
-            }
-            if changed_envs {
-                self.as_mut().sync_environments_from_engine();
-            }
-            if !demo && !updates.is_empty() {
-                let script = build_clear_global_secret_script(&updates);
-                self.as_mut().run_shell_task(
-                    &format!("Removing secret '{clean}' from environments"),
-                    &script,
-                    "",
-                    "",
-                );
+                if changed_envs {
+                    self.as_mut().sync_environments_from_engine();
+                }
+                if !updates.is_empty() {
+                    let script = build_clear_global_secret_script(&updates);
+                    self.as_mut().run_shell_task(
+                        &format!("Removing secret '{clean}' from environments"),
+                        &script,
+                        "",
+                        "",
+                    );
+                }
             }
         }
 

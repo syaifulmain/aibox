@@ -157,8 +157,10 @@ int aibox_test_backend_count(void *ptr) {
 int aibox_test_backend_primary_action_with_spy(void *ptr) {
     auto *b = static_cast<Backend *>(ptr);
     int fired = 0;
-    QObject::connect(b, &Backend::countChanged, b, [&fired]() { ++fired; });
+    const QMetaObject::Connection conn =
+        QObject::connect(b, &Backend::countChanged, b, [&fired]() { ++fired; });
     b->primaryAction();
+    QObject::disconnect(conn);
     return fired;
 }
 

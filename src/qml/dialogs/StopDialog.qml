@@ -7,6 +7,7 @@ import "../components"
 ModalDialog {
     id: stopDialogRoot
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     open: app.stopConfirmVisible
     zOrder: 56
     size: "sm"
@@ -14,7 +15,7 @@ ModalDialog {
     onDismissed: app.stopConfirmVisible = false
 
     ModalHeader {
-        title: qsTr("Stop Environment '%1'?").arg(backend.selectedEnvironment.name || "")
+        title: qsTr("Stop Environment '%1'?").arg(stopDialogRoot.env.name || "")
         onClosed: app.stopConfirmVisible = false
     }
 
@@ -32,7 +33,7 @@ ModalDialog {
             anchors.margins: Style.padCard
             wrapMode: Text.WordWrap
             lineHeight: 1.35
-            text: qsTr("This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.").arg(backend.selectedEnvironment.name || "")
+            text: qsTr("This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.").arg(stopDialogRoot.env.name || "")
             color: theme.dangerText
             font.family: Style.fontSans
             font.pixelSize: Style.fontBody
@@ -43,9 +44,10 @@ ModalDialog {
         ActionButton {
             label: qsTr("Stop Environment")
             variant: "danger"
-            disabled: backend.busy
+            disabled: backend.busy || !(stopDialogRoot.env.running || false)
             onClicked: {
-                backend.toggleStartStop(backend.selectedEnvironment.name || "")
+                if (stopDialogRoot.env.running)
+                    backend.toggleStartStop(stopDialogRoot.env.name || "")
                 app.stopConfirmVisible = false
             }
         }

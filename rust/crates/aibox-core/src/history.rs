@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use serde_json::{json, Value};
 
-use crate::secrets::redact::{redact_secrets, redact_secrets_bytes};
+use crate::secrets::redact::SecretRedactor;
 use crate::util::bytes::truncate_log_tail;
 use crate::util::json::to_json_compact;
 use crate::util::paths::atomic_write;
@@ -209,14 +209,25 @@ fn parse_entry_datetime(entry: &Value) -> Option<DateTime<Local>> {
         }
     }
     let id = entry_id(entry);
-    if id.len() >= 15 {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(&id[..15], "%Y%m%d-%H%M%S") {
+    if let Some(prefix) = id.get(..15) {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(prefix, "%Y%m%d-%H%M%S") {
             if let Some(dt) = Local.from_local_datetime(&naive).earliest() {
                 return Some(dt);
             }
         }
     }
     None
+}
+
+fn safe_history_log_file(dir_path: &str, id: &str) -> Option<PathBuf> {
+    if id.is_empty() || id.contains('/') || id.contains('\\') || id == "." || id == ".." {
+        return None;
+    }
+    let file_name = Path::new(id).file_name()?.to_str()?;
+    if file_name != id {
+        return None;
+    }
+    Some(Path::new(dir_path).join(format!("{file_name}.log")))
 }
 
 fn remove_pruned_entries(
@@ -229,19 +240,21 @@ fn remove_pruned_entries(
     }
 
     let mut affected_jsonl: BTreeMap<PathBuf, Vec<Value>> = BTreeMap::new();
+    let mut dirty_jsonl: HashSet<PathBuf> = HashSet::new();
     let mut kept = Vec::with_capacity(entries.len().saturating_sub(remove_indices.len()));
 
     for (idx, item) in entries.into_iter().enumerate() {
         if remove_indices.contains(&idx) {
             let id = entry_id(&item.value);
-            if !id.is_empty() {
-                let _ = fs::remove_file(Path::new(dir_path).join(format!("{id}.log")));
+            if let Some(log_path) = safe_history_log_file(dir_path, id) {
+                let _ = fs::remove_file(log_path);
             }
             match item.source {
                 EntrySource::LegacyJson(path) => {
                     let _ = fs::remove_file(path);
                 }
                 EntrySource::Jsonl(path) => {
+                    dirty_jsonl.insert(path.clone());
                     affected_jsonl.entry(path).or_default();
                 }
             }
@@ -256,8 +269,11 @@ fn remove_pruned_entries(
         }
     }
 
-    // Rewrite only the monthly JSONL files that had entries removed.
+    // Rewrite only the monthly JSONL files that actually had entries removed.
     for (path, mut remaining) in affected_jsonl {
+        if !dirty_jsonl.contains(&path) {
+            continue;
+        }
         if remaining.is_empty() {
             let _ = fs::remove_file(&path);
             continue;
@@ -365,8 +381,9 @@ pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Ve
     let id = format!("{}-{seq:03}", now.format("%Y%m%d-%H%M%S-%3f"));
     let log_name = format!("{id}.log");
 
-    let safe_description = redact_secrets(params.description, params.secret_values);
-    let safe_log_bytes = redact_secrets_bytes(params.log_bytes, params.secret_values);
+    let redactor = SecretRedactor::new(params.secret_values);
+    let safe_description = redactor.redact_str(params.description);
+    let safe_log_bytes = redactor.redact_bytes(params.log_bytes);
     let truncated_log = truncate_log_tail(&safe_log_bytes, DEFAULT_LOG_TAIL_BYTES);
 
     let log_path = Path::new(&dir_path).join(&log_name);
@@ -386,7 +403,8 @@ pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Ve
     entry.insert("exitCode".to_string(), json!(params.exit_code));
     entry.insert("logFile".to_string(), json!(log_name));
     if !params.reason.is_empty() {
-        entry.insert("reason".to_string(), json!(params.reason));
+        let safe_reason = redactor.redact_str(params.reason);
+        entry.insert("reason".to_string(), json!(safe_reason));
     }
 
     if let Ok(compact) = to_json_compact(&Value::Object(entry)) {

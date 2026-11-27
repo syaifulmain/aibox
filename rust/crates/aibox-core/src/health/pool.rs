@@ -405,15 +405,22 @@ pub fn pool_warning_for_quota_edit(
 
 /// Generates the shell script to grow an Incus storage pool.
 pub fn resize_storage_pool_script(pool_name: &str, size_spec: &str) -> String {
+    let trimmed_size = size_spec.trim();
     let q_pool = shell_quote(pool_name);
-    let q_size = shell_quote(size_spec.trim());
+    let q_size = shell_quote(trimmed_size);
+    let q_stage20 = shell_quote(&format!(
+        "@@STAGE:20:Growing storage pool '{pool_name}' to '{trimmed_size}'..."
+    ));
+    let q_stage100 = shell_quote(&format!(
+        "@@STAGE:100:Storage pool grown to '{trimmed_size}'."
+    ));
     format!(
         "set -euo pipefail\n\
-         echo '@@STAGE:20:Growing storage pool {q_pool} to {q_size}...'\n\
+         echo {q_stage20}\n\
          incus storage set {q_pool} size={q_size}\n\
          echo '@@STAGE:80:Verifying new pool capacity...'\n\
          incus storage info {q_pool} --bytes 2>/dev/null || incus storage info {q_pool}\n\
-         echo '@@STAGE:100:Storage pool grown to {q_size}.'"
+         echo {q_stage100}"
     )
 }
 

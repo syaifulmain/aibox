@@ -9,6 +9,7 @@ Item {
     id: root
     property QtObject app: null
     readonly property var env: backend.selectedEnvironment
+    readonly property int coreCount: (root.env.cpuCorePercents || []).length
     property string cpuExpandedEnv: ""
     readonly property bool cpuExpanded: cpuExpandedEnv.length > 0
                                          && cpuExpandedEnv === (root.env.name || "")
@@ -25,11 +26,13 @@ Item {
             width: parent ? parent.width : 0
 
             Repeater {
-                model: root.env.cpuCorePercents || []
+                model: root.coreCount
 
                 delegate: ColumnLayout {
                     required property int index
-                    required property var modelData
+                    readonly property real pct: (root.env.cpuCorePercents && index < root.env.cpuCorePercents.length)
+                                                ? root.env.cpuCorePercents[index]
+                                                : 0
 
                     Layout.fillWidth: true
                     spacing: Style.gapXs
@@ -47,8 +50,8 @@ Item {
                         }
 
                         Text {
-                            text: modelData + "%"
-                            color: modelData >= 85 ? theme.dangerText : theme.textPrimary
+                            text: pct + "%"
+                            color: pct >= 85 ? theme.dangerText : theme.textPrimary
                             font.family: Style.fontMono
                             font.pixelSize: Style.fontCaption
                             font.weight: Font.Medium
@@ -60,10 +63,10 @@ Item {
                     MeterBar {
                         Layout.fillWidth: true
                         implicitHeight: Style.gapSm
-                        value: modelData
+                        value: pct
                         minFillWidth: Style.gapXs
                         trackColor: theme.surfaceTrack
-                        fillColor: modelData >= 85 ? theme.danger : theme.accent
+                        fillColor: pct >= 85 ? theme.danger : theme.accent
                     }
                 }
             }

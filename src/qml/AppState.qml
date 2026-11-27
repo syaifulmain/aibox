@@ -43,6 +43,10 @@ ApplicationWindow {
     property bool stopConfirmVisible: false
     property bool deleteWorkspaceOnWipe: false
     property bool settingsVisible: false
+    onSettingsVisibleChanged: {
+        if (!settingsVisible)
+            osEditorVisible = false
+    }
     property int settingsSection: 0
     property string configNotice: ""
     property bool configNoticeError: false
@@ -73,6 +77,7 @@ ApplicationWindow {
     // Form state for Clone dialog and Network allowlist editor
     property string cloneSourceName: ""
     property string cloneNewName: ""
+    property string networkDraftEnvName: ""
     property string netAllowlistDraft: ""
     property bool netAllowlistEditing: false
     property var diskChoiceDraft: []
@@ -342,7 +347,11 @@ ApplicationWindow {
 
     function openBackupsDialog() {
         win.backupError = ""
+        win.importBackupFile = ""
+        win.importWsFile = ""
+        win.importNewName = ""
         backend.refreshBackups()
+        backend.refreshExportSpace(backend.selectedEnvironment.name || "", win.backupIncludeWorkspace)
         win.backupsVisible = true
     }
 
@@ -411,6 +420,7 @@ ApplicationWindow {
 
     function syncSelectedNetworkDraft() {
         const env = backend.selectedEnvironment
+        win.networkDraftEnvName = env.name || ""
         win.netAllowlistDraft = env.networkAllowlist || ""
         win.netAllowlistEditing = (env.networkMode === "allowlist")
     }

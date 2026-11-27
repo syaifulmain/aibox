@@ -5,6 +5,7 @@ Item {
     id: shortcutMap
     property QtObject app: null
     property Item mainContent: null
+    readonly property bool selectedIsTemplate: backend.selectedEnvironment.isTemplate || false
 
     Shortcut {
         sequence: "?"
@@ -102,27 +103,19 @@ Item {
     Shortcut {
         sequence: "V"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0
         onActivated: shortcutMap.app.openChangeReviewDialog("")
     }
     Shortcut {
         sequence: "E"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: shortcutMap.app.openEditQuotasDialog()
     }
     Shortcut {
         sequence: "3"
         context: Qt.ApplicationShortcut
-        enabled: !backend.firstRun && !backend.busy
-                 && !shortcutMap.app.toolsVisible && !shortcutMap.app.envActionsVisible
-                 && !shortcutMap.app.createVisible && !shortcutMap.app.cloneVisible
-                 && !shortcutMap.app.wipeVisible && !shortcutMap.app.restoreDialogVisible
-                 && !shortcutMap.app.changeReviewVisible && !shortcutMap.app.secretsVisible
-                 && !shortcutMap.app.staleReportVisible && !shortcutMap.app.helpVisible
-                 && !shortcutMap.app.historyVisible && !shortcutMap.app.egressVisible
-                 && !shortcutMap.app.portsVisible && !shortcutMap.app.mountsVisible
-                 && !shortcutMap.app.editQuotasVisible && !shortcutMap.app.backupsVisible
+        enabled: !backend.firstRun && !backend.busy && (!shortcutMap.app.anyModalOpen || shortcutMap.app.settingsVisible)
         onActivated: {
             if (shortcutMap.app.settingsVisible)
                 shortcutMap.app.settingsVisible = false
@@ -169,55 +162,55 @@ Item {
     Shortcut {
         sequence: "Return"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: backend.enterEnvironment(backend.selectedEnvironment.name || "")
     }
     Shortcut {
         sequence: "F"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0
         onActivated: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
     }
     Shortcut {
         sequence: "S"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: shortcutMap.app.requestStartStop()
     }
     Shortcut {
         sequence: "P"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: backend.createSnapshot(backend.selectedEnvironment.name || "", shortcutMap.mainContent.snapshotNameText)
     }
     Shortcut {
         sequence: "C"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0 && !(backend.selectedEnvironment.isTemplate || false)
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0 && !shortcutMap.selectedIsTemplate
         onActivated: backend.copyAiCommand(backend.selectedEnvironment.name || "")
     }
     Shortcut {
         sequence: "I"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0 && !(backend.selectedEnvironment.isTemplate || false)
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0 && !shortcutMap.selectedIsTemplate
         onActivated: backend.pasteImageToWorkspace(backend.selectedEnvironment.name || "")
     }
     Shortcut {
         sequence: "D"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: shortcutMap.app.openCloneDialog(backend.selectedEnvironment.name || "")
     }
     Shortcut {
         sequence: "T"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: backend.setEnvironmentTemplate(backend.selectedEnvironment.name || "", !(backend.selectedEnvironment.isTemplate || false))
     }
     Shortcut {
         sequence: "K"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0 && !(backend.selectedEnvironment.isTemplate || false)
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0 && !shortcutMap.selectedIsTemplate
         onActivated: {
             const name = backend.selectedEnvironment.name || ""
             const nextMode = (backend.selectedEnvironment.networkMode === "offline") ? "online" : "offline"
@@ -227,7 +220,7 @@ Item {
     Shortcut {
         sequence: "Delete"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.count > 0
         onActivated: {
             shortcutMap.app.deleteWorkspaceOnWipe = false
             shortcutMap.app.wipeVisible = true
@@ -236,13 +229,13 @@ Item {
     Shortcut {
         sequence: "Up"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0
         onActivated: backend.selectedIndex = Math.max(0, backend.selectedIndex - 1)
     }
     Shortcut {
         sequence: "Down"
         context: Qt.ApplicationShortcut
-        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.environments.length > 0
-        onActivated: backend.selectedIndex = Math.min(backend.environments.length - 1, backend.selectedIndex + 1)
+        enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && backend.count > 0
+        onActivated: backend.selectedIndex = Math.min(backend.count - 1, backend.selectedIndex + 1)
     }
 }

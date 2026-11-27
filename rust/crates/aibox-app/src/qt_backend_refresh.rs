@@ -1,9 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cxx_qt::{CxxQtType, Threading};
@@ -15,7 +14,6 @@ use aibox_core::engine::{Engine, RawSnapshot, RefreshContext, RefreshDelta, Reso
 use aibox_core::health::pool::{sum_env_root_disk_quotas, StoragePoolInfo};
 use aibox_core::incus::catalog::OsCatalogEntry;
 use aibox_core::incus::list::{templates as extract_templates, CounterState, Environment};
-use aibox_core::incus::monitor::parse_lifecycle_event;
 use aibox_core::process::SystemRunner;
 use aibox_core::session::scan_recorded_sessions;
 use aibox_core::snapshot::{compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes};
@@ -32,156 +30,6 @@ use crate::qt_convert::{
 type QMapQStringQVariant = QMap<QMapPair_QString_QVariant>;
 
 pub(crate) const POOL_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ScheduledJobKind {
-    Refresh { include_catalog: bool },
-    ClearStatus,
-}
-
-struct ScheduledEntry {
-    run_at: Instant,
-    job: ScheduledJobKind,
-}
-
-/// Single background timer/debounce worker replacing ad-hoc `thread::spawn` + `sleep` calls.
-#[derive(Default)]
-pub(crate) struct SchedulerState {
-    queue: Mutex<Vec<ScheduledEntry>>,
-    cv: Condvar,
-    started: AtomicBool,
-}
-
-impl SchedulerState {
-    pub(crate) fn notify_all(&self) {
-        self.cv.notify_all();
-    }
-
-    pub(crate) fn schedule(
-        self: &Arc<Self>,
-        qt_thread: cxx_qt::CxxQtThread<qobject::Backend>,
-        stop_flag: Arc<AtomicBool>,
-        delay: Duration,
-        job: ScheduledJobKind,
-    ) {
-        let run_at = Instant::now() + delay;
-        if let Ok(mut guard) = self.queue.lock() {
-            match job {
-                ScheduledJobKind::Refresh { include_catalog } => {
-                    let mut merged_catalog = include_catalog;
-                    guard.retain(|entry| {
-                        if let ScheduledJobKind::Refresh {
-                            include_catalog: prev,
-                        } = entry.job
-                        {
-                            merged_catalog |= prev;
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    guard.push(ScheduledEntry {
-                        run_at,
-                        job: ScheduledJobKind::Refresh {
-                            include_catalog: merged_catalog,
-                        },
-                    });
-                }
-                ScheduledJobKind::ClearStatus => {
-                    guard.retain(|entry| !matches!(entry.job, ScheduledJobKind::ClearStatus));
-                    guard.push(ScheduledEntry { run_at, job });
-                }
-            }
-            self.cv.notify_all();
-        }
-
-        if self
-            .started
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
-            let state = Arc::clone(self);
-            std::thread::spawn(move || loop {
-                if stop_flag.load(Ordering::Relaxed) {
-                    return;
-                }
-
-                let mut due: Vec<ScheduledJobKind> = Vec::new();
-                {
-                    let Ok(mut guard) = state.queue.lock() else {
-                        return;
-                    };
-                    loop {
-                        if stop_flag.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        let now = Instant::now();
-                        let next_at = guard.iter().map(|e| e.run_at).min();
-                        match next_at {
-                            None => {
-                                guard = match state.cv.wait(guard) {
-                                    Ok(g) => g,
-                                    Err(_) => return,
-                                };
-                            }
-                            Some(t) if t <= now => {
-                                let mut remaining = Vec::with_capacity(guard.len());
-                                for entry in guard.drain(..) {
-                                    if entry.run_at <= now {
-                                        due.push(entry.job);
-                                    } else {
-                                        remaining.push(entry);
-                                    }
-                                }
-                                *guard = remaining;
-                                break;
-                            }
-                            Some(t) => {
-                                let wait_dur = t.saturating_duration_since(now);
-                                let (g, _) = match state.cv.wait_timeout(guard, wait_dur) {
-                                    Ok(res) => res,
-                                    Err(_) => return,
-                                };
-                                guard = g;
-                            }
-                        }
-                    }
-                }
-
-                for job in due {
-                    match job {
-                        ScheduledJobKind::Refresh { include_catalog } => {
-                            let _ = qt_thread.queue(move |mut backend| {
-                                backend.as_mut().refresh_with_options(include_catalog, None);
-                            });
-                        }
-                        ScheduledJobKind::ClearStatus => {
-                            let _ = qt_thread.queue(|mut backend| {
-                                if !*backend.busy() {
-                                    backend.as_mut().set_status_message("");
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-        }
-    }
-}
-
-pub(crate) fn adaptive_poll_interval(
-    window_active: bool,
-    has_running_envs: bool,
-    monitor_active: bool,
-) -> Duration {
-    if !window_active || !has_running_envs {
-        Duration::from_secs(20)
-    } else if monitor_active {
-        Duration::from_secs(8)
-    } else {
-        Duration::from_secs(4)
-    }
-}
 
 pub(crate) fn should_include_pool(
     explicit: Option<bool>,
@@ -275,7 +123,9 @@ pub(crate) struct WorkerRefreshInput {
     pub(crate) prev_templates: Vec<Environment>,
     pub(crate) prev_os_catalog: Vec<OsCatalogEntry>,
     pub(crate) prev_pool_info: StoragePoolInfo,
+    pub(crate) prev_file_access: ApplyFileAccessResult,
     pub(crate) last_pool_quotas: (i64, i32),
+    pub(crate) env_config_gen: u64,
     pub(crate) ctx: RefreshContext,
 }
 
@@ -294,6 +144,8 @@ pub(crate) struct WorkerRefreshOutput {
     pub(crate) file_access: ApplyFileAccessResult,
     pub(crate) env_values: Vec<serde_json::Value>,
     pub(crate) env_values_hash: u64,
+    pub(crate) env_values_unchanged: bool,
+    pub(crate) env_config_gen: u64,
     pub(crate) pool_json: Option<serde_json::Value>,
 }
 
@@ -316,14 +168,22 @@ pub(crate) fn parse_refresh_in_worker(
     temp_engine.templates = input.prev_templates;
     temp_engine.os_catalog = input.prev_os_catalog;
     temp_engine.pool_info = input.prev_pool_info;
+    temp_engine.file_access = input.prev_file_access.clone();
 
     let delta = temp_engine
         .apply_snapshot(&snapshot, &input.ctx)
         .map_err(|e| e.to_string())?;
 
-    let env_values =
-        build_environment_json_values(&temp_engine.environments, &temp_engine.file_access);
-    let env_values_hash = hash_json_values(&env_values);
+    let env_values_unchanged =
+        !delta.list_parsed && temp_engine.file_access == input.prev_file_access;
+    let (env_values, env_values_hash) = if env_values_unchanged {
+        (Vec::new(), 0)
+    } else {
+        let vals =
+            build_environment_json_values(&temp_engine.environments, &temp_engine.file_access);
+        let h = hash_json_values(&vals);
+        (vals, h)
+    };
 
     let (pool_quotas, pool_json) = if snapshot.include_pool {
         let quotas = (delta.allocated_bytes, delta.unbounded_count);
@@ -346,7 +206,11 @@ pub(crate) fn parse_refresh_in_worker(
         (input.last_pool_quotas, None)
     };
 
-    let environments: Arc<[Environment]> = Arc::from(temp_engine.environments);
+    let environments: Arc<[Environment]> = if delta.list_parsed {
+        Arc::from(temp_engine.environments)
+    } else {
+        input.prev_environments
+    };
 
     Ok(WorkerRefreshOutput {
         snapshot_list_hash,
@@ -363,6 +227,8 @@ pub(crate) fn parse_refresh_in_worker(
         file_access: temp_engine.file_access,
         env_values,
         env_values_hash,
+        env_values_unchanged,
+        env_config_gen: input.env_config_gen,
         pool_json,
     })
 }
@@ -412,6 +278,54 @@ impl BackendRust {
             .collect();
         self.templates_cache = serialize_to_qvariant_list(&tmpls);
     }
+
+    pub(crate) fn rebuild_secrets_list_cache(&mut self) {
+        let list = self.engine.secrets.secrets_list();
+        self.secrets_list_cache = serialize_to_qvariant_list(&list);
+    }
+
+    pub(crate) fn env_exists_active(&self, name: &str) -> bool {
+        if self.demo_mode {
+            self.demo_environments
+                .iter()
+                .any(|e| e.get("name").and_then(|v| v.as_str()) == Some(name))
+        } else {
+            aibox_core::incus::list::environment_by_name(&self.engine.environments, name).is_some()
+        }
+    }
+
+    pub(crate) fn demo_env_str(&self, name: &str, key: &str) -> String {
+        self.demo_environments
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|e| e.get(key))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub(crate) fn demo_env_i64(&self, name: &str, key: &str) -> i64 {
+        self.demo_environments
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|e| e.get(key))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn demo_env_secret_names(&self, name: &str) -> Vec<String> {
+        self.demo_environments
+            .iter()
+            .find(|e| e.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|e| e.get("secretNames"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(ToString::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl qobject::Backend {
@@ -419,40 +333,6 @@ impl qobject::Backend {
     /// updated whenever `selected_index`, `environments`, or `file_access` changes.
     pub fn selected_environment(&self) -> QMapQStringQVariant {
         self.selected_environment_cache.clone()
-    }
-
-    pub fn set_window_active(mut self: Pin<&mut Self>, active: bool) {
-        let was_active = self.window_active.swap(active, Ordering::Relaxed);
-        if active && !was_active {
-            self.poll_wake.1.notify_all();
-            if self.poll_started && !self.demo_mode {
-                let stale = self
-                    .last_refresh_at
-                    .map(|t| t.elapsed() >= Duration::from_secs(2))
-                    .unwrap_or(true);
-                if stale {
-                    self.as_mut().refresh_with_options(false, None);
-                }
-            }
-        }
-    }
-
-    pub(crate) fn schedule_refresh(self: Pin<&mut Self>, delay: Duration, include_catalog: bool) {
-        self.scheduler.schedule(
-            self.qt_thread(),
-            Arc::clone(&self.stop_flag),
-            delay,
-            ScheduledJobKind::Refresh { include_catalog },
-        );
-    }
-
-    pub(crate) fn schedule_status_clear(self: Pin<&mut Self>, delay: Duration) {
-        self.scheduler.schedule(
-            self.qt_thread(),
-            Arc::clone(&self.stop_flag),
-            delay,
-            ScheduledJobKind::ClearStatus,
-        );
     }
 
     pub(crate) fn sync_demo_environments(mut self: Pin<&mut Self>) {
@@ -512,175 +392,6 @@ impl qobject::Backend {
         self.as_mut().environments_changed();
         self.as_mut().count_changed();
         self.as_mut().selected_index_changed();
-    }
-
-    pub(crate) fn start_background_workers(mut self: Pin<&mut Self>) {
-        if self.poll_started {
-            return;
-        }
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.poll_started = true;
-        }
-
-        // Adaptive metric refresh poll thread (4s active+running, 8s with monitor, 20s idle/hidden)
-        let qt_thread_poll = self.qt_thread();
-        let stop_poll = Arc::clone(&self.stop_flag);
-        let monitor_active_poll = Arc::clone(&self.monitor_active);
-        let window_active_poll = Arc::clone(&self.window_active);
-        let has_running_poll = Arc::clone(&self.has_running_envs);
-        let poll_wake = Arc::clone(&self.poll_wake);
-        std::thread::spawn(move || {
-            let (lock, cv) = &*poll_wake;
-            while !stop_poll.load(Ordering::Relaxed) {
-                let interval = adaptive_poll_interval(
-                    window_active_poll.load(Ordering::Relaxed),
-                    has_running_poll.load(Ordering::Relaxed),
-                    monitor_active_poll.load(Ordering::Relaxed),
-                );
-                if let Ok(guard) = lock.lock() {
-                    let _ = cv.wait_timeout(guard, interval);
-                }
-                if stop_poll.load(Ordering::Relaxed) {
-                    return;
-                }
-                let _ = qt_thread_poll.queue(|mut backend| {
-                    if !backend.busy {
-                        backend.as_mut().refresh_with_options(false, None);
-                    }
-                });
-            }
-        });
-
-        // Instant lifecycle event stream via `incus monitor --type=lifecycle --format=json`
-        let qt_thread_mon = self.qt_thread();
-        let stop_mon = Arc::clone(&self.stop_flag);
-        let monitor_active_mon = Arc::clone(&self.monitor_active);
-        let monitor_child_slot = Arc::clone(&self.monitor_child);
-        std::thread::spawn(move || {
-            use std::io::{BufRead, BufReader};
-            use std::process::Stdio;
-
-            while !stop_mon.load(Ordering::Relaxed) {
-                let child_res = Command::new("incus")
-                    .args(["monitor", "--type=lifecycle", "--format=json"])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::null())
-                    .spawn();
-
-                let Ok(mut child) = child_res else {
-                    monitor_active_mon.store(false, Ordering::Relaxed);
-                    for _ in 0..25 {
-                        if stop_mon.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        std::thread::sleep(Duration::from_millis(200));
-                    }
-                    continue;
-                };
-
-                let stdout = child.stdout.take();
-                if let Ok(mut guard) = monitor_child_slot.lock() {
-                    *guard = Some(child);
-                }
-                monitor_active_mon.store(true, Ordering::Relaxed);
-
-                if let Some(out) = stdout {
-                    let reader = BufReader::new(out);
-                    for line in reader.lines() {
-                        if stop_mon.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        let Ok(line_str) = line else {
-                            break;
-                        };
-                        if let Some(ev) = parse_lifecycle_event(&line_str) {
-                            if ev.should_trigger_refresh() {
-                                let include_catalog = ev.invalidates_catalog();
-                                let _ = qt_thread_mon.queue(move |mut backend| {
-                                    if !backend.busy {
-                                        backend
-                                            .as_mut()
-                                            .refresh_with_options(include_catalog, None);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-
-                monitor_active_mon.store(false, Ordering::Relaxed);
-                if let Ok(mut guard) = monitor_child_slot.lock() {
-                    if let Some(mut c) = guard.take() {
-                        let _ = c.kill();
-                        let _ = c.wait();
-                    }
-                }
-
-                if stop_mon.load(Ordering::Relaxed) {
-                    return;
-                }
-                for _ in 0..25 {
-                    if stop_mon.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(200));
-                }
-            }
-        });
-
-        // inotify task watch on state_dir with 500ms active / 5s idle fallback
-        let qt_thread_watch = self.qt_thread();
-        let stop_watch = Arc::clone(&self.stop_flag);
-        let task_watch_active = Arc::clone(&self.task_watch_active);
-        let watch_state_dir = self.engine.paths.state_dir.clone();
-        std::thread::spawn(move || {
-            use notify::{RecursiveMode, Watcher};
-            use std::sync::mpsc;
-
-            let _ = std::fs::create_dir_all(&watch_state_dir);
-            let (fs_tx, fs_rx) = mpsc::channel::<()>();
-            let mut watcher =
-                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                    if let Ok(ev) = res {
-                        let touches_task = ev.paths.iter().any(|p| {
-                            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                                matches!(n, "task.log" | "task.pid" | "result.json")
-                            })
-                        });
-                        if touches_task {
-                            let _ = fs_tx.send(());
-                        }
-                    }
-                })
-                .ok();
-            if let Some(ref mut w) = watcher {
-                let _ = w.watch(
-                    std::path::Path::new(&watch_state_dir),
-                    RecursiveMode::NonRecursive,
-                );
-            }
-
-            while !stop_watch.load(Ordering::Relaxed) {
-                let timeout = if task_watch_active.load(Ordering::Relaxed) {
-                    Duration::from_millis(500)
-                } else {
-                    Duration::from_secs(5)
-                };
-                if fs_rx.recv_timeout(timeout).is_ok() {
-                    while fs_rx.try_recv().is_ok() {}
-                }
-                if stop_watch.load(Ordering::Relaxed) {
-                    return;
-                }
-                if task_watch_active.load(Ordering::Relaxed) {
-                    let _ = qt_thread_watch.queue(|mut backend| {
-                        backend.as_mut().check_background_task();
-                    });
-                }
-            }
-            drop(watcher);
-        });
     }
 
     pub fn refresh(self: Pin<&mut Self>) {
@@ -743,9 +454,19 @@ impl qobject::Backend {
                 counter_state: rust.engine.counter_state.clone(),
                 prev_environments: Arc::clone(&rust.environments_arc),
                 prev_templates: rust.engine.templates.clone(),
-                prev_os_catalog: rust.engine.os_catalog.clone(),
-                prev_pool_info: rust.engine.pool_info.clone(),
+                prev_os_catalog: if include_catalog {
+                    Vec::new()
+                } else {
+                    rust.engine.os_catalog.clone()
+                },
+                prev_pool_info: if include_pool {
+                    StoragePoolInfo::default()
+                } else {
+                    rust.engine.pool_info.clone()
+                },
+                prev_file_access: rust.engine.file_access.clone(),
                 last_pool_quotas: rust.last_pool_quotas,
+                env_config_gen: rust.env_config_gen,
                 ctx: RefreshContext {
                     elapsed_wall_ns,
                     track_cpu_and_net: true,
@@ -764,17 +485,25 @@ impl qobject::Backend {
                 Engine::fetch_snapshot_with_options(&runner, include_catalog, include_pool)
                     .map_err(|e| e.to_string())
                     .and_then(|snap| parse_refresh_in_worker(snap, worker_input));
-            in_flight.store(false, Ordering::SeqCst);
 
-            let _ = qt_thread.queue(move |mut backend| match result {
-                Ok(output) => backend.as_mut().apply_worker_refresh_output(output),
-                Err(_) => {
-                    let pending = backend.as_mut().rust_mut().pending_refresh.take();
-                    if let Some((cat, pool)) = pending {
-                        backend.as_mut().refresh_with_options(cat, pool);
+            let in_flight_cb = Arc::clone(&in_flight);
+            if qt_thread
+                .queue(move |mut backend| {
+                    in_flight_cb.store(false, Ordering::SeqCst);
+                    match result {
+                        Ok(output) => backend.as_mut().apply_worker_refresh_output(output),
+                        Err(_) => {
+                            let pending = backend.as_mut().rust_mut().pending_refresh.take();
+                            if let Some((cat, pool)) = pending {
+                                backend.as_mut().refresh_with_options(cat, pool);
+                            }
+                        }
                     }
-                }
-            });
+                })
+                .is_err()
+            {
+                in_flight.store(false, Ordering::SeqCst);
+            }
         });
     }
 
@@ -782,7 +511,7 @@ impl qobject::Backend {
         mut self: Pin<&mut Self>,
         mut output: WorkerRefreshOutput,
     ) {
-        let (envs_changed, pool_changed, catalog_changed, pending_sizes) = {
+        let (envs_changed, selected_clamped, pool_changed, catalog_changed, pending_sizes) = {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.counter_state = output.counter_state;
             if output.include_pool {
@@ -815,12 +544,32 @@ impl qobject::Backend {
             }
 
             let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
-            let mut cache_modified_env = false;
-            let mut updated_envs: Option<Vec<Environment>> = None;
+            let mut envs_changed = false;
+            let mut selected_clamped = false;
 
             if output.delta.list_parsed {
                 rust.last_list_hash = output.snapshot_list_hash;
                 let mut envs_vec = output.environments.to_vec();
+                let mut cache_modified_env = false;
+
+                if output.env_config_gen != rust.env_config_gen {
+                    let auto_snap_default = rust.engine.config.auto_snapshot_enabled;
+                    let auto_stop_default = rust.engine.config.watchdog_auto_stop;
+                    let record_default = rust.engine.config.record_sessions;
+                    for env in &mut envs_vec {
+                        if env.auto_snapshot_override.is_empty() {
+                            env.auto_snapshot_enabled = auto_snap_default;
+                        }
+                        if env.auto_stop_override.is_empty() {
+                            env.auto_stop_on_critical = auto_stop_default;
+                        }
+                        if env.record_override.is_empty() || env.record_override == "inherit" {
+                            env.record_enabled = record_default;
+                        }
+                    }
+                    cache_modified_env = true;
+                }
+
                 let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
                 let live_names: Vec<&str> = envs_vec.iter().map(|e| e.name.as_str()).collect();
                 cache.prune_deleted_envs(&live_names);
@@ -849,59 +598,78 @@ impl qobject::Backend {
                     }
                 }
                 rust.snapshot_size_cache = cache;
-                updated_envs = Some(envs_vec);
-            }
 
-            if cache_modified_env {
-                if let Some(ref envs_vec) = updated_envs {
+                if cache_modified_env {
                     output.env_values =
-                        build_environment_json_values(envs_vec, &output.file_access);
+                        build_environment_json_values(&envs_vec, &output.file_access);
+                }
+                let model_hash = if cache_modified_env {
+                    hash_json_values(&output.env_values)
+                } else {
+                    output.env_values_hash
+                };
+                let changed = model_hash != rust.last_environments_hash
+                    || (rust.environments.is_empty() && !envs_vec.is_empty());
+
+                if changed {
+                    let final_arc: Arc<[Environment]> = if cache_modified_env {
+                        Arc::from(envs_vec.clone())
+                    } else {
+                        Arc::clone(&output.environments)
+                    };
+                    let has_running = final_arc.iter().any(|e| e.running && !e.is_template);
+                    rust.has_running_envs.store(has_running, Ordering::Relaxed);
+                    rust.engine.environments = envs_vec;
+                    rust.engine.templates = output.templates;
+                    rust.engine.file_access = output.file_access;
+                    rust.environments_arc = final_arc;
+                    rust.environments = json_array_to_qvariant_list(&output.env_values);
+                    rust.count = rust.engine.environments.len() as i32;
+                    rust.last_environments_hash = model_hash;
+
+                    let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
+                    if rust.selected_index >= rust.engine.environments.len() as i32 {
+                        rust.selected_index = max_idx;
+                    }
+                    rust.rebuild_templates_cache();
+                    rust.rebuild_selected_environment_cache();
+                    envs_changed = true;
+                }
+            } else if !output.env_values_unchanged && output.file_access != rust.engine.file_access
+            {
+                // Preserve any concurrent main-thread updates (snapshot sizes, config
+                // propagations, secret removals) on `rust.engine.environments` and only
+                // re-attach the newly observed file access state.
+                rust.engine.file_access = output.file_access;
+                let env_values = build_environment_json_values(
+                    &rust.engine.environments,
+                    &rust.engine.file_access,
+                );
+                let model_hash = hash_json_values(&env_values);
+                if model_hash != rust.last_environments_hash {
+                    rust.environments = json_array_to_qvariant_list(&env_values);
+                    rust.last_environments_hash = model_hash;
+                    rust.rebuild_selected_environment_cache();
+                    envs_changed = true;
                 }
             }
 
-            let model_hash = if cache_modified_env {
-                hash_json_values(&output.env_values)
-            } else {
-                output.env_values_hash
-            };
-            // Root file access changes do not touch `incus list`, so the model
-            // hash must be compared on every refresh, not only when the list
-            // JSON changed.
-            let changed = model_hash != rust.last_environments_hash
-                || (rust.environments.is_empty() && !output.environments.is_empty());
-
-            if changed {
-                let envs_vec = updated_envs.unwrap_or_else(|| output.environments.to_vec());
-                let final_arc: Arc<[Environment]> = if cache_modified_env {
-                    Arc::from(envs_vec.clone())
-                } else {
-                    Arc::clone(&output.environments)
-                };
-                let has_running = final_arc.iter().any(|e| e.running && !e.is_template);
-                rust.has_running_envs.store(has_running, Ordering::Relaxed);
-                rust.engine.environments = envs_vec;
-                rust.engine.templates = output.templates;
-                rust.engine.file_access = output.file_access;
-                rust.environments_arc = final_arc;
-                rust.environments = json_array_to_qvariant_list(&output.env_values);
-                rust.count = rust.engine.environments.len() as i32;
-                rust.last_environments_hash = model_hash;
-
-                let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
-                if rust.selected_index >= rust.engine.environments.len() as i32 {
-                    rust.selected_index = max_idx;
-                }
-                rust.rebuild_templates_cache();
-                rust.rebuild_selected_environment_cache();
-            } else {
+            if !envs_changed {
                 let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
                 if rust.selected_index >= rust.engine.environments.len() as i32 {
                     rust.selected_index = max_idx;
                     rust.rebuild_selected_environment_cache();
+                    selected_clamped = true;
                 }
             }
 
-            (changed, pool_changed, catalog_changed, pending_sizes)
+            (
+                envs_changed,
+                selected_clamped,
+                pool_changed,
+                catalog_changed,
+                pending_sizes,
+            )
         };
 
         if pool_changed {
@@ -910,6 +678,8 @@ impl qobject::Backend {
         if envs_changed {
             self.as_mut().environments_changed();
             self.as_mut().count_changed();
+            self.as_mut().selected_index_changed();
+        } else if selected_clamped {
             self.as_mut().selected_index_changed();
         }
         self.as_mut().schedule_snapshot_size_worker(pending_sizes);
@@ -925,7 +695,7 @@ impl qobject::Backend {
     }
 
     fn schedule_snapshot_size_worker(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         pending: Vec<(String, String, bool, Vec<String>)>,
     ) {
         if pending.is_empty() || self.demo_mode {
@@ -933,9 +703,11 @@ impl qobject::Backend {
         }
         let in_flight = Arc::clone(&self.snapshot_sizes_in_flight);
         if in_flight.swap(true, Ordering::AcqRel) {
+            self.as_mut().rust_mut().pending_snapshot_sizes = true;
             return;
         }
         let qt_thread = self.qt_thread();
+        let in_flight_thread = Arc::clone(&in_flight);
         std::thread::spawn(move || {
             let mut results = Vec::with_capacity(pending.len());
             for (env_name, snap_dir, need_incus, missing_ws) in pending {
@@ -953,64 +725,98 @@ impl qobject::Backend {
                     results.push((env_name, incus_sizes, ws_sizes));
                 }
             }
-            let _ = qt_thread.queue(move |mut backend| {
-                in_flight.store(false, Ordering::Release);
-                if results.is_empty() {
-                    return;
-                }
-                let changed = {
-                    let mut rust = backend.as_mut().rust_mut();
-                    let mut any_new = false;
-                    for (env_name, incus_sizes, ws_sizes) in results {
-                        if rust
-                            .snapshot_size_cache
-                            .insert_incus(&env_name, incus_sizes)
-                        {
-                            any_new = true;
+            let in_flight_cb = Arc::clone(&in_flight_thread);
+            if qt_thread
+                .queue(move |mut backend| {
+                    in_flight_cb.store(false, Ordering::Release);
+                    let (changed, next_pending) = {
+                        let mut rust = backend.as_mut().rust_mut();
+                        let mut any_new = false;
+                        for (env_name, incus_sizes, ws_sizes) in results {
+                            if rust
+                                .snapshot_size_cache
+                                .insert_incus(&env_name, incus_sizes)
+                            {
+                                any_new = true;
+                            }
+                            if rust
+                                .snapshot_size_cache
+                                .insert_workspace(&env_name, ws_sizes)
+                            {
+                                any_new = true;
+                            }
                         }
-                        if rust
-                            .snapshot_size_cache
-                            .insert_workspace(&env_name, ws_sizes)
-                        {
-                            any_new = true;
+                        if any_new {
+                            let cache = rust.snapshot_size_cache.clone();
+                            for env in &mut rust.engine.environments {
+                                cache.apply_to_environment(env);
+                            }
+                            let state_dir = rust.engine.paths.state_dir.clone();
+                            let fa_inputs: Vec<FileAccessEnvInput> = rust
+                                .engine
+                                .environments
+                                .iter()
+                                .map(|e| FileAccessEnvInput {
+                                    name: e.name.clone(),
+                                    running: e.running,
+                                })
+                                .collect();
+                            let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
+                            let env_values = build_environment_json_values(
+                                &rust.engine.environments,
+                                &fa_result,
+                            );
+                            rust.engine.file_access = fa_result;
+                            rust.last_environments_hash = hash_json_values(&env_values);
+                            rust.environments_arc = Arc::from(rust.engine.environments.clone());
+                            rust.environments = json_array_to_qvariant_list(&env_values);
+                            rust.rebuild_templates_cache();
+                            rust.rebuild_selected_environment_cache();
                         }
+                        let mut follow_up = Vec::new();
+                        if rust.pending_snapshot_sizes {
+                            rust.pending_snapshot_sizes = false;
+                            for env in &rust.engine.environments {
+                                let missing_incus = !rust
+                                    .snapshot_size_cache
+                                    .missing_incus_snapshots(&env.name, &env.snapshots)
+                                    .is_empty();
+                                let missing_ws =
+                                    rust.snapshot_size_cache.missing_workspace_snapshots(
+                                        &env.name,
+                                        &env.workspace_snapshots,
+                                    );
+                                if missing_incus || !missing_ws.is_empty() {
+                                    follow_up.push((
+                                        env.name.clone(),
+                                        env.workspace_snapshot_dir.clone(),
+                                        missing_incus,
+                                        missing_ws,
+                                    ));
+                                }
+                            }
+                        }
+                        (any_new, follow_up)
+                    };
+                    if changed {
+                        backend.as_mut().environments_changed();
+                        backend.as_mut().selected_index_changed();
                     }
-                    if any_new {
-                        let cache = rust.snapshot_size_cache.clone();
-                        for env in &mut rust.engine.environments {
-                            cache.apply_to_environment(env);
-                        }
-                        let state_dir = rust.engine.paths.state_dir.clone();
-                        let fa_inputs: Vec<FileAccessEnvInput> = rust
-                            .engine
-                            .environments
-                            .iter()
-                            .map(|e| FileAccessEnvInput {
-                                name: e.name.clone(),
-                                running: e.running,
-                            })
-                            .collect();
-                        let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
-                        let env_values =
-                            build_environment_json_values(&rust.engine.environments, &fa_result);
-                        rust.engine.file_access = fa_result;
-                        rust.last_environments_hash = hash_json_values(&env_values);
-                        rust.environments_arc = Arc::from(rust.engine.environments.clone());
-                        rust.environments = json_array_to_qvariant_list(&env_values);
-                        rust.rebuild_templates_cache();
-                        rust.rebuild_selected_environment_cache();
+                    if !next_pending.is_empty() {
+                        backend.as_mut().schedule_snapshot_size_worker(next_pending);
                     }
-                    any_new
-                };
-                if changed {
-                    backend.as_mut().environments_changed();
-                    backend.as_mut().selected_index_changed();
-                }
-            });
+                })
+                .is_err()
+            {
+                in_flight_thread.store(false, Ordering::Release);
+            }
         });
     }
 
     pub fn refresh_backups(mut self: Pin<&mut Self>) {
+        if self.demo_mode {
+            return;
+        }
         let dir = aibox_core::backup::backups_dir_path(&self.engine.config.os_storage_path);
         let archives = scan_backup_archives(&dir);
         let q_archives = json_array_to_qvariant_list(&archives);
@@ -1022,6 +828,9 @@ impl qobject::Backend {
     }
 
     pub fn refresh_recorded_sessions(mut self: Pin<&mut Self>) {
+        if self.demo_mode {
+            return;
+        }
         let dir = aibox_core::session::sessions_dir_path(&self.engine.paths.state_dir);
         let sessions = scan_recorded_sessions(&dir);
         let q_sessions = json_array_to_qvariant_list(&sessions);
@@ -1089,26 +898,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn adaptive_poll_interval_scales_by_window_and_running_state() {
-        assert_eq!(
-            adaptive_poll_interval(true, true, false),
-            Duration::from_secs(4)
-        );
-        assert_eq!(
-            adaptive_poll_interval(true, true, true),
-            Duration::from_secs(8)
-        );
-        assert_eq!(
-            adaptive_poll_interval(false, true, false),
-            Duration::from_secs(20)
-        );
-        assert_eq!(
-            adaptive_poll_interval(true, false, false),
-            Duration::from_secs(20)
-        );
-    }
-
-    #[test]
     fn pool_cadence_respects_30s_interval_and_explicit_override() {
         let now = Instant::now();
         assert!(should_include_pool(None, None, now));
@@ -1170,7 +959,9 @@ mod tests {
             prev_templates: Vec::new(),
             prev_os_catalog: Vec::new(),
             prev_pool_info: StoragePoolInfo::default(),
+            prev_file_access: ApplyFileAccessResult::default(),
             last_pool_quotas: (0, 0),
+            env_config_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -1198,7 +989,9 @@ mod tests {
             prev_templates: out1.templates,
             prev_os_catalog: out1.os_catalog,
             prev_pool_info: out1.pool_info,
+            prev_file_access: out1.file_access.clone(),
             last_pool_quotas: out1.pool_quotas,
+            env_config_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -1254,7 +1047,9 @@ mod tests {
             prev_templates: Vec::new(),
             prev_os_catalog: Vec::new(),
             prev_pool_info: StoragePoolInfo::default(),
+            prev_file_access: ApplyFileAccessResult::default(),
             last_pool_quotas: (0, 0),
+            env_config_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -1285,7 +1080,9 @@ mod tests {
             prev_templates: out1.templates,
             prev_os_catalog: out1.os_catalog,
             prev_pool_info: out1.pool_info,
+            prev_file_access: out1.file_access.clone(),
             last_pool_quotas: out1.pool_quotas,
+            env_config_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()

@@ -117,6 +117,14 @@ pub fn check_bridge_incusbr0(
         title: "Bridge network incusbr0".to_string(),
         ..Default::default()
     };
+    if !daemon_reachable {
+        r.needs_root = true;
+        r.detail = "Managed bridge incusbr0 is missing.".to_string();
+        r.fix_command =
+            "incus network create incusbr0 ipv4.address=auto ipv4.nat=true ipv6.address=none"
+                .to_string();
+        return r;
+    }
     let check_bridge = || {
         runner
             .run("incus", &["network", "show", "incusbr0"])

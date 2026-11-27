@@ -114,13 +114,10 @@ ColumnLayout {
                     root.highContrastDraft,
                     root.reduceMotionDraft
                 )
-                if (err.length > 0) {
-                    app.configNoticeError = true
-                    app.configNotice = err
-                } else {
-                    app.configNoticeError = false
-                    app.configNotice = qsTr("Appearance preferences saved.")
-                }
+                if (err.length > 0)
+                    app.showConfigNotice(err, true)
+                else
+                    app.showConfigNotice(qsTr("Appearance preferences saved."), false)
             }
         }
     }

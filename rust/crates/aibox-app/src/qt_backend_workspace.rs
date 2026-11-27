@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::pin::Pin;
 use std::process::{Command, Stdio};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -120,38 +120,50 @@ impl qobject::Backend {
             return QString::from(msg);
         }
 
-        let mut listening = false;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if !file_access_process_alive(pid, &name_s) {
-                break;
-            }
-            if is_local_tcp_port_listening(port) {
-                listening = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(60));
-        }
-
-        if !listening {
-            let detail = read_file_access_failure_detail(&log_path);
-            stop_file_access_process(&state_dir, &name_s);
-            let msg = if detail.is_empty() {
-                format!("Root file access failed to start on 127.0.0.1:{port}.")
-            } else {
-                format!("Root file access failed to start: {detail}")
-            };
-            self.as_mut().set_error_message(&msg);
-            return QString::from(msg.as_str());
-        }
-
-        let url = file_access_url(port);
-        self.as_mut().sync_environments_from_engine();
-        self.as_mut().set_error_message("");
         self.as_mut()
-            .set_status_message(&format!("Root file access enabled: {url}"));
-        self.as_mut()
-            .schedule_status_clear(Duration::from_millis(3000));
+            .set_status_message(&format!("Starting root file access on 127.0.0.1:{port}..."));
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let mut listening = false;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                if !file_access_process_alive(pid, &name_s) {
+                    break;
+                }
+                if is_local_tcp_port_listening(port) {
+                    listening = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(60));
+            }
+
+            if !listening {
+                let detail = read_file_access_failure_detail(&log_path);
+                stop_file_access_process(&state_dir, &name_s);
+                let msg = if detail.is_empty() {
+                    format!("Root file access failed to start on 127.0.0.1:{port}.")
+                } else {
+                    format!("Root file access failed to start: {detail}")
+                };
+                let _ = qt_thread.queue(move |mut backend| {
+                    backend.as_mut().set_status_message("");
+                    backend.as_mut().set_error_message(&msg);
+                });
+                return;
+            }
+
+            let url = file_access_url(port);
+            let _ = qt_thread.queue(move |mut backend| {
+                backend.as_mut().sync_environments_from_engine();
+                backend.as_mut().set_error_message("");
+                backend
+                    .as_mut()
+                    .set_status_message(&format!("Root file access enabled: {url}"));
+                backend
+                    .as_mut()
+                    .schedule_status_clear(Duration::from_millis(3000));
+            });
+        });
         QString::default()
     }
 
@@ -358,6 +370,11 @@ impl qobject::Backend {
             return;
         }
 
+        // Invalidate any in-flight diff or file-diff workers before early-return paths.
+        let gen = self.diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let gen_ref = self.diff_generation.clone();
+        self.file_diff_generation.fetch_add(1, Ordering::SeqCst);
+
         {
             let mut rust = self.as_mut().rust_mut();
             rust.selected_diff_text = QString::default();
@@ -423,9 +440,10 @@ impl qobject::Backend {
 
         let excludes = self.engine.config.diff_excludes.clone();
         let ws_mtime = workspace_root_mtime_nanos(&ws_path);
+        let snap_mtime = workspace_root_mtime_nanos(&snap_path);
         if let Some(cached) = self
             .diff_cache
-            .get(&name_s, &snap_s, ws_mtime, &excludes)
+            .get(&name_s, &snap_s, ws_mtime, snap_mtime, &excludes)
             .cloned()
         {
             let q_entries = serialize_to_qvariant_list(&cached.entries);
@@ -440,9 +458,6 @@ impl qobject::Backend {
             return;
         }
 
-        let gen = self.diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let gen_ref = self.diff_generation.clone();
-        self.file_diff_generation.fetch_add(1, Ordering::SeqCst);
         let args = build_workspace_diff_args(&snap_path, &ws_path, &excludes);
 
         let initial_summary = serde_json::json!({
@@ -540,6 +555,7 @@ impl qobject::Backend {
             let mut timed_out = false;
             let mut pending_entries = 0_usize;
             let mut last_emit = Instant::now();
+            let partial_seq = Arc::new(AtomicU64::new(0));
 
             loop {
                 if gen_ref.load(Ordering::SeqCst) != gen {
@@ -571,19 +587,31 @@ impl qobject::Backend {
                     }
                 }
 
-                if pending_entries >= 50
-                    || (pending_entries > 0 && last_emit.elapsed() >= Duration::from_millis(120))
-                {
+                if pending_entries > 0 && last_emit.elapsed() >= Duration::from_millis(120) {
                     pending_entries = 0;
                     last_emit = Instant::now();
                     let partial = parser.snapshot_result(&snap_s);
+                    let entries_json = match serde_json::to_value(&partial.entries) {
+                        Ok(serde_json::Value::Array(arr)) => arr,
+                        _ => Vec::new(),
+                    };
+                    let summary_json = serde_json::to_value(&partial.summary).ok();
+                    let seq = partial_seq.fetch_add(1, Ordering::SeqCst) + 1;
+                    let seq_ref = Arc::clone(&partial_seq);
                     let gen_partial = gen_ref.clone();
                     let _ = qt_thread.queue(move |mut qobject| {
-                        if gen_partial.load(Ordering::SeqCst) != gen {
+                        if gen_partial.load(Ordering::SeqCst) != gen
+                            || seq_ref.load(Ordering::SeqCst) != seq
+                        {
                             return;
                         }
-                        let q_entries = serialize_to_qvariant_list(&partial.entries);
-                        let q_summary = serialize_to_qvariant_map(&partial.summary);
+                        let q_entries = json_array_to_qvariant_list(&entries_json);
+                        let q_summary = match summary_json {
+                            Some(serde_json::Value::Object(ref map)) => {
+                                crate::qt_convert::json_object_to_qvariant_map(map)
+                            }
+                            _ => Default::default(),
+                        };
                         {
                             let mut rust = qobject.as_mut().rust_mut();
                             rust.diff_loading = true;
@@ -599,6 +627,7 @@ impl qobject::Backend {
                 }
             }
 
+            partial_seq.fetch_add(1, Ordering::SeqCst);
             let status = child.wait();
             let _ = stdout_handle.join();
             let stderr_text = stderr_handle.join().unwrap_or_default();
@@ -630,16 +659,26 @@ impl qobject::Backend {
             }
 
             let res = parser.snapshot_result(&snap_s);
+            let entries_json = match serde_json::to_value(&res.entries) {
+                Ok(serde_json::Value::Array(arr)) => arr,
+                _ => Vec::new(),
+            };
+            let summary_json = serde_json::to_value(&res.summary).ok();
             let _ = qt_thread.queue(move |mut qobject| {
                 if gen_ref.load(Ordering::SeqCst) != gen {
                     return;
                 }
-                let q_entries = serialize_to_qvariant_list(&res.entries);
-                let q_summary = serialize_to_qvariant_map(&res.summary);
+                let q_entries = json_array_to_qvariant_list(&entries_json);
+                let q_summary = match summary_json {
+                    Some(serde_json::Value::Object(ref map)) => {
+                        crate::qt_convert::json_object_to_qvariant_map(map)
+                    }
+                    _ => Default::default(),
+                };
                 {
                     let mut rust = qobject.as_mut().rust_mut();
                     rust.diff_cache
-                        .insert(&name_s, &snap_s, ws_mtime, excludes, res);
+                        .insert(&name_s, &snap_s, ws_mtime, snap_mtime, excludes, res);
                     rust.diff_loading = false;
                     rust.diff_entries = q_entries;
                     rust.diff_summary = q_summary;
@@ -660,6 +699,7 @@ impl qobject::Backend {
         let snap_s = snapshot_name.to_string();
         let rel_s = relative_path.to_string();
         let status_s = status.to_string();
+        let file_gen = self.file_diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
         if name_s.is_empty() || snap_s.is_empty() || !is_safe_relative_path(&rel_s) {
             {
@@ -703,7 +743,6 @@ impl qobject::Backend {
             }
             FileDiffPrep::RunDiff { args } => args,
         };
-        let file_gen = self.file_diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let file_gen_ref = Arc::clone(&self.file_diff_generation);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {

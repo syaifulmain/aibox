@@ -100,8 +100,8 @@ fn enrich_added_entry(ws_path: &str, row: &mut DiffEntry) {
         if let Ok(sym_meta) = fs::symlink_metadata(p) {
             if sym_meta.file_type().is_symlink() {
                 row.entry_type = "symlink".to_string();
-            } else if let Ok(meta) = fs::metadata(p) {
-                let sz = meta.len() as i64;
+            } else if sym_meta.file_type().is_file() {
+                let sz = sym_meta.len() as i64;
                 row.size_bytes = sz;
                 row.size_text = format_bytes(sz);
             }
@@ -275,7 +275,7 @@ pub fn process_workspace_diff_output(
     parser.snapshot_result(snapshot_name)
 }
 
-/// Returns the modification timestamp of the workspace root directory in nanoseconds since epoch.
+/// Returns the modification timestamp of `path` in nanoseconds since epoch.
 pub fn workspace_root_mtime_nanos(ws_path: &str) -> Option<u128> {
     let meta = fs::metadata(ws_path).ok()?;
     let modified = meta.modified().ok()?;
@@ -285,15 +285,20 @@ pub fn workspace_root_mtime_nanos(ws_path: &str) -> Option<u128> {
         .map(|d| d.as_nanos())
 }
 
+const DIFF_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone)]
 struct CachedDiffEntry {
     ws_mtime_nanos: u128,
+    snap_mtime_nanos: u128,
     excludes: Vec<String>,
+    cached_at: std::time::Instant,
     result: WorkspaceDiffResult,
 }
 
 /// Caches workspace diff results keyed by `(env_name, snapshot_name)` and validated
-/// against workspace root mtime and exclude patterns.
+/// against workspace root mtime, snapshot dir mtime, excludes, and a short TTL so
+/// nested subdirectory edits are never hidden indefinitely.
 #[derive(Debug, Default)]
 pub struct WorkspaceDiffCache {
     entries: HashMap<(String, String), CachedDiffEntry>,
@@ -305,12 +310,18 @@ impl WorkspaceDiffCache {
         env_name: &str,
         snapshot_name: &str,
         ws_mtime_nanos: Option<u128>,
+        snap_mtime_nanos: Option<u128>,
         excludes: &[String],
     ) -> Option<&WorkspaceDiffResult> {
-        let mtime = ws_mtime_nanos?;
+        let ws_mtime = ws_mtime_nanos?;
+        let snap_mtime = snap_mtime_nanos?;
         let key = (env_name.to_string(), snapshot_name.to_string());
         let cached = self.entries.get(&key)?;
-        if cached.ws_mtime_nanos == mtime && cached.excludes == excludes {
+        if cached.ws_mtime_nanos == ws_mtime
+            && cached.snap_mtime_nanos == snap_mtime
+            && cached.excludes == excludes
+            && cached.cached_at.elapsed() <= DIFF_CACHE_TTL
+        {
             Some(&cached.result)
         } else {
             None
@@ -322,10 +333,11 @@ impl WorkspaceDiffCache {
         env_name: &str,
         snapshot_name: &str,
         ws_mtime_nanos: Option<u128>,
+        snap_mtime_nanos: Option<u128>,
         excludes: Vec<String>,
         result: WorkspaceDiffResult,
     ) {
-        let Some(mtime) = ws_mtime_nanos else {
+        let (Some(ws_mtime), Some(snap_mtime)) = (ws_mtime_nanos, snap_mtime_nanos) else {
             return;
         };
         if !result.summary.error.is_empty() {
@@ -334,8 +346,10 @@ impl WorkspaceDiffCache {
         self.entries.insert(
             (env_name.to_string(), snapshot_name.to_string()),
             CachedDiffEntry {
-                ws_mtime_nanos: mtime,
+                ws_mtime_nanos: ws_mtime,
+                snap_mtime_nanos: snap_mtime,
                 excludes,
+                cached_at: std::time::Instant::now(),
                 result,
             },
         );
@@ -490,17 +504,33 @@ cLc........ 8 changed_link\n";
             entries: vec![],
         };
 
-        cache.insert("box1", "s1", Some(1000), excludes.clone(), res.clone());
-        assert!(cache.get("box1", "s1", Some(1000), &excludes).is_some());
+        cache.insert(
+            "box1",
+            "s1",
+            Some(1000),
+            Some(5000),
+            excludes.clone(),
+            res.clone(),
+        );
+        assert!(cache
+            .get("box1", "s1", Some(1000), Some(5000), &excludes)
+            .is_some());
         // Mtime change misses
-        assert!(cache.get("box1", "s1", Some(2000), &excludes).is_none());
+        assert!(cache
+            .get("box1", "s1", Some(2000), Some(5000), &excludes)
+            .is_none());
+        assert!(cache
+            .get("box1", "s1", Some(1000), Some(6000), &excludes)
+            .is_none());
         // Excludes change misses
         assert!(cache
-            .get("box1", "s1", Some(1000), &[".git/".to_string()])
+            .get("box1", "s1", Some(1000), Some(5000), &[".git/".to_string()])
             .is_none());
         // Invalidate env clears
         cache.invalidate_env("box1");
-        assert!(cache.get("box1", "s1", Some(1000), &excludes).is_none());
+        assert!(cache
+            .get("box1", "s1", Some(1000), Some(5000), &excludes)
+            .is_none());
     }
 
     #[test]

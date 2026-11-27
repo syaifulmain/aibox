@@ -51,9 +51,11 @@ ModalDialog {
         border.color: theme.borderSubtle
 
         readonly property string selectedEnvName: backend.selectedEnvironment.name || ""
-        readonly property var spaceInfo: (app.backupsVisible && selectedEnvName.length > 0)
-            ? backend.checkExportSpace(selectedEnvName, app.backupIncludeWorkspace)
-            : ({ ok: true, estimatedDisplay: "—", availableDisplay: "—", message: "" })
+        readonly property var spaceInfo: backend.exportSpaceInfo
+        onSelectedEnvNameChanged: {
+            if (app.backupsVisible)
+                backend.refreshExportSpace(selectedEnvName, app.backupIncludeWorkspace)
+        }
 
         ColumnLayout {
             id: exportCol
@@ -80,7 +82,7 @@ ModalDialog {
                 text: qsTr("Est. size: %1  •  Free: %2")
                       .arg(exportCard.spaceInfo.estimatedDisplay || "—")
                       .arg(exportCard.spaceInfo.availableDisplay || "—")
-                color: exportCard.spaceInfo.ok ? theme.textMuted : theme.dangerText
+                color: exportCard.spaceInfo.ok !== false ? theme.textMuted : theme.dangerText
                 font.family: Style.fontMono
                 font.pixelSize: Style.fontSmall
                 elide: Text.ElideRight
@@ -89,7 +91,7 @@ ModalDialog {
     }
 
     Text {
-        text: qsTr("Saved Backup Archives (%1)").arg(backend.backupArchives.length)
+        text: qsTr("Saved Backup Archives (%1)").arg(archivesListView.count)
         color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.fontSmall
@@ -106,7 +108,7 @@ ModalDialog {
 
         Text {
             anchors.centerIn: parent
-            visible: backend.backupArchives.length === 0
+            visible: archivesListView.count === 0
             text: qsTr("No backup archives found in %1").arg(backend.backupsDirPath)
             color: theme.textMuted
             font.family: Style.fontSans
@@ -114,6 +116,7 @@ ModalDialog {
         }
 
         ListView {
+            id: archivesListView
             anchors.fill: parent
             anchors.margins: Style.gapSm
             clip: true
@@ -185,7 +188,15 @@ ModalDialog {
                         label: qsTr("Delete")
                         variant: "danger"
                         disabled: backend.busy
-                        onClicked: backend.deleteBackup(modelData.filePath || "", modelData.workspaceArchivePath || "")
+                        onClicked: {
+                            const fp = modelData.filePath || ""
+                            backend.deleteBackup(fp, modelData.workspaceArchivePath || "")
+                            if (app.importBackupFile === fp) {
+                                app.importBackupFile = ""
+                                app.importWsFile = ""
+                                app.importNewName = ""
+                            }
+                        }
                     }
                 }
             }
@@ -267,6 +278,9 @@ ModalDialog {
                         if (err.length > 0) {
                             app.backupError = err
                         } else {
+                            app.importBackupFile = ""
+                            app.importWsFile = ""
+                            app.importNewName = ""
                             app.backupsVisible = false
                         }
                     }
@@ -279,13 +293,16 @@ ModalDialog {
         leftActions: ToggleChip {
             label: qsTr("Include Workspace")
             checked: app.backupIncludeWorkspace
-            onToggled: app.backupIncludeWorkspace = !app.backupIncludeWorkspace
+            onToggled: {
+                app.backupIncludeWorkspace = !app.backupIncludeWorkspace
+                backend.refreshExportSpace(exportCard.selectedEnvName, app.backupIncludeWorkspace)
+            }
         }
 
         ActionButton {
             label: qsTr("Export Backup")
             variant: "primary"
-            disabled: backend.busy || exportCard.selectedEnvName.length === 0 || !exportCard.spaceInfo.ok
+            disabled: backend.busy || exportCard.selectedEnvName.length === 0 || exportCard.spaceInfo.ok === false
             onClicked: {
                 const err = backend.exportEnvironment(exportCard.selectedEnvName, app.backupIncludeWorkspace)
                 if (err.length > 0) {

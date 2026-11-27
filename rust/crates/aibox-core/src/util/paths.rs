@@ -113,20 +113,50 @@ where
 
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp");
     let pid = std::process::id();
-    let tmp_path = parent.join(format!(".{file_name}.tmp.{pid}"));
+    static ATOMIC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let (mut file, tmp_path) = {
+        let mut opened = None;
+        let mut last_err = None;
+        for _ in 0..16 {
+            let seq = ATOMIC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let candidate = parent.join(format!(".{file_name}.tmp.{pid}.{seq}"));
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            if let Some(mode) = mode {
+                options.mode(mode);
+            }
+            match options.open(&candidate) {
+                Ok(f) => {
+                    opened = Some((f, candidate));
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    last_err = Some((candidate, e));
+                }
+                Err(e) => return Err(IoError::new("open", &candidate, e)),
+            }
+        }
+        match opened {
+            Some(pair) => pair,
+            None => {
+                let (p, e) = last_err.unwrap_or_else(|| {
+                    (
+                        parent.join(format!(".{file_name}.tmp.{pid}")),
+                        std::io::Error::new(
+                            std::io::ErrorKind::AlreadyExists,
+                            "temp file collision",
+                        ),
+                    )
+                });
+                return Err(IoError::new("open", &p, e));
+            }
+        }
+    };
 
     let write_result = (|| -> Result<bool, IoError> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
         if let Some(mode) = mode {
-            options.mode(mode);
-        }
-        let mut file = options
-            .open(&tmp_path)
-            .map_err(|e| IoError::new("open", &tmp_path, e))?;
-        if let Some(mode) = mode {
-            // The umask may have stripped bits from `mode`, and a stale temp
-            // file keeps its old permissions, so set them explicitly.
+            // The umask may have stripped bits from `mode`, so set them explicitly.
             file.set_permissions(fs::Permissions::from_mode(mode))
                 .map_err(|e| IoError::new("set permissions on", &tmp_path, e))?;
         }
@@ -328,7 +358,12 @@ pub fn resolve_workspace_path(
     }
 
     let clean_name = env_name.trim();
-    if clean_name.is_empty() {
+    if clean_name.is_empty()
+        || clean_name == "."
+        || clean_name == ".."
+        || clean_name.contains('/')
+        || clean_name.contains('\0')
+    {
         return Err(
             "Please enter a valid environment name (letters, numbers, hyphens).".to_string(),
         );

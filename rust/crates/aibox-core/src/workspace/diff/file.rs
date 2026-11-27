@@ -67,6 +67,14 @@ fn symlink_target_display(path: &Path) -> String {
     }
 }
 
+pub(crate) fn is_safe_snapshot_name(snapshot_name: &str) -> bool {
+    !snapshot_name.is_empty()
+        && snapshot_name != "."
+        && snapshot_name != ".."
+        && !snapshot_name.contains('/')
+        && !snapshot_name.contains('\0')
+}
+
 pub fn prepare_file_diff(
     name: &str,
     snapshot_name: &str,
@@ -74,7 +82,10 @@ pub fn prepare_file_diff(
     relative_path: &str,
     status: &str,
 ) -> FileDiffPrep {
-    if name.is_empty() || snapshot_name.is_empty() || !is_safe_relative_path(relative_path) {
+    if name.is_empty()
+        || !is_safe_snapshot_name(snapshot_name)
+        || !is_safe_relative_path(relative_path)
+    {
         return FileDiffPrep::Immediate {
             text: String::new(),
             info: "Invalid file path.".to_string(),
@@ -141,6 +152,15 @@ pub fn prepare_file_diff(
         return FileDiffPrep::Immediate {
             text: String::new(),
             info: "Directory entry — select a file to view its diff.".to_string(),
+        };
+    }
+
+    if snap_meta.as_ref().is_some_and(|m| !m.is_file())
+        || ws_meta.as_ref().is_some_and(|m| !m.is_file())
+    {
+        return FileDiffPrep::Immediate {
+            text: String::new(),
+            info: "Special file — text diff unavailable.".to_string(),
         };
     }
 

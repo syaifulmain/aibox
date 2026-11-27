@@ -7,8 +7,11 @@ use crate::task::files::{
     task_log_path, task_result_path, task_script_path, write_task_meta, TaskMeta,
 };
 use crate::util::paths::{atomic_write, atomic_write_with_mode};
+use crate::util::shell::shell_quote;
 
 pub fn build_task_script_wrapper(script: &str, description: &str) -> String {
+    let q_done = shell_quote(&format!("{description} — Completed"));
+    let q_fail = shell_quote(&format!("{description} — Failed"));
     format!(
         r#"#!/usr/bin/env bash
 (
@@ -18,9 +21,9 @@ CODE=$?
 echo "@@EXIT:$CODE"
 if command -v notify-send >/dev/null 2>&1; then
     if [ "$CODE" -eq 0 ]; then
-        notify-send -a "AIBox" "AIBox" "{description} — Completed" 2>/dev/null || true
+        notify-send -a "AIBox" "AIBox" {q_done} 2>/dev/null || true
     else
-        notify-send -u critical -a "AIBox" "AIBox" "{description} — Failed" 2>/dev/null || true
+        notify-send -u critical -a "AIBox" "AIBox" {q_fail} 2>/dev/null || true
     fi
 fi
 exit $CODE
@@ -29,13 +32,12 @@ exit $CODE
 }
 
 pub fn build_detached_launch_command(script_path: &Path, state_dir: &Path) -> String {
+    let q_script = shell_quote(&script_path.to_string_lossy());
+    let q_log = shell_quote(&task_log_path(state_dir).to_string_lossy());
+    let q_pid_tmp = shell_quote(&state_dir.join("task.pid.tmp").to_string_lossy());
+    let q_pid = shell_quote(&state_dir.join("task.pid").to_string_lossy());
     format!(
-        "setsid '{}' > '{}/task.log' 2>&1 < /dev/null & PID=$!; START=$(sed 's/.*) //' \"/proc/$PID/stat\" 2>/dev/null | awk '{{print $20}}'); printf '%s %s\\n' \"$PID\" \"$START\" > '{}/task.pid.tmp' && mv -f '{}/task.pid.tmp' '{}/task.pid'",
-        script_path.display(),
-        state_dir.display(),
-        state_dir.display(),
-        state_dir.display(),
-        state_dir.display(),
+        "setsid {q_script} > {q_log} 2>&1 < /dev/null & PID=$!; START=$(sed 's/.*) //' \"/proc/$PID/stat\" 2>/dev/null | awk '{{print $20}}'); printf '%s %s\\n' \"$PID\" \"$START\" > {q_pid_tmp} && mv -f {q_pid_tmp} {q_pid}"
     )
 }
 

@@ -6,13 +6,15 @@ import "../components"
 ModalDialog {
     id: changeReviewDialogRoot
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
+    readonly property var diffSummary: backend.diffSummary
     open: app.changeReviewVisible
     size: "lg"
     cardHeight: Math.min(parent.height - Style.modalGutter, 680)
     onDismissed: app.changeReviewVisible = false
 
     ModalHeader {
-        title: qsTr("Workspace Change Review — %1").arg(backend.selectedEnvironment.name || "")
+        title: qsTr("Workspace Change Review — %1").arg(changeReviewDialogRoot.env.name || "")
         onClosed: app.changeReviewVisible = false
 
         ActionButton {
@@ -22,7 +24,7 @@ ModalDialog {
         ActionButton {
             label: qsTr("Refresh")
             disabled: backend.diffLoading || app.diffSnapName.length === 0
-            onClicked: backend.loadWorkspaceDiff(backend.selectedEnvironment.name || "", app.diffSnapName)
+            onClicked: backend.loadWorkspaceDiff(changeReviewDialogRoot.env.name || "", app.diffSnapName)
         }
     }
 
@@ -48,7 +50,7 @@ ModalDialog {
             RowLayout {
                 spacing: Style.gapSm
                 Repeater {
-                    model: backend.selectedEnvironment.workspaceSnapshots || []
+                    model: changeReviewDialogRoot.env.workspaceSnapshots || []
                     delegate: ActionButton {
                         required property string modelData
                         compact: true
@@ -60,7 +62,7 @@ ModalDialog {
                             app.diffSelectedStatus = ""
                             app.diffSelectedType = ""
                             app.diffActionError = ""
-                            backend.loadWorkspaceDiff(backend.selectedEnvironment.name || "", modelData)
+                            backend.loadWorkspaceDiff(changeReviewDialogRoot.env.name || "", modelData)
                         }
                     }
                 }
@@ -93,7 +95,7 @@ ModalDialog {
                     app.diffActionError = ""
                     app.diffEditExcludes = false
                     if (app.diffSnapName.length > 0)
-                        backend.loadWorkspaceDiff(backend.selectedEnvironment.name || "", app.diffSnapName)
+                        backend.loadWorkspaceDiff(changeReviewDialogRoot.env.name || "", app.diffSnapName)
                 }
             }
         }
@@ -119,19 +121,19 @@ ModalDialog {
             font.pixelSize: Style.fontBody
         }
         Text {
-            visible: app.diffSnapName.length > 0 && !backend.diffLoading && !(backend.diffSummary.error && backend.diffSummary.error.length > 0)
+            visible: app.diffSnapName.length > 0 && !backend.diffLoading && !(changeReviewDialogRoot.diffSummary.error && changeReviewDialogRoot.diffSummary.error.length > 0)
             text: qsTr("+%1 Added   ~%2 Modified   -%3 Deleted   (%4 total)")
-                  .arg(backend.diffSummary.addedCount || 0)
-                  .arg(backend.diffSummary.modifiedCount || 0)
-                  .arg(backend.diffSummary.deletedCount || 0)
-                  .arg(backend.diffSummary.totalCount || 0)
+                  .arg(changeReviewDialogRoot.diffSummary.addedCount || 0)
+                  .arg(changeReviewDialogRoot.diffSummary.modifiedCount || 0)
+                  .arg(changeReviewDialogRoot.diffSummary.deletedCount || 0)
+                  .arg(changeReviewDialogRoot.diffSummary.totalCount || 0)
             color: theme.textPrimary
             font.family: Style.fontMono
             font.pixelSize: Style.fontBody
         }
 
         TagBadge {
-            visible: backend.diffSummary.truncated || false
+            visible: app.diffSnapName.length > 0 && (changeReviewDialogRoot.diffSummary.truncated || false)
             text: qsTr("RESULTS TRUNCATED (5000 MAX)")
             tone: "warning"
             fillColor: theme.surfaceInput
@@ -146,8 +148,11 @@ ModalDialog {
 
     Text {
         Layout.fillWidth: true
-        visible: (backend.diffSummary.error && backend.diffSummary.error.length > 0) || app.diffActionError.length > 0
-        text: app.diffActionError.length > 0 ? app.diffActionError : (backend.diffSummary.error || "")
+        visible: app.diffActionError.length > 0
+                 || (app.diffSnapName.length > 0 && changeReviewDialogRoot.diffSummary.error && changeReviewDialogRoot.diffSummary.error.length > 0)
+        text: app.diffActionError.length > 0
+              ? app.diffActionError
+              : (app.diffSnapName.length > 0 ? (changeReviewDialogRoot.diffSummary.error || "") : "")
         color: theme.dangerText
         font.family: Style.fontSans
         font.pixelSize: Style.fontBody
@@ -171,7 +176,7 @@ ModalDialog {
 
             Text {
                 anchors.centerIn: parent
-                visible: !backend.diffLoading && backend.diffEntries.length === 0 && app.diffSnapName.length > 0
+                visible: !backend.diffLoading && diffListView.count === 0 && app.diffSnapName.length > 0
                 text: qsTr("No workspace changes since '%1'.").arg(app.diffSnapName)
                 color: theme.textMuted
                 font.family: Style.fontSans
@@ -185,7 +190,7 @@ ModalDialog {
                 clip: true
                 reuseItems: true
                 spacing: Style.gapSm
-                model: backend.diffEntries
+                model: app.diffSnapName.length > 0 ? backend.diffEntries : []
 
                 delegate: Rectangle {
                     required property var modelData
@@ -236,7 +241,7 @@ ModalDialog {
                             app.diffSelectedStatus = modelData.status || ""
                             app.diffSelectedType = modelData.type || ""
                             app.diffActionError = ""
-                            backend.loadFileDiff(backend.selectedEnvironment.name || "", app.diffSnapName, app.diffSelectedPath, app.diffSelectedStatus)
+                            backend.loadFileDiff(changeReviewDialogRoot.env.name || "", app.diffSnapName, app.diffSelectedPath, app.diffSelectedStatus)
                         }
                     }
                 }
@@ -264,10 +269,10 @@ ModalDialog {
                     Text {
                         Layout.fillWidth: true
                         elide: Text.ElideMiddle
-                        text: backend.selectedDiffInfo.length > 0
+                        text: app.diffSnapName.length > 0 && backend.selectedDiffInfo.length > 0
                               ? backend.selectedDiffInfo
                               : qsTr("Select a changed file to inspect its unified diff.")
-                        color: backend.selectedDiffInfo.length > 0 ? theme.textPrimary : theme.textMuted
+                        color: app.diffSnapName.length > 0 && backend.selectedDiffInfo.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontSmall
                     }
@@ -278,7 +283,7 @@ ModalDialog {
                         label: qsTr("Restore this file")
                         variant: "accent"
                         onClicked: {
-                            const err = backend.restoreSingleFile(backend.selectedEnvironment.name || "", app.diffSnapName, app.diffSelectedPath)
+                            const err = backend.restoreSingleFile(changeReviewDialogRoot.env.name || "", app.diffSnapName, app.diffSelectedPath)
                             if (err.length > 0) {
                                 app.diffActionError = err
                             } else {
@@ -308,12 +313,12 @@ ModalDialog {
                         readOnly: true
                         selectByMouse: true
                         wrapMode: TextEdit.NoWrap
-                        text: backend.selectedDiffText.length > 0
+                        text: app.diffSnapName.length > 0 && backend.selectedDiffText.length > 0
                               ? backend.selectedDiffText
-                              : (backend.selectedDiffInfo.length > 0 && app.diffSelectedPath.length > 0
+                              : (app.diffSnapName.length > 0 && backend.selectedDiffInfo.length > 0 && app.diffSelectedPath.length > 0
                                  ? backend.selectedDiffInfo
                                  : "")
-                        color: backend.selectedDiffText.length > 0 ? theme.textPrimary : theme.textMuted
+                        color: app.diffSnapName.length > 0 && backend.selectedDiffText.length > 0 ? theme.textPrimary : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontSmall
                         background: null

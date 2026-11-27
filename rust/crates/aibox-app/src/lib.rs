@@ -15,6 +15,7 @@ mod qt_backend_secrets;
 mod qt_backend_sessions;
 mod qt_backend_snapshot;
 mod qt_backend_task;
+mod qt_backend_watch;
 mod qt_backend_workspace;
 pub mod qt_convert;
 pub mod qt_theme;
@@ -63,10 +64,12 @@ pub fn run_main() -> ! {
         .map(|arg| CString::new(arg.as_str()).unwrap_or_else(|_| CString::new("").unwrap()))
         .collect();
     let mut ptrs: Vec<*mut c_char> = c_args.iter().map(|s| s.as_ptr() as *mut c_char).collect();
+    let argc = ptrs.len() as c_int;
+    ptrs.push(std::ptr::null_mut());
 
     let code = unsafe {
         aibox_gui_main(
-            ptrs.len() as c_int,
+            argc,
             ptrs.as_mut_ptr(),
             version_c.as_ptr(),
             project_dir_c.as_ptr(),

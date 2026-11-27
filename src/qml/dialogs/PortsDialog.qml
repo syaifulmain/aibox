@@ -5,6 +5,7 @@ import "../components"
 ModalDialog {
     id: portsOverlay
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     open: app.portsVisible
     zOrder: 87
     clipCard: true
@@ -16,7 +17,7 @@ ModalDialog {
         const hp = parseInt(hostPortInput.text.trim(), 10)
         const gp = parseInt(guestPortInput.text.trim(), 10)
         const err = backend.addPortForward(
-            backend.selectedEnvironment.name || "",
+            portsOverlay.env.name || "",
             isNaN(hp) ? 0 : hp,
             isNaN(gp) ? (isNaN(hp) ? 0 : hp) : gp)
         if (err.length > 0) {
@@ -29,7 +30,7 @@ ModalDialog {
     }
 
     ModalHeader {
-        title: qsTr("Port Forwarding · %1").arg(backend.selectedEnvironment.name || "")
+        title: qsTr("Port Forwarding · %1").arg(portsOverlay.env.name || "")
         subtitle: qsTr("Binds container ports to 127.0.0.1 on Host only (never 0.0.0.0)")
         onClosed: app.portsVisible = false
     }
@@ -64,7 +65,7 @@ ModalDialog {
 
         Text {
             anchors.centerIn: parent
-            visible: !backend.selectedEnvironment.portForwards || backend.selectedEnvironment.portForwards.length === 0
+            visible: portsListView.count === 0
             text: qsTr("No forwarded ports configured for this environment.")
             color: theme.textMuted
             font.family: Style.fontSans
@@ -77,7 +78,7 @@ ModalDialog {
             anchors.margins: Style.gapMd
             clip: true
             spacing: Style.gapSm
-            model: backend.selectedEnvironment.portForwards || []
+            model: portsOverlay.env.portForwards || []
             delegate: Rectangle {
                 required property var modelData
                 width: portsListView.width

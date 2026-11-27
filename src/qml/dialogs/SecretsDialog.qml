@@ -10,8 +10,10 @@ ModalDialog {
     property QtObject app: null
     readonly property bool envScope: app.secretsScope === "environment"
     readonly property string envName: app.secretsEnvName || ""
-    readonly property int rowCount: envScope ? backend.environmentSecrets.length
-                                             : backend.secretsList.length
+    readonly property var globalSecrets: backend.secretsList
+    readonly property var envSecrets: backend.environmentSecrets
+    readonly property var activeSecrets: envScope ? envSecrets : globalSecrets
+    readonly property int rowCount: activeSecrets.length
 
     open: app.secretsVisible
     zOrder: 27
@@ -88,8 +90,8 @@ ModalDialog {
     Text {
         text: secretsDialogRoot.envScope
               ? qsTr("Secrets for '%1' (%2)").arg(secretsDialogRoot.envName)
-                    .arg(backend.environmentSecrets.length)
-              : qsTr("Global Secrets (%1)").arg(backend.secretsList.length)
+                    .arg(secretsDialogRoot.envSecrets.length)
+              : qsTr("Global Secrets (%1)").arg(secretsDialogRoot.globalSecrets.length)
         color: theme.textMuted
         font.family: Style.fontSans
         font.pixelSize: Style.fontSmall
@@ -97,7 +99,7 @@ ModalDialog {
     }
 
     Text {
-        visible: secretsDialogRoot.envScope && backend.secretsList.length > 0
+        visible: secretsDialogRoot.envScope && secretsDialogRoot.globalSecrets.length > 0
         text: qsTr("Global secrets are available to every environment. Their checkbox controls injection here; delete them in Tools → Secrets.")
         color: theme.textMuted
         font.family: Style.fontSans
@@ -117,8 +119,7 @@ ModalDialog {
     }
 
     Text {
-        visible: secretsDialogRoot.envScope ? backend.environmentSecrets.length === 0
-                                            : backend.secretsList.length === 0
+        visible: secretsListView.count === 0
         text: secretsDialogRoot.envScope
               ? qsTr("No secrets for this environment yet. Add one below.")
               : qsTr("No secrets configured yet. Add one below.")
@@ -135,6 +136,7 @@ ModalDialog {
         ScrollBar.vertical.policy: ScrollBar.AlwaysOff
 
         ListView {
+            id: secretsListView
             width: parent.width
             spacing: Style.gapMd
             section.property: secretsDialogRoot.envScope ? "scope" : ""
@@ -153,7 +155,7 @@ ModalDialog {
                     font.weight: Font.Medium
                 }
             }
-            model: secretsDialogRoot.envScope ? backend.environmentSecrets : backend.secretsList
+            model: secretsDialogRoot.activeSecrets
 
             delegate: Rectangle {
                 required property var modelData

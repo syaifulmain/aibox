@@ -123,7 +123,7 @@ pub fn compute_workspace_snapshot_sizes(
     if is_btrfs_filesystem(snap_dir) {
         for (idx, (name, path)) in existing.iter().enumerate() {
             let Ok(out) = Command::new("btrfs")
-                .args(["qgroup", "show", "-r", "--raw", path])
+                .args(["qgroup", "show", "-f", "--raw", path])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .output()

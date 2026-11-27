@@ -56,6 +56,7 @@ pub mod qobject {
 
 pub struct TranslatorStateRust {
     language: QString,
+    language_str: String,
     language_file: String,
     catalog_directory: String,
     catalog: aibox_core::i18n::Catalog,
@@ -68,6 +69,7 @@ impl Default for TranslatorStateRust {
     fn default() -> Self {
         Self {
             language: QString::default(),
+            language_str: String::new(),
             language_file: String::new(),
             catalog_directory: ":/i18n".to_string(),
             catalog: aibox_core::i18n::Catalog::new(),
@@ -180,6 +182,7 @@ impl qobject::TranslatorState {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.language = QString::from(&new_language);
+            rust.language_str = new_language;
             rust.catalog = catalog;
             rust.loaded = true;
             rust.last_content_hash = Some(content_hash);
@@ -199,8 +202,7 @@ pub fn translator_state_translate(
     n: i32,
 ) -> qobject::TranslatorLookup {
     let rust = state.rust();
-    let language = rust.language.to_string();
-    match rust.catalog.lookup(source_text, &language, n) {
+    match rust.catalog.lookup(source_text, &rust.language_str, n) {
         Some(text) => qobject::TranslatorLookup {
             found: true,
             text: text.to_string(),

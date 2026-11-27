@@ -10,7 +10,7 @@ use std::time::UNIX_EPOCH;
 use crate::snapshot::workspace::workspace_snapshot_dir;
 use crate::util::paths::clean_path;
 
-use super::file::is_safe_relative_path;
+use super::file::{is_safe_relative_path, is_safe_snapshot_name};
 
 fn to_cstring(s: &str) -> Result<CString, String> {
     CString::new(s).map_err(|_| format!("Invalid path component containing NUL byte: {s}"))
@@ -185,7 +185,10 @@ pub fn restore_single_file(
     ws_path: &str,
     relative_path: &str,
 ) -> Result<String, String> {
-    if name.is_empty() || snapshot_name.is_empty() || !is_safe_relative_path(relative_path) {
+    if name.is_empty()
+        || !is_safe_snapshot_name(snapshot_name)
+        || !is_safe_relative_path(relative_path)
+    {
         return Err("Invalid file restore request.".to_string());
     }
 
@@ -203,6 +206,12 @@ pub fn restore_single_file(
 
     if src_meta.is_dir() {
         return Err("Cannot single-restore a directory; use Snapshot Restore instead.".to_string());
+    }
+    if !src_meta.file_type().is_symlink() && !src_meta.is_file() {
+        return Err(
+            "Cannot restore special file; only regular files and symlinks are supported."
+                .to_string(),
+        );
     }
 
     let ws_root_canon = fs::canonicalize(&clean_ws)

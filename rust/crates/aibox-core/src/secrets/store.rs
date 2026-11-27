@@ -2,7 +2,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::env;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -118,87 +119,20 @@ pub fn parse_env_secret_names(raw_csv: &str) -> Vec<String> {
     names
 }
 
-/// Loads `(name, value)` pairs from `file_path`, refusing group/world-accessible files.
-pub fn load_secrets_store(file_path: &str) -> Result<Vec<(String, String)>, SecretsError> {
-    if file_path.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let path = Path::new(file_path);
-    let meta = match fs::metadata(path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(IoError::new("inspect permissions on", path, e).into()),
-    };
-
-    let mode = meta.permissions().mode();
-    if (mode & 0o077) != 0 {
-        return Err(SecretsError::InsecurePermissions {
-            path: path.to_path_buf(),
-            mode: mode & 0o777,
-        });
-    }
-
-    let mut bytes = fs::read(path).map_err(|e| IoError::new("read", path, e))?;
-    let parse_res: Result<Value, _> = serde_json::from_slice(&bytes);
-    zeroize_bytes(&mut bytes);
-    let doc = parse_res.map_err(|source| SecretsError::Parse {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    let arr = if let Some(obj) = doc.as_object() {
-        obj.get("secrets").and_then(|v| v.as_array())
-    } else {
-        doc.as_array()
-    };
-
-    let Some(arr) = arr else {
-        return Ok(Vec::new());
-    };
-
-    let mut result = Vec::new();
-    let mut seen = HashSet::new();
-    for val in arr {
-        let Some(obj) = val.as_object() else {
-            continue;
-        };
-        let name = obj
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let secret_val = obj
-            .get("value")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if !is_valid_secret_name(&name) || !seen.insert(name.clone()) {
-            continue;
-        }
-        result.push((name, secret_val));
-    }
-    Ok(result)
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SecretsDocument {
+    pub pairs: Vec<(String, String)>,
+    pub disabled: Vec<String>,
+    pub hidden_in_instances: Vec<String>,
 }
 
-/// Reads a named array of valid unique secret names (e.g. `"disabled"` or `"hiddenInInstances"`).
-pub fn load_secret_name_list(file_path: &str, key: &str) -> Vec<String> {
-    if key.trim().is_empty() {
-        return Vec::new();
-    }
-    let Ok(bytes) = fs::read(file_path) else {
-        return Vec::new();
-    };
-    let Ok(doc) = serde_json::from_slice::<Value>(&bytes) else {
-        return Vec::new();
-    };
+fn extract_name_list(doc: &Value, key: &str) -> Vec<String> {
     let Some(obj) = doc.as_object() else {
         return Vec::new();
     };
     let Some(arr) = obj.get(key).and_then(|v| v.as_array()) else {
         return Vec::new();
     };
-
     let mut names = Vec::new();
     for val in arr {
         let Some(name) = val.as_str() else {
@@ -209,6 +143,128 @@ pub fn load_secret_name_list(file_path: &str, key: &str) -> Vec<String> {
         }
     }
     names
+}
+
+fn read_and_parse_secrets_file(
+    path: &Path,
+    mut file: File,
+) -> Result<SecretsDocument, SecretsError> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| IoError::new("read", path, e))?;
+    let parse_res: Result<Value, _> = serde_json::from_slice(&bytes);
+    zeroize_bytes(&mut bytes);
+    let doc = parse_res.map_err(|source| SecretsError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    let disabled = extract_name_list(&doc, "disabled");
+    let hidden_in_instances = extract_name_list(&doc, "hiddenInInstances");
+
+    let arr = if let Some(obj) = doc.as_object() {
+        obj.get("secrets").and_then(|v| v.as_array())
+    } else {
+        doc.as_array()
+    };
+
+    let mut pairs = Vec::new();
+    if let Some(arr) = arr {
+        let mut seen = HashSet::new();
+        for val in arr {
+            let Some(obj) = val.as_object() else {
+                continue;
+            };
+            let name = obj
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let secret_val = obj
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !is_valid_secret_name(&name) || !seen.insert(name.clone()) {
+                continue;
+            }
+            pairs.push((name, secret_val));
+        }
+    }
+
+    Ok(SecretsDocument {
+        pairs,
+        disabled,
+        hidden_in_instances,
+    })
+}
+
+/// Single-pass loader returning pairs and name lists while enforcing `0600` permissions via `fstat`.
+pub(crate) fn load_secrets_document(file_path: &str) -> Result<SecretsDocument, SecretsError> {
+    if file_path.trim().is_empty() {
+        return Ok(SecretsDocument::default());
+    }
+
+    let path = Path::new(file_path);
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SecretsDocument::default());
+        }
+        Err(e) => return Err(IoError::new("open", path, e).into()),
+    };
+
+    let meta = file
+        .metadata()
+        .map_err(|e| IoError::new("inspect permissions on", path, e))?;
+    let mode = meta.permissions().mode();
+    if (mode & 0o077) != 0 {
+        return Err(SecretsError::InsecurePermissions {
+            path: path.to_path_buf(),
+            mode: mode & 0o777,
+        });
+    }
+
+    read_and_parse_secrets_file(path, file)
+}
+
+/// Reads an existing secrets document when recovering from `InsecurePermissions` during `save_secret`.
+pub(crate) fn load_secrets_document_for_permission_fix(
+    file_path: &str,
+) -> Result<SecretsDocument, SecretsError> {
+    if file_path.trim().is_empty() {
+        return Ok(SecretsDocument::default());
+    }
+    let path = Path::new(file_path);
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SecretsDocument::default());
+        }
+        Err(e) => return Err(IoError::new("open", path, e).into()),
+    };
+    read_and_parse_secrets_file(path, file)
+}
+
+/// Loads `(name, value)` pairs from `file_path`, refusing group/world-accessible files.
+pub fn load_secrets_store(file_path: &str) -> Result<Vec<(String, String)>, SecretsError> {
+    load_secrets_document(file_path).map(|doc| doc.pairs)
+}
+
+/// Reads a named array of valid unique secret names (e.g. `"disabled"` or `"hiddenInInstances"`).
+pub fn load_secret_name_list(file_path: &str, key: &str) -> Vec<String> {
+    if key.trim().is_empty() || file_path.trim().is_empty() {
+        return Vec::new();
+    }
+    let Ok(mut bytes) = fs::read(file_path) else {
+        return Vec::new();
+    };
+    let parse_res = serde_json::from_slice::<Value>(&bytes);
+    zeroize_bytes(&mut bytes);
+    let Ok(doc) = parse_res else {
+        return Vec::new();
+    };
+    extract_name_list(&doc, key)
 }
 
 /// Atomically writes `secrets` (plus optional `disabled` and `hiddenInInstances` lists)

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::secrets::error::SecretsError;
 use crate::secrets::store::{
     default_secrets_store_path, environment_secrets_store_path, instance_secrets_dir_path,
-    is_valid_secret_name, load_secret_name_list, load_secrets_store, save_secrets_store,
+    is_valid_secret_name, load_secret_name_list, load_secrets_document,
+    load_secrets_document_for_permission_fix, load_secrets_store, save_secrets_store,
 };
 use crate::secrets::zeroize_string;
 use crate::util::paths::clean_path;
@@ -109,18 +110,20 @@ impl SecretsState {
     }
 
     pub fn reload_secrets(&mut self, demo_mode: bool) {
-        match load_secrets_store(&self.secrets_path) {
-            Ok(loaded) => {
+        match load_secrets_document(&self.secrets_path) {
+            Ok(doc) => {
                 zeroize_pairs(&mut self.secrets);
-                self.secrets = loaded;
+                self.secrets = doc.pairs;
+                self.hidden_global_secrets = doc.hidden_in_instances;
                 self.secrets_error.clear();
             }
             Err(err) => {
                 zeroize_pairs(&mut self.secrets);
                 self.secrets_error = err.to_string();
+                self.hidden_global_secrets =
+                    load_secret_name_list(&self.secrets_path, "hiddenInInstances");
             }
         }
-        self.hidden_global_secrets = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
         self.refresh_instance_secret_values_cache(demo_mode);
     }
 
@@ -210,10 +213,10 @@ impl SecretsState {
         let mut local = Vec::new();
         let mut disabled = Vec::new();
         if !demo_mode {
-            match load_secrets_store(&store_path) {
-                Ok(pairs) => {
-                    local = pairs;
-                    disabled = load_secret_name_list(&store_path, "disabled");
+            match load_secrets_document(&store_path) {
+                Ok(doc) => {
+                    local = doc.pairs;
+                    disabled = doc.disabled;
                 }
                 Err(err) => {
                     self.environment_secrets_error = err.to_string();
@@ -286,12 +289,17 @@ impl SecretsState {
             return Ok(());
         }
 
-        // Keep current in-memory list when recovering permissions on save.
-        let mut next =
-            load_secrets_store(&self.secrets_path).unwrap_or_else(|_| self.secrets.clone());
+        let doc = match load_secrets_document(&self.secrets_path) {
+            Ok(doc) => doc,
+            Err(SecretsError::InsecurePermissions { .. }) => {
+                load_secrets_document_for_permission_fix(&self.secrets_path)?
+            }
+            Err(err) => return Err(err),
+        };
+        let mut next = doc.pairs;
         upsert_pair(&mut next, clean_name, value);
 
-        let mut hidden = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
+        let mut hidden = doc.hidden_in_instances;
         if hidden.is_empty() && !self.hidden_global_secrets.is_empty() {
             hidden = self.hidden_global_secrets.clone();
         }
@@ -306,14 +314,14 @@ impl SecretsState {
 
     pub fn delete_secret(&mut self, name: &str, demo_mode: bool) -> Result<(), SecretsError> {
         let clean_name = name.trim();
-        let next: Vec<(String, String)> = self
-            .secrets
-            .iter()
-            .filter(|(n, _)| n != clean_name)
-            .cloned()
-            .collect();
 
         if demo_mode {
+            let next: Vec<(String, String)> = self
+                .secrets
+                .iter()
+                .filter(|(n, _)| n != clean_name)
+                .cloned()
+                .collect();
             zeroize_pairs(&mut self.secrets);
             self.secrets = next;
             self.hidden_global_secrets.retain(|n| n != clean_name);
@@ -321,12 +329,20 @@ impl SecretsState {
             return Ok(());
         }
 
-        let mut hidden = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
-        hidden.retain(|n| n != clean_name);
-        save_secrets_store(&self.secrets_path, &next, &[], &hidden)?;
+        let mut doc = load_secrets_document(&self.secrets_path)?;
+        let mut next = Vec::with_capacity(doc.pairs.len());
+        for (n, mut v) in doc.pairs {
+            if n == clean_name {
+                zeroize_string(&mut v);
+            } else {
+                next.push((n, v));
+            }
+        }
+        doc.hidden_in_instances.retain(|n| n != clean_name);
+        save_secrets_store(&self.secrets_path, &next, &[], &doc.hidden_in_instances)?;
         zeroize_pairs(&mut self.secrets);
         self.secrets = next;
-        self.hidden_global_secrets = hidden;
+        self.hidden_global_secrets = doc.hidden_in_instances;
         self.secrets_error.clear();
         Ok(())
     }
@@ -359,7 +375,8 @@ impl SecretsState {
             return Ok(());
         }
 
-        let pairs = load_secrets_store(&self.secrets_path)?;
+        let doc = load_secrets_document(&self.secrets_path)?;
+        let pairs = doc.pairs;
         if !pairs.iter().any(|(n, _)| n == clean_name) {
             return Err(SecretsError::SecretNotFound {
                 name: clean_name.to_string(),
@@ -367,7 +384,7 @@ impl SecretsState {
             });
         }
 
-        let mut hidden = load_secret_name_list(&self.secrets_path, "hiddenInInstances");
+        let mut hidden = doc.hidden_in_instances;
         hidden.retain(|n| n != clean_name);
         if !visible {
             hidden.push(clean_name.to_string());
@@ -449,8 +466,9 @@ impl SecretsState {
             return Ok(());
         }
 
-        let mut next = load_secrets_store(&store_path)?;
-        let disabled = load_secret_name_list(&store_path, "disabled");
+        let doc = load_secrets_document(&store_path)?;
+        let mut next = doc.pairs;
+        let disabled = doc.disabled;
         upsert_pair(&mut next, clean_name, value);
         save_secrets_store(&store_path, &next, &disabled, &[])?;
 
@@ -521,8 +539,9 @@ impl SecretsState {
             return Ok(());
         }
 
-        let current = load_secrets_store(&store_path)?;
-        let mut disabled = load_secret_name_list(&store_path, "disabled");
+        let doc = load_secrets_document(&store_path)?;
+        let current = doc.pairs;
+        let mut disabled = doc.disabled;
         let mut found = false;
         let mut next = Vec::with_capacity(current.len());
         for (n, mut v) in current {
@@ -585,7 +604,8 @@ impl SecretsState {
             });
         }
 
-        let pairs = load_secrets_store(&store_path)?;
+        let doc = load_secrets_document(&store_path)?;
+        let pairs = doc.pairs;
         if !pairs.iter().any(|(n, _)| n == clean_name) {
             return Err(SecretsError::SecretNotFound {
                 name: clean_name.to_string(),
@@ -593,7 +613,7 @@ impl SecretsState {
             });
         }
 
-        let mut disabled = load_secret_name_list(&store_path, "disabled");
+        let mut disabled = doc.disabled;
         disabled.retain(|n| n != clean_name);
         if !enabled {
             disabled.push(clean_name.to_string());
@@ -614,14 +634,15 @@ impl SecretsState {
     ) -> Result<Vec<(String, String)>, SecretsError> {
         let mut resolved: Vec<(String, String)> = Vec::new();
         if !assigned_global_names.is_empty() {
-            let store = if demo_mode {
-                self.secrets.clone()
+            let (store, hidden_globals) = if demo_mode {
+                (self.secrets.clone(), self.hidden_global_secrets.clone())
             } else {
-                load_secrets_store(&self.secrets_path)?
+                let doc = load_secrets_document(&self.secrets_path)?;
+                (doc.pairs, doc.hidden_in_instances)
             };
 
             for req_name in assigned_global_names {
-                if self.hidden_global_secrets.iter().any(|h| h == req_name) {
+                if hidden_globals.iter().any(|h| h == req_name) {
                     continue;
                 }
                 if let Some(pair) = store.iter().find(|(n, _)| n == req_name) {
@@ -635,10 +656,9 @@ impl SecretsState {
         if !demo_mode {
             let local_path = environment_secrets_store_path(&self.secrets_path, env_name);
             if !local_path.is_empty() {
-                let local = load_secrets_store(&local_path)?;
-                let disabled = load_secret_name_list(&local_path, "disabled");
-                for (name, val) in local {
-                    if disabled.iter().any(|d| d == &name) {
+                let doc = load_secrets_document(&local_path)?;
+                for (name, val) in doc.pairs {
+                    if doc.disabled.iter().any(|d| d == &name) {
                         continue;
                     }
                     if !resolved.iter().any(|(n, _)| n == &name) {

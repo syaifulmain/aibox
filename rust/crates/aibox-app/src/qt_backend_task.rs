@@ -43,7 +43,7 @@ use crate::qt_convert::json_array_to_qvariant_list;
 
 static REMOTE_ENV_SEQ: AtomicU64 = AtomicU64::new(1);
 
-struct NoopResolver;
+pub(crate) struct NoopResolver;
 
 impl HostResolver for NoopResolver {
     fn resolve_ipv4(&self, _host: &str) -> Vec<String> {
@@ -97,10 +97,18 @@ impl qobject::Backend {
         reason: &str,
     ) {
         if *self.busy() {
+            if !self.downloading_os_id.is_empty() {
+                self.as_mut().rust_mut().downloading_os_id = QString::default();
+                self.as_mut().rebuild_os_catalog();
+            }
             return;
         }
         let state_dir = self.engine.paths.state_dir.clone();
         if is_task_lock_active(Path::new(&state_dir), *self.busy()).0 {
+            if !self.downloading_os_id.is_empty() {
+                self.as_mut().rust_mut().downloading_os_id = QString::default();
+                self.as_mut().rebuild_os_catalog();
+            }
             self.as_mut()
                 .set_error_message("Another AIBox task is currently running.");
             return;
@@ -133,10 +141,14 @@ impl qobject::Backend {
         }) {
             Ok(cmd) => cmd,
             Err(err) => {
+                let had_dl = !self.downloading_os_id.is_empty();
                 {
                     let mut rust = self.as_mut().rust_mut();
                     rust.pending_env_name = QString::default();
                     rust.downloading_os_id = QString::default();
+                }
+                if had_dl {
+                    self.as_mut().rebuild_os_catalog();
                 }
                 self.as_mut().set_busy(false, "");
                 self.as_mut().set_error_message(&err);
@@ -147,7 +159,7 @@ impl qobject::Backend {
         if !launch_cmd.is_empty() {
             let _ = Command::new("/bin/sh").arg("-c").arg(&launch_cmd).status();
         }
-        self.task_watch_active.store(true, Ordering::Relaxed);
+        self.set_task_watch_active(true);
     }
 
     pub(crate) fn attach_existing_task(mut self: Pin<&mut Self>) {
@@ -183,8 +195,8 @@ impl qobject::Backend {
                 }
                 self.as_mut().set_busy(true, &description);
                 self.as_mut().task_progress_changed();
-                self.as_mut().os_catalog_changed();
-                self.task_watch_active.store(true, Ordering::Relaxed);
+                self.as_mut().rebuild_os_catalog();
+                self.set_task_watch_active(true);
             }
             AttachOutcome::Finished {
                 env_name,
@@ -214,7 +226,7 @@ impl qobject::Backend {
                     rust.last_exit_code = exit_code;
                     rust.task_log = QString::from(task_log.as_str());
                 }
-                self.as_mut().os_catalog_changed();
+                self.as_mut().rebuild_os_catalog();
                 self.as_mut().set_busy(false, "");
                 if has_exit_code && exit_code == 0 {
                     let msg = if env_name.is_empty() {
@@ -233,7 +245,13 @@ impl qobject::Backend {
     }
 
     pub(crate) fn check_background_task(mut self: Pin<&mut Self>) {
-        if !self.task_watch_active.load(Ordering::Relaxed) {
+        let watch_active = self
+            .task_watch_state
+            .0
+            .lock()
+            .map(|w| w.active)
+            .unwrap_or(false);
+        if !watch_active {
             return;
         }
         let state = TaskProgressState {
@@ -273,7 +291,7 @@ impl qobject::Backend {
             return;
         }
 
-        self.task_watch_active.store(false, Ordering::Relaxed);
+        self.set_task_watch_active(false);
         if !res.history_json.is_empty() {
             if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&res.history_json) {
                 let q_hist = json_array_to_qvariant_list(&arr);
@@ -293,7 +311,7 @@ impl qobject::Backend {
             rust.log_offset = 0;
             rust.line_buffer.clear();
         }
-        self.as_mut().os_catalog_changed();
+        self.as_mut().rebuild_os_catalog();
         self.as_mut().set_busy(false, "");
         self.as_mut().refresh();
         self.as_mut().refresh_backups();
@@ -322,7 +340,7 @@ impl qobject::Backend {
         if !*self.busy() {
             return;
         }
-        self.task_watch_active.store(false, Ordering::Relaxed);
+        self.set_task_watch_active(false);
         let state_dir = self.engine.paths.state_dir.clone();
         let task_stage = self.task_stage().to_string();
         let cleanup_name = self.pending_env_name().to_string();
@@ -353,7 +371,7 @@ impl qobject::Backend {
             rust.log_offset = 0;
             rust.line_buffer.clear();
         }
-        self.as_mut().os_catalog_changed();
+        self.as_mut().rebuild_os_catalog();
         self.as_mut().set_busy(false, "Operation cancelled.");
 
         if !cleanup_name.is_empty() {
@@ -375,6 +393,13 @@ impl qobject::Backend {
     pub fn enter_environment(mut self: Pin<&mut Self>, name: &QString) {
         let name_s = name.to_string();
         if name_s.is_empty() {
+            return;
+        }
+        if self.demo_mode {
+            self.as_mut()
+                .set_status_message(&format!("[Demo] Opened terminal in '{name_s}'."));
+            self.as_mut()
+                .schedule_status_clear(Duration::from_millis(3000));
             return;
         }
         if !self.enter_env_name.is_empty() {
@@ -824,10 +849,16 @@ impl qobject::Backend {
                 }
                 _ => BTreeSet::new(),
             };
-            in_flight.store(false, Ordering::SeqCst);
-            let _ = qt_thread.queue(move |mut backend| {
-                backend.as_mut().apply_idle_auto_stops(active_exec_envs);
-            });
+            let in_flight_cb = Arc::clone(&in_flight);
+            if qt_thread
+                .queue(move |mut backend| {
+                    in_flight_cb.store(false, Ordering::SeqCst);
+                    backend.as_mut().apply_idle_auto_stops(active_exec_envs);
+                })
+                .is_err()
+            {
+                in_flight.store(false, Ordering::SeqCst);
+            }
         });
     }
 

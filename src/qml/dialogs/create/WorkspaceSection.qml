@@ -7,6 +7,8 @@ import "../../components"
 ColumnLayout {
     id: root
     property QtObject app: null
+    readonly property var templateList: backend.templates
+    readonly property int templateCount: templateList.length
 
     Layout.fillWidth: true
     spacing: Style.padCard
@@ -97,14 +99,14 @@ ColumnLayout {
 
     // Source mode switcher (shown when templates exist)
     RowLayout {
-        visible: backend.templates.length > 0
+        visible: root.templateCount > 0
         Layout.fillWidth: true
         spacing: Style.gapMd
 
         Repeater {
             model: [
                 { fromTpl: false, label: qsTr("Fresh OS") },
-                { fromTpl: true, label: qsTr("From Template (%1)").arg(backend.templates.length) }
+                { fromTpl: true, label: qsTr("From Template (%1)").arg(root.templateCount) }
             ]
             delegate: SelectChip {
                 required property var modelData
@@ -119,8 +121,8 @@ ColumnLayout {
                 chipHeight: Style.controlHeight
                 onClicked: {
                     root.app.createFromTemplate = modelData.fromTpl
-                    if (modelData.fromTpl && root.app.newEnvTemplateName.length === 0 && backend.templates.length > 0)
-                        root.app.newEnvTemplateName = backend.templates[0].name || ""
+                    if (modelData.fromTpl && root.app.newEnvTemplateName.length === 0 && root.templateCount > 0)
+                        root.app.newEnvTemplateName = root.templateList[0].name || ""
                 }
             }
         }
@@ -128,7 +130,7 @@ ColumnLayout {
 
     // Template picker (when From Template is selected)
     ColumnLayout {
-        visible: root.app.createFromTemplate && backend.templates.length > 0
+        visible: root.app.createFromTemplate && root.templateCount > 0
         Layout.fillWidth: true
         spacing: Style.gapSm
 
@@ -147,7 +149,7 @@ ColumnLayout {
             rowSpacing: Style.gapMd
 
             Repeater {
-                model: backend.templates
+                model: root.templateList
                 delegate: SelectCard {
                     required property var modelData
                     Layout.fillWidth: true

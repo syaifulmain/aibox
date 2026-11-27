@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::pin::Pin;
 
+use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 
 use aibox_core::incus::list::environment_by_name;
@@ -37,7 +38,7 @@ impl qobject::Backend {
             &format!("Updating auto-snapshot for '{name_s}'"),
             &script,
             "",
-            "",
+            &name_s,
         );
     }
 
@@ -210,6 +211,18 @@ impl qobject::Backend {
     ) {
         let name_s = name.to_string();
         if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        if self.demo_mode {
+            {
+                let mut rust = self.as_mut().rust_mut();
+                rust.demo_environments
+                    .retain(|e| e.get("name").and_then(|v| v.as_str()) != Some(name_s.as_str()));
+            }
+            self.as_mut().sync_demo_environments();
+            self.as_mut().refresh_stale_report();
+            self.as_mut()
+                .set_status_message(&format!("[Demo] Wiped environment '{name_s}'."));
             return;
         }
         let host_ws = self.workspace_path_for(&name_s);

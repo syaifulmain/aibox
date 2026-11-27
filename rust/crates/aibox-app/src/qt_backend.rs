@@ -30,7 +30,7 @@ use aibox_core::util::paths::{
 };
 use aibox_core::workspace::diff::{default_diff_excludes, WorkspaceDiffCache};
 
-use crate::qt_backend_refresh::SchedulerState;
+use crate::qt_backend_watch::{SchedulerState, TaskWatchConfig};
 use crate::qt_convert::{
     i32s_to_qvariant_list, json_array_to_qvariant_list, json_object_to_qvariant_map,
     serialize_to_qvariant_list, strings_to_qstringlist,
@@ -105,14 +105,14 @@ pub mod qobject {
             default_workspace_base,
             cxx_name = "defaultWorkspaceBase",
             READ,
-            CONSTANT
+            NOTIFY = workspace_base_changed
         )]
         #[qproperty(
             QString,
             default_os_storage_path,
             cxx_name = "defaultOsStoragePath",
             READ,
-            CONSTANT
+            NOTIFY = os_storage_path_changed
         )]
         #[qproperty(QString, config_file_path, cxx_name = "configFilePath", READ, NOTIFY = config_file_path_changed)]
         #[qproperty(bool, first_run, cxx_name = "firstRun", READ, NOTIFY = first_run_changed)]
@@ -184,6 +184,7 @@ pub mod qobject {
         #[qproperty(QString, egress_logs_env_name, cxx_name = "egressLogsEnvName", READ, NOTIFY = egress_logs_changed)]
         #[qproperty(QString, backups_dir_path, cxx_name = "backupsDirPath", READ = backups_dir_path, NOTIFY = os_storage_path_changed)]
         #[qproperty(QList_QVariant, backup_archives, cxx_name = "backupArchives", READ, NOTIFY = backup_archives_changed)]
+        #[qproperty(QMap_QString_QVariant, export_space_info, cxx_name = "exportSpaceInfo", READ, NOTIFY = export_space_info_changed)]
         #[qproperty(QStringList, diff_excludes, cxx_name = "diffExcludes", READ, NOTIFY = diff_excludes_changed)]
         #[qproperty(bool, diff_loading, cxx_name = "diffLoading", READ, NOTIFY = workspace_diff_changed)]
         #[qproperty(QList_QVariant, diff_entries, cxx_name = "diffEntries", READ, NOTIFY = workspace_diff_changed)]
@@ -197,7 +198,7 @@ pub mod qobject {
             secrets_store_path,
             cxx_name = "secretsStorePath",
             READ,
-            CONSTANT
+            NOTIFY = secrets_changed
         )]
         #[qproperty(QList_QVariant, environment_secrets, cxx_name = "environmentSecrets", READ, NOTIFY = environment_secrets_changed)]
         #[qproperty(QString, environment_secrets_error, cxx_name = "environmentSecretsError", READ, NOTIFY = environment_secrets_changed)]
@@ -286,6 +287,9 @@ pub mod qobject {
         #[qsignal]
         #[cxx_name = "backupArchivesChanged"]
         fn backup_archives_changed(self: Pin<&mut Backend>);
+        #[qsignal]
+        #[cxx_name = "exportSpaceInfoChanged"]
+        fn export_space_info_changed(self: Pin<&mut Backend>);
         #[qsignal]
         #[cxx_name = "diffExcludesChanged"]
         fn diff_excludes_changed(self: Pin<&mut Backend>);
@@ -589,6 +593,10 @@ pub mod qobject {
             name: &QString,
             include_workspace: bool,
         ) -> QMap_QString_QVariant;
+
+        #[qinvokable]
+        #[cxx_name = "refreshExportSpace"]
+        fn refresh_export_space(self: Pin<&mut Backend>, name: &QString, include_workspace: bool);
 
         #[qinvokable]
         #[cxx_name = "exportEnvironment"]
@@ -954,6 +962,7 @@ pub struct BackendRust {
     pub(crate) egress_logs: QListQVariant,
     pub(crate) egress_logs_env_name: QString,
     pub(crate) backup_archives: QListQVariant,
+    pub(crate) export_space_info: QMapQStringQVariant,
     pub(crate) diff_excludes: QStringList,
     pub(crate) diff_loading: bool,
     pub(crate) diff_entries: QListQVariant,
@@ -975,11 +984,13 @@ pub struct BackendRust {
     pub(crate) demo_environments: Vec<serde_json::Value>,
     pub(crate) selected_environment_cache: QMapQStringQVariant,
     pub(crate) templates_cache: QListQVariant,
+    pub(crate) secrets_list_cache: QListQVariant,
     pub(crate) history_seen_id: String,
     pub(crate) last_images_json: Vec<u8>,
     pub(crate) environments_arc: Arc<[Environment]>,
     pub(crate) last_environments_hash: u64,
     pub(crate) last_list_hash: u64,
+    pub(crate) env_config_gen: u64,
     pub(crate) last_alert_thresholds: (i32, i32),
     pub(crate) last_pool_quotas: (i64, i32),
     pub(crate) last_refresh_at: Option<Instant>,
@@ -994,10 +1005,12 @@ pub struct BackendRust {
     pub(crate) scheduler: Arc<SchedulerState>,
     pub(crate) monitor_active: Arc<AtomicBool>,
     pub(crate) monitor_child: Arc<std::sync::Mutex<Option<std::process::Child>>>,
-    pub(crate) task_watch_active: Arc<AtomicBool>,
+    pub(crate) task_watch_state: Arc<(Mutex<TaskWatchConfig>, Condvar)>,
     pub(crate) diff_generation: Arc<AtomicU64>,
     pub(crate) file_diff_generation: Arc<AtomicU64>,
     pub(crate) stale_report_generation: Arc<AtomicU64>,
+    pub(crate) export_space_generation: Arc<AtomicU64>,
+    pub(crate) egress_generation: Arc<AtomicU64>,
     pub(crate) prefetch_in_flight: Arc<Mutex<HashSet<String>>>,
     pub(crate) diff_cache: WorkspaceDiffCache,
     pub(crate) log_offset: i64,
@@ -1016,6 +1029,7 @@ pub struct BackendRust {
     pub(crate) idle_check_in_flight: Arc<AtomicBool>,
     pub(crate) snapshot_size_cache: SnapshotSizeCache,
     pub(crate) snapshot_sizes_in_flight: Arc<AtomicBool>,
+    pub(crate) pending_snapshot_sizes: bool,
 }
 
 impl Default for BackendRust {
@@ -1029,6 +1043,7 @@ impl Default for BackendRust {
         let default_os = default_os_storage_path();
         let host_swap = host_swap_info();
 
+        let init_state_dir = engine.paths.state_dir.clone();
         Self {
             count: 0,
             environments: QListQVariant::default(),
@@ -1096,6 +1111,7 @@ impl Default for BackendRust {
             egress_logs: QListQVariant::default(),
             egress_logs_env_name: QString::default(),
             backup_archives: QListQVariant::default(),
+            export_space_info: QMapQStringQVariant::default(),
             diff_excludes: strings_to_qstringlist(&default_diff_excludes()),
             diff_loading: false,
             diff_entries: QListQVariant::default(),
@@ -1115,11 +1131,13 @@ impl Default for BackendRust {
             demo_environments: Vec::new(),
             selected_environment_cache: QMapQStringQVariant::default(),
             templates_cache: QListQVariant::default(),
+            secrets_list_cache: QListQVariant::default(),
             history_seen_id: String::new(),
             last_images_json: Vec::new(),
             environments_arc: Arc::from(Vec::new()),
             last_environments_hash: 0,
             last_list_hash: 0,
+            env_config_gen: 0,
             last_alert_thresholds: (0, 0),
             last_pool_quotas: (0, 0),
             last_refresh_at: None,
@@ -1134,10 +1152,20 @@ impl Default for BackendRust {
             scheduler: Arc::new(SchedulerState::default()),
             monitor_active: Arc::new(AtomicBool::new(false)),
             monitor_child: Arc::new(std::sync::Mutex::new(None)),
-            task_watch_active: Arc::new(AtomicBool::new(false)),
+            task_watch_state: Arc::new((
+                Mutex::new(TaskWatchConfig {
+                    state_dir: init_state_dir,
+                    active: false,
+                    stopped: false,
+                    reconfigure_gen: 0,
+                }),
+                Condvar::new(),
+            )),
             diff_generation: Arc::new(AtomicU64::new(0)),
             file_diff_generation: Arc::new(AtomicU64::new(0)),
             stale_report_generation: Arc::new(AtomicU64::new(0)),
+            export_space_generation: Arc::new(AtomicU64::new(0)),
+            egress_generation: Arc::new(AtomicU64::new(0)),
             prefetch_in_flight: Arc::new(Mutex::new(HashSet::new())),
             diff_cache: WorkspaceDiffCache::default(),
             log_offset: 0,
@@ -1156,15 +1184,23 @@ impl Default for BackendRust {
             idle_check_in_flight: Arc::new(AtomicBool::new(false)),
             snapshot_size_cache: SnapshotSizeCache::default(),
             snapshot_sizes_in_flight: Arc::new(AtomicBool::new(false)),
+            pending_snapshot_sizes: false,
         }
     }
 }
 
 impl Drop for BackendRust {
     fn drop(&mut self) {
-        self.stop_flag.store(true, Ordering::Relaxed);
-        self.poll_wake.1.notify_all();
-        self.scheduler.notify_all();
+        self.stop_flag.store(true, Ordering::Release);
+        {
+            let _guard = self.poll_wake.0.lock();
+            self.poll_wake.1.notify_all();
+        }
+        self.scheduler.stop(&self.stop_flag);
+        if let Ok(mut w) = self.task_watch_state.0.lock() {
+            w.stopped = true;
+            self.task_watch_state.1.notify_all();
+        }
         if let Ok(mut guard) = self.monitor_child.lock() {
             if let Some(mut child) = guard.take() {
                 let _ = child.kill();
@@ -1194,8 +1230,7 @@ impl qobject::Backend {
     }
 
     pub fn secrets_list(&self) -> QListQVariant {
-        let list = self.engine.secrets.secrets_list();
-        serialize_to_qvariant_list(&list)
+        self.secrets_list_cache.clone()
     }
 
     pub fn configure(mut self: Pin<&mut Self>, path: &QString, project_mode: bool) {
@@ -1225,6 +1260,7 @@ impl qobject::Backend {
 
         self.as_mut().sync_config_properties();
         self.as_mut().rebuild_os_catalog();
+        self.as_mut().reconfigure_task_watch();
 
         {
             let mut rust = self.as_mut().rust_mut();
@@ -1270,6 +1306,7 @@ impl qobject::Backend {
 
     pub(crate) fn rebuild_os_catalog(mut self: Pin<&mut Self>) {
         let downloading = self.downloading_os_id.to_string();
+        let default_os = QString::from(self.engine.config.default_os_id.as_str());
         let catalog = catalog_for_entries(
             &self.engine.config.os_catalog,
             &self.last_images_json,
@@ -1279,6 +1316,7 @@ impl qobject::Backend {
         let q_catalog = serialize_to_qvariant_list(&catalog);
         {
             let mut rust = self.as_mut().rust_mut();
+            rust.default_os_id = default_os;
             rust.engine.os_catalog = catalog;
             rust.os_catalog = q_catalog;
         }
@@ -1313,12 +1351,14 @@ impl qobject::Backend {
             if rust.engine.secrets.secrets.is_empty() {
                 rust.engine.secrets.secrets = state.default_secrets;
             }
+            rust.engine.set_history_cache(state.operation_history);
             rust.environments = q_envs;
             rust.count = count;
             rust.operation_history = q_history;
             rust.backup_archives = q_backups;
             rust.pool_info = q_pool;
             rust.recorded_sessions = q_sessions;
+            rust.rebuild_secrets_list_cache();
             rust.rebuild_templates_cache();
             rust.rebuild_selected_environment_cache();
         }

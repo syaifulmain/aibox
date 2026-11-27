@@ -170,7 +170,7 @@ pub fn export_and_wipe_environment_script_with_options(
         workspace_path,
         workspace_archive_file,
         compression,
-        write_manifest,
+        false,
     );
     script.push_str(&format!(
         "\necho '@@STAGE:78:Verifying exported archive before wipe...'\n\
@@ -187,6 +187,37 @@ pub fn export_and_wipe_environment_script_with_options(
              echo 'Export verification failed: workspace archive is missing or empty; aborting wipe.' >&2\n    \
              exit 1\n\
              fi\n"
+        ));
+    }
+    if write_manifest {
+        let q_name = shell_quote(name);
+        let manifest_path = manifest_path_for(backup_file);
+        let q_manifest = shell_quote(&manifest_path.to_string_lossy());
+        let q_comp = shell_quote(compression.as_str());
+        let ws_block = if !workspace_path.trim().is_empty()
+            && !workspace_archive_file.trim().is_empty()
+        {
+            let q_ws_out = shell_quote(workspace_archive_file);
+            format!(
+                "WS_JSON=''\n\
+                 if [ -f {q_ws_out} ]; then\n    \
+                 WS_SHA=$(sha256sum {q_ws_out} | awk '{{print $1}}')\n    \
+                 WS_SIZE=$(stat -c%s {q_ws_out})\n    \
+                 WS_BASE=$(basename {q_ws_out})\n    \
+                 WS_JSON=$(printf ',\\n  \"workspaceArchiveFile\": \"%s\",\\n  \"workspaceArchiveSha256\": \"%s\",\\n  \"workspaceArchiveSizeBytes\": %s' \"$WS_BASE\" \"$WS_SHA\" \"$WS_SIZE\")\n\
+                 fi"
+            )
+        } else {
+            "WS_JSON=''".to_string()
+        };
+        script.push_str(&format!(
+            "echo '@@STAGE:90:Writing backup manifest and SHA-256 checksum...'\n\
+             ARC_SHA=$(sha256sum {q_backup} | awk '{{print $1}}')\n\
+             ARC_SIZE=$(stat -c%s {q_backup})\n\
+             ARC_BASE=$(basename {q_backup})\n\
+             CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n\
+             {ws_block}\n\
+             printf '{{\\n  \"version\": 1,\\n  \"envName\": \"%s\",\\n  \"createdAt\": \"%s\",\\n  \"compression\": \"%s\",\\n  \"archiveFile\": \"%s\",\\n  \"archiveSha256\": \"%s\",\\n  \"archiveSizeBytes\": %s%s\\n}}\\n' {q_name} \"$CREATED_AT\" {q_comp} \"$ARC_BASE\" \"$ARC_SHA\" \"$ARC_SIZE\" \"$WS_JSON\" > {q_manifest}\n"
         ));
     }
     script.push_str(&wipe_environment_script(
@@ -233,17 +264,37 @@ pub fn import_environment_script_with_options(
     let mut script = String::from("set -e\n");
     if verify_manifest {
         let q_manifest = shell_quote(&manifest_path_for(backup_file).to_string_lossy());
+        let ws_verify = if !workspace_archive_file.trim().is_empty() {
+            let q_ws_arc = shell_quote(workspace_archive_file);
+            format!(
+                "    EXP_WS_SHA=$(sed -n 's/.*\"workspaceArchiveSha256\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' {q_manifest} | head -n1)\n    \
+                 if [ -z \"$EXP_WS_SHA\" ]; then\n        \
+                 echo 'Backup manifest is missing workspaceArchiveSha256.' >&2\n        \
+                 exit 1\n    \
+                 fi\n    \
+                 ACT_WS_SHA=$(sha256sum {q_ws_arc} | awk '{{print $1}}')\n    \
+                 if [ \"$EXP_WS_SHA\" != \"$ACT_WS_SHA\" ]; then\n        \
+                 echo \"Workspace archive checksum mismatch: expected $EXP_WS_SHA, got $ACT_WS_SHA\" >&2\n        \
+                 exit 1\n    \
+                 fi\n"
+            )
+        } else {
+            String::new()
+        };
         script.push_str(&format!(
             "if [ -f {q_manifest} ]; then\n    \
              echo '@@STAGE:10:Verifying backup archive checksum...'\n    \
              EXP_SHA=$(sed -n 's/.*\"archiveSha256\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' {q_manifest} | head -n1)\n    \
-             if [ -n \"$EXP_SHA\" ]; then\n        \
-             ACT_SHA=$(sha256sum {q_backup} | awk '{{print $1}}')\n        \
-             if [ \"$EXP_SHA\" != \"$ACT_SHA\" ]; then\n            \
-             echo \"Backup archive checksum mismatch: expected $EXP_SHA, got $ACT_SHA\" >&2\n            \
-             exit 1\n        \
+             if [ -z \"$EXP_SHA\" ]; then\n        \
+             echo 'Backup manifest is corrupt or missing archiveSha256.' >&2\n        \
+             exit 1\n    \
              fi\n    \
+             ACT_SHA=$(sha256sum {q_backup} | awk '{{print $1}}')\n    \
+             if [ \"$EXP_SHA\" != \"$ACT_SHA\" ]; then\n        \
+             echo \"Backup archive checksum mismatch: expected $EXP_SHA, got $ACT_SHA\" >&2\n        \
+             exit 1\n    \
              fi\n\
+             {ws_verify}\
              fi\n"
         ));
     }

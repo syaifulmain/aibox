@@ -1,6 +1,9 @@
 //! First-run setup and storage location settings.
 
+use std::ffi::CString;
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
 
 use crate::config::error::ConfigError;
 use crate::config::model::Config;
@@ -39,9 +42,13 @@ fn ensure_writable_dir(
     if fs::create_dir_all(path).is_err() {
         return Err(ConfigError::invalid(field, format!("{create_err}: {path}")));
     }
-    match fs::metadata(path) {
-        Ok(meta) if meta.is_dir() && !meta.permissions().readonly() => Ok(()),
-        _ => Err(ConfigError::invalid(field, format!("{write_err}: {path}"))),
+    let is_writable_dir = Path::new(path).is_dir()
+        && CString::new(Path::new(path).as_os_str().as_bytes())
+            .is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::W_OK) == 0 });
+    if is_writable_dir {
+        Ok(())
+    } else {
+        Err(ConfigError::invalid(field, format!("{write_err}: {path}")))
     }
 }
 

@@ -3,6 +3,7 @@ pub mod env;
 pub mod snapshot;
 
 use std::io;
+use std::sync::OnceLock;
 
 use chrono::Local;
 use regex::Regex;
@@ -11,7 +12,7 @@ use serde_json::json;
 use serde_json::ser::{Formatter, Serializer};
 
 use crate::cli::{help_text, CliIo, Command, ExitCode, ParsedArgs};
-use crate::engine::Engine;
+use crate::engine::{Engine, ResolvedPaths};
 use crate::health::checks::run_health_checks;
 use crate::history::{record_operation_history, RecordOperationParams};
 use crate::incus::list::Environment;
@@ -142,7 +143,7 @@ pub(crate) fn run_script_with_task_lock(
     }
 
     let started_at = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
-    let out = runner.run("/bin/bash", &["-c", script]);
+    let out = runner.run_with_timeout("/bin/bash", &["-c", script], None);
 
     let mut combined = Vec::new();
     combined.extend_from_slice(out.std_out.as_bytes());
@@ -154,7 +155,9 @@ pub(crate) fn run_script_with_task_lock(
     }
 
     if stream_progress {
-        let stage_re = Regex::new(r"^@@STAGE:(\d+):(.*)$").expect("valid stage regex");
+        static STAGE_RE: OnceLock<Regex> = OnceLock::new();
+        let stage_re = STAGE_RE
+            .get_or_init(|| Regex::new(r"^@@STAGE:(\d+):(.*)$").expect("valid stage regex"));
         let text = String::from_utf8_lossy(&combined);
         for raw_line in text.lines() {
             let line = raw_line.trim();
@@ -197,8 +200,34 @@ pub(crate) fn run_script_with_task_lock(
     }
 }
 
-fn run_check(parsed: &ParsedArgs, io: &mut dyn CliIo, runner: &dyn CommandRunner) -> i32 {
-    let checks = run_health_checks(parsed.fix, runner, "", "", "");
+fn run_check(
+    parsed: &ParsedArgs,
+    io: &mut dyn CliIo,
+    runner: &dyn CommandRunner,
+    cwd: &str,
+) -> i32 {
+    let ws_base = if !parsed.project_dir.is_empty() {
+        let paths = ResolvedPaths::resolve(Some(parsed.project_dir.as_str()), true, cwd);
+        let cfg = crate::config::model::load(
+            &paths.config_file_path,
+            &paths.workspace_base,
+            &paths.os_storage_path,
+        );
+        cfg.workspace_base
+    } else {
+        let paths = ResolvedPaths::resolve(None, false, cwd);
+        if std::path::Path::new(&paths.config_file_path).exists() {
+            let cfg = crate::config::model::load(
+                &paths.config_file_path,
+                &paths.workspace_base,
+                &paths.os_storage_path,
+            );
+            cfg.workspace_base
+        } else {
+            String::new()
+        }
+    };
+    let checks = run_health_checks(parsed.fix, runner, "", "", &ws_base);
     let mut all_ok = true;
     let mut warning_count = 0i32;
     let mut arr = Vec::with_capacity(checks.len());
@@ -328,7 +357,7 @@ pub fn execute_with(
             io.write_stdout(help_text(parsed.help_target).as_bytes());
             return ExitCode::Ok.as_i32();
         }
-        Command::Check => return run_check(parsed, io, runner),
+        Command::Check => return run_check(parsed, io, runner, cwd),
         Command::Theme => return run_theme(parsed, io),
         Command::Completions => return completions::run_completions(parsed, io),
         _ => {}

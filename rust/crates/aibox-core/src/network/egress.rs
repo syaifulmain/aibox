@@ -85,17 +85,18 @@ impl EgressEnvState {
         if total_len > self.last_offset {
             reader.seek(SeekFrom::Start(self.last_offset))?;
             let mut buf_reader = BufReader::new(reader);
-            let mut line = String::new();
+            let mut byte_buf = Vec::new();
             let mut bytes_read = 0u64;
             loop {
-                line.clear();
-                let n = buf_reader.read_line(&mut line)?;
-                if n == 0 {
+                byte_buf.clear();
+                let n = buf_reader.read_until(b'\n', &mut byte_buf)?;
+                if n == 0 || !byte_buf.ends_with(b"\n") {
                     break;
                 }
                 bytes_read += n as u64;
+                let line = String::from_utf8_lossy(&byte_buf);
                 let trimmed = line.trim_end_matches(['\r', '\n']);
-                self.ingest_line(trimmed, clean_ip, clean_iface);
+                self.ingest_line(trimmed, clean_ip, clean_iface, max_entries);
             }
             self.last_offset += bytes_read;
         }
@@ -103,7 +104,7 @@ impl EgressEnvState {
         Ok(self.snapshot_rows(max_entries))
     }
 
-    fn ingest_line(&mut self, line: &str, clean_ip: &str, clean_iface: &str) {
+    fn ingest_line(&mut self, line: &str, clean_ip: &str, clean_iface: &str, max_entries: i32) {
         if line.is_empty() || !line.contains("eth0-egress") {
             return;
         }
@@ -143,9 +144,10 @@ impl EgressEnvState {
 
         let seen = extract_timestamp(line);
         let norm_proto = if proto.is_empty() { "IP" } else { proto };
+        let canon_dst = canonical_ip_or_raw(dst_ip);
 
         self.key_buf.clear();
-        self.key_buf.push_str(dst_ip);
+        self.key_buf.push_str(&canon_dst);
         self.key_buf.push('|');
         self.key_buf.push_str(norm_proto);
         self.key_buf.push('|');
@@ -160,10 +162,17 @@ impl EgressEnvState {
             }
             entry.seq = self.seq_counter;
         } else {
+            let cap = (max_entries.max(1) as usize).saturating_mul(8).max(4096);
+            if self.agg.len() >= cap {
+                let mut seqs: Vec<i64> = self.agg.values().map(|e| e.seq).collect();
+                let mid = seqs.len() / 2;
+                let (_, &mut cutoff, _) = seqs.select_nth_unstable(mid);
+                self.agg.retain(|_, e| e.seq > cutoff);
+            }
             self.agg.insert(
                 self.key_buf.clone(),
                 AggEntry {
-                    dst_ip: canonical_ip_or_raw(dst_ip),
+                    dst_ip: canon_dst,
                     proto: norm_proto.to_string(),
                     port: port.to_string(),
                     last_seen: seen.to_string(),
@@ -176,11 +185,17 @@ impl EgressEnvState {
 
     fn snapshot_rows(&self, max_entries: i32) -> Vec<EgressLogRow> {
         let mut list: Vec<&AggEntry> = self.agg.values().collect();
-        list.sort_by_key(|a| std::cmp::Reverse(a.seq));
-
         let limit = max_entries.max(1) as usize;
+        if list.len() > limit {
+            let (top, _, _) =
+                list.select_nth_unstable_by_key(limit - 1, |a| std::cmp::Reverse(a.seq));
+            top.sort_by_key(|a| std::cmp::Reverse(a.seq));
+            list.truncate(limit);
+        } else {
+            list.sort_by_key(|a| std::cmp::Reverse(a.seq));
+        }
+
         list.into_iter()
-            .take(limit)
             .map(|e| EgressLogRow {
                 dst_ip: e.dst_ip.clone(),
                 proto: e.proto.clone(),
@@ -270,8 +285,7 @@ fn canonical_ip_or_raw(raw: &str) -> String {
     }
 }
 
-fn is_hh_mm_ss(s: &str) -> bool {
-    let b = s.as_bytes();
+fn is_hh_mm_ss_bytes(b: &[u8]) -> bool {
     b.len() == 8
         && b[0].is_ascii_digit()
         && b[1].is_ascii_digit()
@@ -281,6 +295,10 @@ fn is_hh_mm_ss(s: &str) -> bool {
         && b[5] == b':'
         && b[6].is_ascii_digit()
         && b[7].is_ascii_digit()
+}
+
+fn is_hh_mm_ss(s: &str) -> bool {
+    is_hh_mm_ss_bytes(s.as_bytes())
 }
 
 fn extract_timestamp(line: &str) -> &str {
@@ -293,11 +311,9 @@ fn extract_timestamp(line: &str) -> &str {
         && b[..4].iter().all(u8::is_ascii_digit)
         && b[5..7].iter().all(u8::is_ascii_digit)
         && b[8..10].iter().all(u8::is_ascii_digit)
+        && is_hh_mm_ss_bytes(&b[11..19])
     {
-        let time_part = &line[11..19];
-        if is_hh_mm_ss(time_part) {
-            return time_part;
-        }
+        return &line[11..19];
     }
 
     // Syslog: Mmm DD HH:MM:SS ...
@@ -331,7 +347,7 @@ pub fn parse_kernel_egress_logs(
 
     let mut state = EgressEnvState::default();
     for line in journal_output.split('\n') {
-        state.ingest_line(line, clean_ip, clean_iface);
+        state.ingest_line(line, clean_ip, clean_iface, max_entries);
     }
     state.snapshot_rows(max_entries)
 }
