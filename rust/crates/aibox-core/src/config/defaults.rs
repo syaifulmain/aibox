@@ -163,5 +163,6 @@ pub fn default_diff_excludes() -> Vec<String> {
         "__pycache__/".to_string(),
         "build/".to_string(),
         ".aibox-paste/".to_string(),
+        "download/".to_string(),
     ]
 }

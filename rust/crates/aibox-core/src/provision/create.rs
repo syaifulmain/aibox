@@ -1,7 +1,7 @@
 use crate::config::defaults::{OsEntry, Preset};
 use crate::display::{
     build_audio_plan, build_desktop_plan, combine_scripts, detect_host_audio, detect_host_session,
-    set_audio_mode_script, set_desktop_mode_script, AudioMode, DesktopMode,
+    download_dir_script, set_audio_mode_script, set_desktop_mode_script, AudioMode, DesktopMode,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
@@ -115,6 +115,7 @@ pub fn create_environment_script_with_session(
     is_vm: bool,
     session_script: &str,
 ) -> String {
+    let session_script = combine_scripts(&[session_script.to_string(), download_dir_script(name)]);
     create_environment_script_inner(
         name,
         local_alias,
@@ -130,7 +131,7 @@ pub fn create_environment_script_with_session(
         io_limit,
         swap_limit,
         is_vm,
-        Some(session_script),
+        Some(&session_script),
     )
 }
 
@@ -628,6 +629,8 @@ mod tests {
         assert!(script.contains("user.aibox.desktop 'on'"));
         assert!(script.contains("user.aibox.audio 'output'"));
         assert!(script.contains("'pulse' 'proxy'"));
+        assert!(script.contains("mkdir -p '/home/workspace/download'"));
+        assert!(script.contains("user-dirs.dirs"));
         let workspace_at = script
             .find("config device add \"$NAME\" workspace")
             .unwrap();

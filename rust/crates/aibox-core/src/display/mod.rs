@@ -8,6 +8,7 @@
 //! Incus daemon.
 
 pub mod audio;
+pub mod downloads;
 pub mod host;
 pub mod plan;
 
@@ -15,6 +16,9 @@ pub use audio::{
     apply_audio_devices_script, build_audio_plan, detect_host_audio, detect_host_audio_with,
     remove_audio_devices_script, set_audio_mode_script, test_audio_script, AudioMode, AudioPlan,
     HostAudio,
+};
+pub use downloads::{
+    download_dir_script, download_env, upsert_download_dir, CONTAINER_DOWNLOAD_DIR,
 };
 pub use host::{detect_host_session, detect_host_session_with, HostSession};
 pub use plan::{

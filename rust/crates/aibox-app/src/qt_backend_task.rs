@@ -11,8 +11,8 @@ use cxx_qt_lib::QString;
 
 use aibox_core::display::{
     apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
-    combine_scripts, detect_host_audio, detect_host_session, merge_env_pairs, AudioMode, AudioPlan,
-    DesktopMode, DisplayPlan,
+    combine_scripts, detect_host_audio, detect_host_session, download_dir_script, download_env,
+    merge_env_pairs, AudioMode, AudioPlan, DesktopMode, DisplayPlan,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -539,16 +539,19 @@ impl qobject::Backend {
     fn session_env_for_env(&self, env_name: &str) -> Vec<(String, String)> {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
-        merge_env_pairs(&[&desktop.env, &audio.env])
+        let downloads = download_env();
+        merge_env_pairs(&[&desktop.env, &audio.env, &downloads])
     }
 
-    /// Applies display and audio devices for GUI Start, not only Enter.
+    /// Applies display, audio, and download integration for GUI Start, not
+    /// only Enter.
     pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
         combine_scripts(&[
             apply_devices_script(env_name, &desktop),
             apply_audio_devices_script(env_name, &audio),
+            download_dir_script(env_name),
         ])
     }
 
@@ -558,12 +561,7 @@ impl qobject::Backend {
             return;
         }
         let auto_snap = self.auto_snapshot_snippet_for(&env_name);
-        let desktop_plan = self.desktop_plan_for_env(&env_name);
-        let audio_plan = self.audio_plan_for_env(&env_name);
-        let session_script = combine_scripts(&[
-            apply_devices_script(&env_name, &desktop_plan),
-            apply_audio_devices_script(&env_name, &audio_plan),
-        ]);
+        let session_script = self.session_bridge_script_for_env(&env_name);
         let script = build_prepare_script_with_desktop(
             &env_name,
             &auto_snap,

@@ -1,4 +1,4 @@
-{"args":{},"case":"default","fn":"Backend::defaultDiffExcludes","out":[".git/","node_modules/","target/",".venv/","__pycache__/","build/",".aibox-paste/"]}
+{"args":{},"case":"default","fn":"Backend::defaultDiffExcludes","out":[".git/","node_modules/","target/",".venv/","__pycache__/","build/",".aibox-paste/","download/"]}
 {"args":{"rawText":""},"case":"empty","fn":"Backend::parseDiffExcludes","out":[]}
 {"args":{"rawText":" .git/ , dist/ ; *.log\r\ndist/\n  \nbuild/ "},"case":"mixed_seps_dedup","fn":"Backend::parseDiffExcludes","out":[".git/","dist/","*.log","build/"]}
 {"args":{"excludes":[".git/"," ","  build/  "]},"case":"trimmed","fn":"Backend::buildRsyncExcludeArgs","out":["--exclude=.git/","--exclude=build/"]}

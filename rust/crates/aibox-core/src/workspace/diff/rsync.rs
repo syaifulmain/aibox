@@ -454,6 +454,7 @@ cLc........ 8 changed_link\n";
         assert!(defaults.contains(&"target/".to_string()));
         assert!(defaults.contains(&".venv/".to_string()));
         assert!(defaults.contains(&".aibox-paste/".to_string()));
+        assert!(defaults.contains(&"download/".to_string()));
 
         assert_eq!(
             parse_diff_excludes(".git/, dist/, *.log\ndist/"),

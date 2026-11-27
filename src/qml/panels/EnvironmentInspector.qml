@@ -285,6 +285,12 @@ Item {
                         value: (root.env.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
                         bodyValue: true
                     }
+
+                    KeyValue {
+                        label: qsTr("Downloads")
+                        value: backend.containerWorkspacePath + "/download"
+                        bodyValue: true
+                    }
                 }
 
                 // Root file access (localhost-only SFTP) card

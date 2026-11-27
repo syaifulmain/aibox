@@ -63,6 +63,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Shared Download Folder: `/home/workspace/download` (`rust/crates/aibox-core/src/display/downloads.rs`, `rust/crates/aibox-core/src/provision/create.rs`, `rust/crates/aibox-core/src/cli/commands/env.rs`, `rust/crates/aibox-app/src/qt_backend_task.rs`, `rust/crates/aibox-core/src/config/defaults.rs`, `src/qml/panels/EnvironmentInspector.qml`, `src/i18n/`)
+
+- Added `aibox-core::display::downloads` with `CONTAINER_DOWNLOAD_DIR`, `download_dir_script`, `download_env`, and a pure `upsert_download_dir` helper that replaces an existing `XDG_DOWNLOAD_DIR=` line in place, appends it when missing, collapses duplicates, and preserves every other `XDG_*_DIR` entry, comments, and blank lines. Values are quoted and shell-escaped, and applying the helper twice is a no-op.
+- The host-side snippet runs `incus exec` to create `/home/workspace/download` and write `~/.config/user-dirs.dirs` inside the instance (root containers use `/root/.config`). The merge happens inside the container with `awk` plus a temp file and `mv`, so entries added by the user or an application survive; a fresh container receives the helper-computed file. Failures are tolerated so VMs without an Incus agent still Start/Enter, and the snippet is idempotent on every run.
+- Wired into every entry path: Create (`create_environment_script_with_session`), GUI Start (`session_bridge_script_for_env`) and Enter preparation, `aibox start`/`aibox enter`, and `aibox exec` (`XDG_DOWNLOAD_DIR` in the merged session environment). Existing environments pick the change up on their next Start/Enter/exec.
+- Added `download/` to `default_diff_excludes()` so new configurations do not report downloaded files as workspace changes. Existing saved configurations keep their own exclude list and are not migrated silently.
+- The **Shared Workspace** card now shows a **Downloads** row with `/home/workspace/download` next to the Host ↔ Guest row. Added the `Downloads` string to `src/i18n/en.json` and `src/i18n/da.json`. No new keyboard shortcuts.
+
 ### Audio and Microphone Bridge: Per-Environment Off / Output / Output + Mic (`rust/crates/aibox-core/src/display/audio.rs`, `rust/crates/aibox-core/src/provision/`, `rust/crates/aibox-core/src/cli/commands/env.rs`, `rust/crates/aibox-app/`, `src/qml/panels/AudioCard.qml`, `src/i18n/`)
 
 - Added `aibox-core::display::audio` with `AudioMode` (`off`, `output`, `full`), host Pulse/PipeWire socket detection (`$XDG_RUNTIME_DIR/pulse/native`, `$XDG_RUNTIME_DIR/pipewire-0`, and the `pulse/cookie` when present), and an `AudioPlan` shared by GUI Enter, `aibox enter`, `aibox exec`, Start, and Create.
