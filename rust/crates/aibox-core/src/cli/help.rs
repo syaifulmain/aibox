@@ -48,6 +48,10 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] ssh-config [env]\n\n\
              Print SSH config stanzas (Host aibox-<env>) using incus exec ProxyCommand.\n"
         }
+        Command::Svc => {
+            "Usage: aibox [--project <dir>] svc <env> <list|logs|start|stop|restart|enable|disable> [unit] [--lines <n>] [--json]\n\n\
+             Inspect and manage systemd/OpenRC services inside a running environment.\n"
+        }
         Command::Theme => {
             "Usage: aibox theme dump [path] [--json]\n\
              \x20      aibox theme render-icon [--output PATH] [--theme-dir DIR]\n\n\
@@ -72,6 +76,7 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20                                                     Restore snapshot\n\
              \x20 diff <env> [snap] [--json]                          Review /home/workspace changes\n\
              \x20 ssh-config [env]                                    Print SSH config stanzas\n\
+             \x20 svc <env> <action> [unit] [--lines <n>] [--json]    Manage container services\n\
              \x20 completions <bash|zsh|fish>                         Generate shell completions\n\
              \x20 help [command]                                      Show help\n\n\
              Global options:\n\

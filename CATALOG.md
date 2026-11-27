@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Service Management (`aibox svc` & `aibox-core::services`) (`rust/crates/aibox-core/src/services/mod.rs`, `lib.rs`, `cli/commands/svc.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox-core::services` with `ServiceEntry`, `is_valid_unit_name`, `list_services_script`, `parse_systemd_units`, `parse_openrc_units`, `parse_service_list`, `service_action_script` (`start`, `stop`, `restart`, `enable`, `disable`), and `service_logs_script` (`journalctl -u` with `/var/log/<unit>.log` fallback).
+- Added `aibox svc <env> <list|logs|start|stop|restart|enable|disable> [unit] [--lines <n>] [--json]`, rejecting stopped or template environments and updating `aibox help` and bash/zsh/fish completions.
+
 ### Session Time Limit (`aibox exec --timeout <dur>`) (`rust/crates/aibox-core/src/cli/parse.rs`, `cli/mod.rs`, `cli/help.rs`, `cli/commands/env.rs`, `cli/commands/completions.rs`)
 
 - Added `parse_duration_secs` (supporting `90`, `30s`, `15m`, `2h`, `1h30m`, bounded to `1s..=24h`) and `--timeout <dur>` / `--timeout=<dur>` on `aibox exec`.

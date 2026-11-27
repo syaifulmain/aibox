@@ -16,6 +16,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "restore" => Command::Restore,
         "diff" => Command::Diff,
         "ssh-config" => Command::SshConfig,
+        "svc" => Command::Svc,
         "theme" => Command::Theme,
         "completions" => Command::Completions,
         _ => Command::None,
@@ -202,6 +203,36 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 i += 1;
                 continue;
             }
+            if arg == "--lines" {
+                if i + 1 >= args.len() {
+                    return make_usage_error("--lines requires a positive integer.", Command::Svc);
+                }
+                i += 1;
+                match args[i].trim().parse::<usize>() {
+                    Ok(n) if n > 0 => parsed.log_lines = n,
+                    _ => {
+                        return make_usage_error(
+                            "--lines requires a positive integer.",
+                            Command::Svc,
+                        );
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--lines=") {
+                match val.trim().parse::<usize>() {
+                    Ok(n) if n > 0 => parsed.log_lines = n,
+                    _ => {
+                        return make_usage_error(
+                            "--lines requires a positive integer.",
+                            Command::Svc,
+                        );
+                    }
+                }
+                i += 1;
+                continue;
+            }
             if arg == "-h" || arg == "--help" {
                 saw_help = true;
                 i += 1;
@@ -292,7 +323,12 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     if saw_json
         && !matches!(
             parsed.command,
-            Command::List | Command::Check | Command::Snapshots | Command::Diff | Command::Theme
+            Command::List
+                | Command::Check
+                | Command::Snapshots
+                | Command::Diff
+                | Command::Svc
+                | Command::Theme
         )
     {
         return make_usage_error("--json is not supported for this command.", parsed.command);
@@ -323,6 +359,13 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     }
     if parsed.timeout_secs.is_some() && parsed.command != Command::Exec {
         return make_usage_error("--timeout is only supported for 'exec'.", parsed.command);
+    }
+    if args
+        .iter()
+        .any(|a| a == "--lines" || a.starts_with("--lines="))
+        && parsed.command != Command::Svc
+    {
+        return make_usage_error("--lines is only supported for 'svc'.", parsed.command);
     }
 
     parsed.json_output = saw_json;
@@ -396,6 +439,45 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             if let Some(env) = positionals.first() {
                 parsed.env_name = env.clone();
             }
+        }
+        Command::Svc => {
+            if positionals.len() < 2 || positionals.len() > 3 {
+                return make_usage_error(
+                    "Expected <env> <list|logs|start|stop|restart|enable|disable> [unit].",
+                    Command::Svc,
+                );
+            }
+            parsed.env_name = positionals[0].clone();
+            let action = positionals[1].trim().to_ascii_lowercase();
+            if !matches!(
+                action.as_str(),
+                "list" | "logs" | "start" | "stop" | "restart" | "enable" | "disable"
+            ) {
+                return make_usage_error(
+                    format!("Unknown svc action: {}", positionals[1]),
+                    Command::Svc,
+                );
+            }
+            if action == "list" {
+                if positionals.len() != 2 {
+                    return make_usage_error("'svc <env> list' takes no unit.", Command::Svc);
+                }
+            } else {
+                if positionals.len() != 3 {
+                    return make_usage_error(
+                        format!("'svc <env> {action}' requires <unit>."),
+                        Command::Svc,
+                    );
+                }
+                if saw_json {
+                    return make_usage_error(
+                        "--json is only supported for 'svc <env> list'.",
+                        Command::Svc,
+                    );
+                }
+                parsed.svc_unit = positionals[2].clone();
+            }
+            parsed.svc_action = action;
         }
         Command::Theme => match positionals.first().map(String::as_str) {
             Some("dump") => {

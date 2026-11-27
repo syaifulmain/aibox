@@ -51,6 +51,7 @@ pub enum Command {
     Restore,
     Diff,
     SshConfig,
+    Svc,
     Theme,
     Completions,
 }
@@ -71,6 +72,7 @@ impl Command {
             Command::Restore => "restore",
             Command::Diff => "diff",
             Command::SshConfig => "ssh-config",
+            Command::Svc => "svc",
             Command::Theme => "theme",
             Command::Completions => "completions",
         }
@@ -89,6 +91,9 @@ pub struct ParsedArgs {
     pub snapshot_name: String,
     pub exec_command: Vec<String>,
     pub timeout_secs: Option<u64>,
+    pub svc_action: String,
+    pub svc_unit: String,
+    pub log_lines: usize,
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
@@ -113,6 +118,9 @@ impl Default for ParsedArgs {
             snapshot_name: String::new(),
             exec_command: Vec::new(),
             timeout_secs: None,
+            svc_action: String::new(),
+            svc_unit: String::new(),
+            log_lines: 50,
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
@@ -473,6 +481,21 @@ mod tests {
             assert!(p.valid);
             assert_eq!(p.timeout_secs, Some(5400));
         }
+        {
+            let p = parse_args(&svec(&["svc", "web", "list", "--json"]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::Svc);
+            assert_eq!(p.env_name, "web");
+            assert_eq!(p.svc_action, "list");
+            assert!(p.json_output);
+        }
+        {
+            let p = parse_args(&svec(&["svc", "web", "logs", "nginx", "--lines", "100"]));
+            assert!(p.valid);
+            assert_eq!(p.svc_action, "logs");
+            assert_eq!(p.svc_unit, "nginx");
+            assert_eq!(p.log_lines, 100);
+        }
 
         let bad_cases = [
             svec(&["unknowncmd"]),
@@ -487,6 +510,9 @@ mod tests {
             svec(&["exec", "--timeout", "0s", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "25h", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "abc", "dev-box", "--", "true"]),
+            svec(&["svc", "web"]),
+            svec(&["svc", "web", "restart"]),
+            svec(&["svc", "web", "list", "nginx"]),
             svec(&[
                 "restore",
                 "dev-box",

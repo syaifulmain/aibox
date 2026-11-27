@@ -11,6 +11,7 @@ pub mod network;
 pub mod process;
 pub mod provision;
 pub mod secrets;
+pub mod services;
 pub mod session;
 pub mod snapshot;
 pub mod task;
