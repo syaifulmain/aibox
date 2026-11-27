@@ -370,6 +370,8 @@ Item {
                 app: root.app
             }
 
+            AutostartCard {}
+
             DesktopIntegrationCard {}
 
             AudioCard {}

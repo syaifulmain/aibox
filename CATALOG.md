@@ -46,7 +46,7 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 | [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
 | [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `SizeUnitChips`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, First Run, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
-| [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `DesktopIntegrationCard`, `AudioCard`, `GpuVideoCard`, `HostServicesCard`, `ExtraDevicesCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
+| [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `AutostartCard`, `DesktopIntegrationCard`, `AudioCard`, `GpuVideoCard`, `HostServicesCard`, `ExtraDevicesCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition (`0.3.0`) installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
@@ -62,6 +62,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ---
 
 ## 3. Changelog
+
+### Per-Environment Boot Autostart (`rust/crates/aibox-core/src/provision/autostart.rs`, `provision/mod.rs`, `incus/list/`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_health.rs`, `src/qml/panels/AutostartCard.qml`, `EnvironmentInspector.qml`, `EnvironmentList.qml`, `src/resources.qrc`, `src/i18n/`)
+
+- Added `aibox-core::provision::autostart` with `validate_autostart_options(priority, delay_secs)` (bounding priority to `0..=1000` and delay to `0..=3600` seconds) and `set_environment_autostart_script(name, enabled, priority, delay_secs)`. Enabling sets `boot.autostart=true` and writes `boot.autostart.priority`/`boot.autostart.delay` when positive (or unsets them when `0`); disabling sets `boot.autostart=false` while preserving existing priority/delay values so re-enabling restores them.
+- Extended `Environment` (`boot_autostart`, `boot_autostart_priority`, `boot_autostart_delay`; serialized as `bootAutostart`, `bootAutostartPriority`, `bootAutostartDelay`) and the `incus list` parser to read `boot.autostart`, `boot.autostart.priority`, and `boot.autostart.delay` (negative or invalid numbers fall back to `0`).
+- Exposed `setEnvironmentAutostart(name, enabled, priority, delaySecs)` on `Backend` for both containers and VMs (rejecting empty names, busy tasks, and templates).
+- Added the **Start on Boot** card (`AutostartCard.qml`) in `EnvironmentInspector.qml` with an **Autostart** toggle, inline **Priority** and **Delay (s)** inputs when enabled, validation feedback, and a `BOOT` badge in `EnvironmentList.qml`. All strings are in `src/i18n/en.json` and `src/i18n/da.json`. No new keyboard shortcuts.
 
 ### Opt-in Camera, USB/Input and CUPS Printer Devices (`rust/crates/aibox-core/src/display/devices.rs`, `display/mod.rs`, `incus/list/`, `provision/create.rs`, `cli/commands/env.rs`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_health.rs`, `qt_backend_task.rs`, `src/qml/panels/ExtraDevicesCard.qml`, `EnvironmentInspector.qml`, `src/resources.qrc`, `src/i18n/`)
 

@@ -18,6 +18,9 @@ use aibox_core::health::pool::{
     pool_warning_for_create, pool_warning_for_quota_edit, resize_storage_pool_script,
     sum_env_root_disk_quotas, validate_storage_pool_resize,
 };
+use aibox_core::provision::autostart::{
+    set_environment_autostart_script, validate_autostart_options,
+};
 use aibox_core::task::lock::is_task_lock_active;
 use aibox_core::util::paths::home_dir;
 
@@ -36,6 +39,39 @@ impl qobject::Backend {
             "",
             &name_s,
         );
+    }
+
+    pub fn set_environment_autostart(
+        mut self: Pin<&mut Self>,
+        name: &QString,
+        enabled: bool,
+        priority: i32,
+        delay_secs: i32,
+    ) -> QString {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return QString::default();
+        }
+        let is_template = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+            .map(|env| env.is_template);
+        let Some(false) = is_template else {
+            return QString::default();
+        };
+        if let Err(err) = validate_autostart_options(priority, delay_secs) {
+            return QString::from(err.as_str());
+        }
+        let script = set_environment_autostart_script(&name_s, enabled, priority, delay_secs);
+        self.as_mut().run_shell_task(
+            &format!("Updating boot autostart for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+        QString::default()
     }
 
     pub fn set_environment_desktop(mut self: Pin<&mut Self>, name: &QString, enabled: bool) {

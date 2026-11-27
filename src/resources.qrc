@@ -55,6 +55,7 @@
         <file alias="panels/EnvironmentList.qml">qml/panels/EnvironmentList.qml</file>
         <file alias="panels/EnvironmentInspector.qml">qml/panels/EnvironmentInspector.qml</file>
         <file alias="panels/NetworkModeCard.qml">qml/panels/NetworkModeCard.qml</file>
+        <file alias="panels/AutostartCard.qml">qml/panels/AutostartCard.qml</file>
         <file alias="panels/DesktopIntegrationCard.qml">qml/panels/DesktopIntegrationCard.qml</file>
         <file alias="panels/AudioCard.qml">qml/panels/AudioCard.qml</file>
         <file alias="panels/GpuVideoCard.qml">qml/panels/GpuVideoCard.qml</file>

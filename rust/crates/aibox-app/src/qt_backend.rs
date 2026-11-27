@@ -496,6 +496,16 @@ pub mod qobject {
         fn set_environment_auto_stop(self: Pin<&mut Backend>, name: &QString, enabled: bool);
 
         #[qinvokable]
+        #[cxx_name = "setEnvironmentAutostart"]
+        fn set_environment_autostart(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            enabled: bool,
+            priority: i32,
+            delay_secs: i32,
+        ) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "setEnvironmentDesktop"]
         fn set_environment_desktop(self: Pin<&mut Backend>, name: &QString, enabled: bool);
 

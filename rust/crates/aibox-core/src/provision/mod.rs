@@ -1,3 +1,4 @@
+pub mod autostart;
 pub mod clone;
 pub mod create;
 pub mod error;

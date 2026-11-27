@@ -102,6 +102,12 @@ Rectangle {
                             }
 
                             TagBadge {
+                                visible: (modelData.bootAutostart || false) && !(modelData.isTemplate || false)
+                                text: qsTr("BOOT")
+                                tone: "accent"
+                            }
+
+                            TagBadge {
                                 text: modelData.status
                                 tone: modelData.running ? "success" : "neutral"
                             }

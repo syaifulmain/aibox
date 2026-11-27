@@ -843,6 +843,19 @@ pub fn parse_with_now_checked(
         let camera_enabled = parse_toggle_flag(map_str(config, "user.aibox.camera"));
         let usb_enabled = parse_toggle_flag(map_str(config, "user.aibox.usb"));
         let printer_enabled = parse_toggle_flag(map_str(config, "user.aibox.printer"));
+        let boot_autostart = parse_toggle_flag(map_str(config, "boot.autostart"));
+        let boot_autostart_priority = map_str(config, "boot.autostart.priority")
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .filter(|&v| v >= 0)
+            .unwrap_or(0);
+        let boot_autostart_delay = map_str(config, "boot.autostart.delay")
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .filter(|&v| v >= 0)
+            .unwrap_or(0);
         let last_used_epoch = map_str(config, "user.aibox.lastused")
             .trim()
             .parse::<i64>()
@@ -1027,6 +1040,9 @@ pub fn parse_with_now_checked(
             camera_enabled,
             usb_enabled,
             printer_enabled,
+            boot_autostart,
+            boot_autostart_priority,
+            boot_autostart_delay,
             last_used_epoch,
             disk_alert_level: 0,
             is_template,
@@ -1354,5 +1370,60 @@ mod tests {
         assert_eq!(value["cameraEnabled"], serde_json::json!(true));
         assert_eq!(value["usbEnabled"], serde_json::json!(true));
         assert_eq!(value["printerEnabled"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn boot_autostart_fields_parse_and_serialize_as_camel_case() {
+        let json = r#"[
+            {
+                "name": "auto-on",
+                "status": "Running",
+                "type": "container",
+                "config": {
+                    "boot.autostart": "true",
+                    "boot.autostart.priority": "10",
+                    "boot.autostart.delay": "5"
+                },
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "auto-off",
+                "status": "Stopped",
+                "type": "virtual-machine",
+                "config": {
+                    "boot.autostart": "false",
+                    "boot.autostart.priority": "-4",
+                    "boot.autostart.delay": "invalid"
+                },
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "auto-unset",
+                "status": "Stopped",
+                "type": "container",
+                "config": {},
+                "devices": {},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(envs[0].boot_autostart);
+        assert_eq!(envs[0].boot_autostart_priority, 10);
+        assert_eq!(envs[0].boot_autostart_delay, 5);
+
+        assert!(!envs[1].boot_autostart);
+        assert_eq!(envs[1].boot_autostart_priority, 0);
+        assert_eq!(envs[1].boot_autostart_delay, 0);
+
+        assert!(!envs[2].boot_autostart);
+        assert_eq!(envs[2].boot_autostart_priority, 0);
+        assert_eq!(envs[2].boot_autostart_delay, 0);
+
+        let value = serde_json::to_value(&envs[0]).expect("serialize");
+        assert_eq!(value["bootAutostart"], serde_json::json!(true));
+        assert_eq!(value["bootAutostartPriority"], serde_json::json!(10));
+        assert_eq!(value["bootAutostartDelay"], serde_json::json!(5));
     }
 }

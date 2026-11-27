@@ -506,5 +506,15 @@
   "USB / Gamepad": "USB / Gamepad",
   "Printer (CUPS)": "Printer (CUPS)",
   "Camera and input devices grant real host hardware access; enable only for trusted environments. Printer exposes the host CUPS socket.": "Kamera og inputenheder giver adgang til ægte værtshardware; aktivér kun for betroede miljøer. Printeren eksponerer værts-CUPS-socketten.",
-  "USB/input exposes keyboard, mouse and gamepad event devices to the environment.": "USB/input eksponerer tastatur-, mus- og gamepad-eventenheder til miljøet."
+  "USB/input exposes keyboard, mouse and gamepad event devices to the environment.": "USB/input eksponerer tastatur-, mus- og gamepad-eventenheder til miljøet.",
+  "BOOT": "BOOT",
+  "Start on Boot": "Start ved opstart",
+  "Autostart": "Autostart",
+  "Starts automatically when Incus boots on the host.": "Starter automatisk, når Incus starter på værten.",
+  "Off — starts only when you launch it manually.": "Fra — starter kun, når du starter det manuelt.",
+  "Priority": "Prioritet",
+  "Delay (s)": "Forsinkelse (s)",
+  "Save": "Gem",
+  "Priority must be a non-negative whole number.": "Prioritet skal være et ikke-negativt heltal.",
+  "Delay must be a non-negative whole number of seconds.": "Forsinkelse skal være et ikke-negativt heltal i sekunder."
 }
