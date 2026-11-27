@@ -50,6 +50,7 @@ pub enum Command {
     Snapshots,
     Restore,
     Diff,
+    SshConfig,
     Theme,
     Completions,
 }
@@ -69,6 +70,7 @@ impl Command {
             Command::Snapshots => "snapshots",
             Command::Restore => "restore",
             Command::Diff => "diff",
+            Command::SshConfig => "ssh-config",
             Command::Theme => "theme",
             Command::Completions => "completions",
         }
@@ -436,6 +438,18 @@ mod tests {
             assert!(p.valid);
             assert_eq!(p.command, Command::Help);
             assert_eq!(p.help_target, Command::Restore);
+        }
+        {
+            let p = parse_args(&svec(&["ssh-config"]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::SshConfig);
+            assert!(p.env_name.is_empty());
+        }
+        {
+            let p = parse_args(&svec(&["ssh-config", "dev-box"]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::SshConfig);
+            assert_eq!(p.env_name, "dev-box");
         }
 
         let bad_cases = [

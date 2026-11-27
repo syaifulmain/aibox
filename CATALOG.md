@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Remote-SSH Access (`aibox ssh-config`) (`rust/crates/aibox-core/src/cli/commands/ssh_config.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox ssh-config [env]` to generate `Host aibox-<env>` SSH client stanzas using `ProxyCommand incus exec '<env>' -- sh -c '...'` (preferring `sshd -i` and falling back to `nc 127.0.0.1 22`).
+- When `<env>` is omitted, outputs sorted stanzas for all non-template environments; when `<env>` is specified, validates it via `require_environment` (rejecting templates and missing environments with exit code `4`).
+- Updated `aibox help` and bash/zsh/fish shell completions.
+
 ### Optional LAN Port Binding & Local `.aibox.test` Domain (`rust/crates/aibox-core/src/network/ports.rs`, `incus/list/`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_network.rs`, `src/qml/dialogs/PortsDialog.qml`, `src/i18n/`)
 
 - Extended `PortForwardEntry` (`bind_address`, `lan_exposed`; serialized as `bindAddress`, `lanExposed`) and `Environment` (`local_domain`; serialized as `localDomain` set to `<env>.aibox.test` for non-template instances). `extract_port_forwards_and_mounts` parses the bind address from `listen` and marks `0.0.0.0` / `::` forwards as `lan_exposed`.

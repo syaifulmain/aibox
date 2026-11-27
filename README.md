@@ -79,6 +79,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 - `aibox snapshot <env> [name]` / `aibox snapshots <env> [--json]` — create or list paired OS + `/home/workspace` snapshots
 - `aibox restore <env> <snap> [--system-only|--workspace-only] [--yes]` — restore snapshot with safety backup
 - `aibox diff <env> [snap] [--json]` — review `/home/workspace` changes since a snapshot
+- `aibox ssh-config [env]` — print SSH client config stanzas (`Host aibox-<env>`) via `ProxyCommand incus exec` for VS Code / Zed Remote-SSH
 - `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
 - `aibox completions <bash|zsh|fish>` — generate shell completion scripts for `bash`, `zsh`, or `fish`
 

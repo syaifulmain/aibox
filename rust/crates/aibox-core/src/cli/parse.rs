@@ -15,6 +15,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "snapshots" => Command::Snapshots,
         "restore" => Command::Restore,
         "diff" => Command::Diff,
+        "ssh-config" => Command::SshConfig,
         "theme" => Command::Theme,
         "completions" => Command::Completions,
         _ => Command::None,
@@ -313,6 +314,14 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             parsed.env_name = positionals[0].clone();
             if positionals.len() == 2 {
                 parsed.snapshot_name = positionals[1].clone();
+            }
+        }
+        Command::SshConfig => {
+            if positionals.len() > 1 {
+                return make_usage_error("Expected [env].", Command::SshConfig);
+            }
+            if let Some(env) = positionals.first() {
+                parsed.env_name = env.clone();
             }
         }
         Command::Theme => match positionals.first().map(String::as_str) {

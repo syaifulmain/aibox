@@ -42,6 +42,10 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] diff <env> [snap] [--json]\n\n\
              Show /home/workspace file changes compared against a snapshot (default: latest).\n"
         }
+        Command::SshConfig => {
+            "Usage: aibox [--project <dir>] ssh-config [env]\n\n\
+             Print SSH config stanzas (Host aibox-<env>) using incus exec ProxyCommand.\n"
+        }
         Command::Theme => {
             "Usage: aibox theme dump [path] [--json]\n\
              \x20      aibox theme render-icon [--output PATH] [--theme-dir DIR]\n\n\
@@ -65,6 +69,7 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20 restore <env> <snap> [--system-only|--workspace-only] [--yes]\n\
              \x20                                                     Restore snapshot\n\
              \x20 diff <env> [snap] [--json]                          Review /home/workspace changes\n\
+             \x20 ssh-config [env]                                    Print SSH config stanzas\n\
              \x20 completions <bash|zsh|fish>                         Generate shell completions\n\
              \x20 help [command]                                      Show help\n\n\
              Global options:\n\
