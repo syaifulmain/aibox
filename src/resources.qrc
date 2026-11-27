@@ -47,6 +47,7 @@
         <file alias="dialogs/RestoreDialog.qml">qml/dialogs/RestoreDialog.qml</file>
         <file alias="dialogs/SecretsDialog.qml">qml/dialogs/SecretsDialog.qml</file>
         <file alias="dialogs/StaleReportDialog.qml">qml/dialogs/StaleReportDialog.qml</file>
+        <file alias="dialogs/StopDialog.qml">qml/dialogs/StopDialog.qml</file>
         <file alias="dialogs/ToolsDialog.qml">qml/dialogs/ToolsDialog.qml</file>
         <file alias="dialogs/WipeDialog.qml">qml/dialogs/WipeDialog.qml</file>
         <file alias="panels/AppHeader.qml">qml/panels/AppHeader.qml</file>

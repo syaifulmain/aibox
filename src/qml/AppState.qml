@@ -40,6 +40,7 @@ ApplicationWindow {
     property bool createVisible: false
     property bool cloneVisible: false
     property bool wipeVisible: false
+    property bool stopConfirmVisible: false
     property bool deleteWorkspaceOnWipe: false
     property bool settingsVisible: false
     property int settingsSection: 0
@@ -147,12 +148,26 @@ ApplicationWindow {
     property string secretValueDraft: ""
     property string secretFormError: ""
 
-    readonly property bool anyModalOpen: helpVisible || toolsVisible || envActionsVisible || createVisible || cloneVisible || wipeVisible || restoreDialogVisible || changeReviewVisible || secretsVisible || staleReportVisible || settingsVisible || historyVisible || egressVisible || portsVisible || mountsVisible || editQuotasVisible || backupsVisible || backend.firstRun
+    readonly property bool anyModalOpen: helpVisible || toolsVisible || envActionsVisible || createVisible || cloneVisible || wipeVisible || stopConfirmVisible || restoreDialogVisible || changeReviewVisible || secretsVisible || staleReportVisible || settingsVisible || historyVisible || egressVisible || portsVisible || mountsVisible || editQuotasVisible || backupsVisible || backend.firstRun
 
     Timer {
         id: configNoticeTimer
         interval: 5000
         onTriggered: win.configNotice = ""
+    }
+
+    function requestStartStop() {
+        if (backend.busy)
+            return
+        const env = backend.selectedEnvironment
+        const name = env.name || ""
+        if (name.length === 0)
+            return
+        if (env.running || false) {
+            win.stopConfirmVisible = true
+            return
+        }
+        backend.toggleStartStop(name)
     }
 
     function openStaleReportDialog() {

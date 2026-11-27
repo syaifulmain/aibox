@@ -121,7 +121,7 @@ Item {
                         label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
                         variant: (backend.selectedEnvironment.running || false) ? "danger" : "accent"
                         disabled: backend.busy || (backend.selectedEnvironment.isTemplate || false)
-                        onClicked: backend.toggleStartStop(backend.selectedEnvironment.name || "")
+                        onClicked: app.requestStartStop()
                     }
 
                     ActionButton {

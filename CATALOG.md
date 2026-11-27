@@ -592,6 +592,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 - **Secrets Manager (`src/qml/Main.qml`)**: the separate **Inject into '<environment>'** chip panel is removed. Every row in **Global Secrets** now carries the injection checkbox on its left, so one list shows both the stored secrets and their per-environment bindings.
 - **Behavior**: the checkbox only appears when an environment is selected; toggling it still calls `Backend::setEnvironmentSecrets`. The "No secrets configured yet" hint stays at the top of the empty list.
 
+### Iteration 42 — Stop Confirmation Dialog
+- **Stop Confirmation (`src/qml/dialogs/StopDialog.qml`, `src/qml/DialogHost.qml`)**: clicking **Stop OS** or pressing `S` on a running environment now opens a confirmation dialog instead of starting the stop task immediately. The dialog names the environment, warns that running processes end and unsaved work may be lost, and keeps the environment and workspace.
+- **Start/Stop Routing (`src/qml/AppState.qml`, `src/qml/panels/EnvironmentInspector.qml`, `src/qml/ShortcutMap.qml`)**: new `requestStartStop()` starts stopped environments directly and routes running environments through the confirmation dialog. Escape and the backdrop dismiss the dialog.
+- **Documentation & Localization (`README.md`, `src/qml/dialogs/HelpOverlay.qml`, `src/i18n/en.json`, `src/i18n/da.json`)**: updated the `S` shortcut description and added English and Danish strings for the confirmation dialog.
+
 ### Iteration 41 — Copy Admin Fix Command from Error Banner
 - **Error Banner (`src/qml/Main.qml`)**: when an operation fails because container-written files are root-owned, the banner now shows **Copy Fix** next to **Dismiss** and copies the exact `sudo` command to the clipboard.
 - **Command Extraction (`src/cpp/backend.{h,cpp}`)**: new `Backend::adminFixCommand()` reads the `Fix (admin): ...` or `run: sudo ...` line from an error message, so paths with spaces stay quoted.

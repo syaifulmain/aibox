@@ -84,7 +84,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | `Space` / `Enter` | Enter selected OS terminal in `/home/workspace` |
 | `N` | Create a new isolated OS environment |
 | `F` | Open shared workspace folder on Host |
-| `S` | Start or stop selected environment |
+| `S` | Start or stop selected environment (stop asks for confirmation) |
 | `P` | Create instant 1-second Btrfs snapshot |
 | `V` | Review `/home/workspace` changes since a snapshot |
 | `D` | Clone selected environment |

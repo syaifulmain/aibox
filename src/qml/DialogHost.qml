@@ -65,6 +65,11 @@ Item {
     }
 
     DialogLoader {
+        dialogOpen: host.app ? host.app.stopConfirmVisible : false
+        dialogSource: "dialogs/StopDialog.qml"
+    }
+
+    DialogLoader {
         dialogOpen: host.app ? host.app.restoreDialogVisible : false
         dialogSource: "dialogs/RestoreDialog.qml"
     }

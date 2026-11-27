@@ -20,7 +20,7 @@ ModalDialog {
             { k: "Space / Enter", d: qsTr("Enter selected OS terminal in %1").arg(backend.containerWorkspacePath) },
             { k: "N", d: qsTr("Create a new isolated OS environment") },
             { k: "F", d: qsTr("Open shared workspace folder on Host") },
-            { k: "S", d: qsTr("Start or stop selected environment") },
+            { k: "S", d: qsTr("Start or stop selected environment (stop asks for confirmation)") },
             { k: "P", d: qsTr("Create instant 1-second Btrfs snapshot") },
             { k: "V", d: qsTr("Review %1 changes since a snapshot").arg(backend.containerWorkspacePath) },
             { k: "D", d: qsTr("Clone selected environment") },

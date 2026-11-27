@@ -52,6 +52,8 @@ Item {
             app.cloneVisible = false
         } else if (app.wipeVisible) {
             app.wipeVisible = false
+        } else if (app.stopConfirmVisible) {
+            app.stopConfirmVisible = false
         } else if (app.restoreDialogVisible) {
             app.restoreDialogVisible = false
         } else if (app.changeReviewVisible) {
@@ -180,7 +182,7 @@ Item {
         sequence: "S"
         context: Qt.ApplicationShortcut
         enabled: !shortcutMap.app.anyModalOpen && shortcutMap.app.activeTab === 0 && !backend.busy && backend.environments.length > 0
-        onActivated: backend.toggleStartStop(backend.selectedEnvironment.name || "")
+        onActivated: shortcutMap.app.requestStartStop()
     }
     Shortcut {
         sequence: "P"
