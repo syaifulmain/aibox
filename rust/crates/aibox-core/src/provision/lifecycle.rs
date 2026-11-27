@@ -319,6 +319,25 @@ pub fn prepare_toggle_start_stop(
     auto_snap: &str,
     allow_refresh: &str,
 ) -> Result<ToggleStartStopPlan, ProvisionError> {
+    prepare_toggle_start_stop_with_session(
+        name,
+        is_template,
+        is_running,
+        auto_snap,
+        allow_refresh,
+        "",
+    )
+}
+
+/// Toggle plan with a combined display/audio bridge snippet applied on Start.
+pub fn prepare_toggle_start_stop_with_session(
+    name: &str,
+    is_template: bool,
+    is_running: bool,
+    auto_snap: &str,
+    allow_refresh: &str,
+    session_script: &str,
+) -> Result<ToggleStartStopPlan, ProvisionError> {
     if is_template {
         return Err(ProvisionError::TemplateStartNotAllowed);
     }
@@ -332,7 +351,12 @@ pub fn prepare_toggle_start_stop(
         Ok(ToggleStartStopPlan {
             is_stopping: false,
             title: format!("Starting '{name}'"),
-            script: start_environment_script(name, auto_snap, allow_refresh),
+            script: start_environment_script_with_desktop(
+                name,
+                auto_snap,
+                allow_refresh,
+                session_script,
+            ),
         })
     }
 }

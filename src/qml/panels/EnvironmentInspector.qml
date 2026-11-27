@@ -366,6 +366,8 @@ Item {
 
             DesktopIntegrationCard {}
 
+            AudioCard {}
+
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app

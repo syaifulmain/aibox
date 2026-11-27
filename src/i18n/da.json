@@ -480,6 +480,14 @@
   "Container swap is provided by the host.": "Container-swap leveres af værten.",
   "Desktop": "Skrivebord",
   "Desktop Integration": "Skrivebordsintegration",
+  "Audio & Microphone": "Lyd og mikrofon",
+  "Output": "Udgang",
+  "Output + Mic": "Udgang + Mikrofon",
+  "Test Audio": "Test lyd",
+  "Off — no host audio devices.": "Fra — ingen lydenheder fra værten.",
+  "Output only — apps can play sound.": "Kun udgang — apps kan afspille lyd.",
+  "Output and microphone — apps can record audio.": "Udgang og mikrofon — apps kan optage lyd.",
+  "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.": "Mikrofoninput er bedst muligt via PulseAudio-kompatibilitetsstikket; afvisning af mikrofon per app kræver en fremtidig PipeWire-politik.",
   "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.": "Wayland-apps (med X11-fallback), udklipsholder og træk-og-slip bruger dit skrivebord på værten.",
   "Off — headless server mode. Enable before running GUI programs.": "Fra — headless servertilstand. Aktivér før du kører GUI-programmer."
 }

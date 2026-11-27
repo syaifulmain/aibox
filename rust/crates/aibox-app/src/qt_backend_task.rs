@@ -10,7 +10,9 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use aibox_core::display::{
-    apply_devices_script, build_desktop_plan, detect_host_session, DesktopMode, DisplayPlan,
+    apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
+    combine_scripts, detect_host_audio, detect_host_session, merge_env_pairs, AudioMode, AudioPlan,
+    DesktopMode, DisplayPlan,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -518,6 +520,38 @@ impl qobject::Backend {
         build_desktop_plan(mode, &detect_host_session())
     }
 
+    fn audio_plan_for_env(&self, env_name: &str) -> AudioPlan {
+        let env = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name);
+        let mode = match env {
+            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
+                AudioMode::parse(&env.audio_mode)
+            }
+            _ => AudioMode::Off,
+        };
+        let host = detect_host_audio();
+        build_audio_plan(mode, &host, host.uid)
+    }
+
+    fn session_env_for_env(&self, env_name: &str) -> Vec<(String, String)> {
+        let desktop = self.desktop_plan_for_env(env_name);
+        let audio = self.audio_plan_for_env(env_name);
+        merge_env_pairs(&[&desktop.env, &audio.env])
+    }
+
+    /// Applies display and audio devices for GUI Start, not only Enter.
+    pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
+        let desktop = self.desktop_plan_for_env(env_name);
+        let audio = self.audio_plan_for_env(env_name);
+        combine_scripts(&[
+            apply_devices_script(env_name, &desktop),
+            apply_audio_devices_script(env_name, &audio),
+        ])
+    }
+
     fn start_enter_prepare_worker(self: Pin<&mut Self>) {
         let env_name = self.enter_env_name.clone();
         if env_name.is_empty() {
@@ -525,12 +559,16 @@ impl qobject::Backend {
         }
         let auto_snap = self.auto_snapshot_snippet_for(&env_name);
         let desktop_plan = self.desktop_plan_for_env(&env_name);
-        let desktop_script = apply_devices_script(&env_name, &desktop_plan);
+        let audio_plan = self.audio_plan_for_env(&env_name);
+        let session_script = combine_scripts(&[
+            apply_devices_script(&env_name, &desktop_plan),
+            apply_audio_devices_script(&env_name, &audio_plan),
+        ]);
         let script = build_prepare_script_with_desktop(
             &env_name,
             &auto_snap,
             &self.enter_allowlist_snippet,
-            &desktop_script,
+            &session_script,
         );
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
@@ -663,11 +701,8 @@ impl qobject::Backend {
         if name.is_empty() {
             return;
         }
-        let mut enter_cmd = build_enter_command_with_env(
-            &name,
-            remote_env_path,
-            &self.desktop_plan_for_env(&name).env,
-        );
+        let mut enter_cmd =
+            build_enter_command_with_env(&name, remote_env_path, &self.session_env_for_env(&name));
         let record_enabled = self
             .engine
             .environments

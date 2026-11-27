@@ -4,7 +4,10 @@ use std::pin::Pin;
 use cxx_qt_lib::QString;
 
 use aibox_core::backup::available_disk_bytes;
-use aibox_core::display::{detect_host_session, set_desktop_mode_script, DesktopMode};
+use aibox_core::display::{
+    build_audio_plan, detect_host_audio, detect_host_session, set_audio_mode_script,
+    set_desktop_mode_script, test_audio_script, AudioMode, DesktopMode,
+};
 use aibox_core::health::idle::{
     set_environment_auto_stop_script, set_environment_idle_stop_script,
 };
@@ -53,6 +56,65 @@ impl qobject::Backend {
         );
         self.as_mut().run_shell_task(
             &format!("Updating desktop integration for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn set_environment_audio(mut self: Pin<&mut Self>, name: &QString, mode: &QString) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(mode) = AudioMode::try_parse(&mode.to_string()) else {
+            return;
+        };
+        let (is_vm, is_template) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+            .map(|env| {
+                (
+                    aibox_core::provision::is_vm_env_type(&env.env_type),
+                    env.is_template,
+                )
+            })
+            .unwrap_or((false, false));
+        if is_vm || is_template {
+            return;
+        }
+        let script = set_audio_mode_script(&name_s, mode, &detect_host_audio());
+        self.as_mut().run_shell_task(
+            &format!("Updating audio for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn test_environment_audio(mut self: Pin<&mut Self>, name: &QString) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(env) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
+            return;
+        }
+        let host = detect_host_audio();
+        let plan = build_audio_plan(AudioMode::parse(&env.audio_mode), &host, host.uid);
+        let script = test_audio_script(&name_s, &plan);
+        self.as_mut().run_shell_task(
+            &format!("Testing audio in '{name_s}'"),
             &script,
             "",
             &name_s,

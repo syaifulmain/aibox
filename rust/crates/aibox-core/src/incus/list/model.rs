@@ -126,6 +126,9 @@ pub struct Environment {
     /// `user.aibox.desktop` is on; legacy instances infer this from an X11 or
     /// Wayland device so existing GUI environments keep working.
     pub desktop_enabled: bool,
+    /// `user.aibox.audio` (`off`, `output`, `full`); legacy instances infer
+    /// this from an existing `pulse`/`pipewire` device.
+    pub audio_mode: String,
     pub last_used_epoch: i64,
     pub disk_alert_level: i32,
     pub is_template: bool,

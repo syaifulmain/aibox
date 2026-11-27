@@ -117,6 +117,14 @@
   "WARN": "WARN",
   "Desktop": "Desktop",
   "Desktop Integration": "Desktop Integration",
+  "Audio & Microphone": "Audio & Microphone",
+  "Output": "Output",
+  "Output + Mic": "Output + Mic",
+  "Test Audio": "Test Audio",
+  "Off — no host audio devices.": "Off — no host audio devices.",
+  "Output only — apps can play sound.": "Output only — apps can play sound.",
+  "Output and microphone — apps can record audio.": "Output and microphone — apps can record audio.",
+  "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.": "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.",
   "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.": "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.",
   "Off — headless server mode. Enable before running GUI programs.": "Off — headless server mode. Enable before running GUI programs."
 }

@@ -8,6 +8,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 
 - Create and manage Linux containers and virtual machines with configurable CPU, memory, swap, and disk limits. New containers default to swap **Off**; choose **Host** to follow the Incus default or set a size such as `4GiB`.
 - Run GUI programs from any entry path: the **Desktop Integration** card (per-environment `user.aibox.desktop`) exposes the host Wayland session through a safe Incus proxy device (`wayland-0`, mode `0666`), keeping a safe X11 proxy with `xhost +si:localuser:root` as a fallback, so `firefox`, `code`, `gimp`, and similar apps work from GUI Enter, `aibox enter`, and `aibox exec`. Clipboard, drag-and-drop, and HiDPI scaling follow the Wayland session. Turn it **Off** for a pure headless server environment; legacy environments infer their state from an existing `x11`/`wayland` device.
+- Choose per-environment **Audio & Microphone** (`user.aibox.audio`): **Off**, **Output** (a PulseAudio compatibility proxy carrying `PULSE_SERVER`, plus the host `pulse/cookie` mounted read-only when it exists), or **Output + Mic** (also exposes the native PipeWire socket and `PIPEWIRE_REMOTE`). GUI containers start with **Output**; headless presets and VMs stay **Off**. `Output` hides the native PipeWire socket, but the Pulse compatibility socket still carries host source ports, so per-app microphone denial needs a future PipeWire policy. **Test Audio** runs `pactl info` inside the environment; install `pactl` (PulseAudio utilities) or `pipewire-pulse` in the container for the test to succeed, since AIBox never installs packages inside an environment automatically.
 - Monitor disk usage, memory usage, and CPU usage in compact task-manager style cards. Click the CPU card to expand or collapse two-column per-core usage bars for the selected environment.
 - A single **Tools** menu groups global Secrets, Backups, History, and the Stale & Orphans report, while secondary environment actions (clone, quotas, template, copy AI command, paste image, environment secrets, and the destructive **Wipe OS**) live in **More Actions**, with **Wipe OS** last and in danger styling. The environment inspector keeps only start/stop and enter.
 - Share a project workspace with environments at `/home/workspace` and open it directly on the host. The Create dialog can place a new workspace in a custom folder; an empty field keeps the configured default (`<system>/workspaces/<name>`).
@@ -30,6 +31,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 - Omarchy or Arch Linux
 - Incus and a Btrfs storage pool
 - Active host swap (zram, swapfile, or swap partition) if container swap limits should take effect; AIBox only reports its absence
+- PipeWire 1.x (or another PulseAudio-compatible server) with `$XDG_RUNTIME_DIR/pulse/native` for host audio. Containers need `pactl` (PulseAudio utilities) or `pipewire-pulse` installed for **Test Audio** to succeed; AIBox does not install packages inside environments
 - Qt 6 (`qt6-base`, `qt6-declarative`) and Rust toolchain (`cargo`, `rustc`) to build
 
 ## Setup and install
@@ -60,7 +62,7 @@ To browse an environment's root filesystem in your file manager, use the **Root 
 
 For headless scripting and terminal workflows, use `aibox [--project <dir>] <command>`:
 
-- `aibox enter <env>` / `aibox exec <env> -- <cmd...>` — run pre-steps (auto-snapshot, allowlist refresh, auto-start), apply the environment's **Desktop Integration** state (native Wayland plus the X11/`DISPLAY` fallback when on; headless when off), and attach or run a command in `/home/workspace`
+- `aibox enter <env>` / `aibox exec <env> -- <cmd...>` — run pre-steps (auto-snapshot, allowlist refresh, auto-start), apply the environment's **Desktop Integration** and **Audio** state (native Wayland plus the X11/`DISPLAY` fallback when on, headless when off; `PULSE_SERVER`/`PIPEWIRE_REMOTE` when audio is on), and attach or run a command in `/home/workspace`
 - `aibox start <env>` / `aibox stop <env>` — start (with auto-snapshot & allowlist refresh) or stop an environment
 - `aibox snapshot <env> [name]` / `aibox snapshots <env> [--json]` — create or list paired OS + `/home/workspace` snapshots
 - `aibox restore <env> <snap> [--system-only|--workspace-only] [--yes]` — restore snapshot with safety backup

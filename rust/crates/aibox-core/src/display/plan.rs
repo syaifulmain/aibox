@@ -171,7 +171,7 @@ pub fn build_desktop_plan(mode: DesktopMode, host: &HostSession) -> DisplayPlan 
     plan
 }
 
-fn device_options(options: &[(String, String)]) -> String {
+pub(crate) fn device_options(options: &[(String, String)]) -> String {
     options
         .iter()
         .map(|(key, value)| format!("{key}={}", shell_quote(value)))
@@ -179,7 +179,7 @@ fn device_options(options: &[(String, String)]) -> String {
         .join(" ")
 }
 
-fn remove_device_lines(name: &str, device_names: &[&str]) -> String {
+pub(crate) fn remove_device_lines(name: &str, device_names: &[&str]) -> String {
     let q_name = shell_quote(name);
     device_names
         .iter()
@@ -194,6 +194,32 @@ fn remove_device_lines(name: &str, device_names: &[&str]) -> String {
 }
 
 const XHOST_ROOT_SNIPPET: &str = "if command -v xhost >/dev/null 2>&1; then\n    xhost +si:localuser:root >/dev/null 2>&1 || true\nfi";
+
+/// Merges environment groups, keeping the first value for a duplicated key.
+///
+/// The display plan is passed first, so its `XDG_RUNTIME_DIR` (and any future
+/// shared key) wins over the audio plan while both plans stay self-contained.
+pub fn merge_env_pairs(groups: &[&[(String, String)]]) -> Vec<(String, String)> {
+    let mut merged: Vec<(String, String)> = Vec::new();
+    for group in groups {
+        for (key, value) in group.iter() {
+            if !merged.iter().any(|(existing, _)| existing == key) {
+                merged.push((key.clone(), value.clone()));
+            }
+        }
+    }
+    merged
+}
+
+/// Joins non-empty shell snippets with a newline.
+pub fn combine_scripts(parts: &[String]) -> String {
+    parts
+        .iter()
+        .filter(|part| !part.trim().is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Returns an idempotent snippet that installs the plan's devices.
 ///
@@ -547,5 +573,36 @@ mod tests {
                 .expect("run bash -n");
             assert!(status.success(), "bash -n failed:\n{script}");
         }
+    }
+
+    #[test]
+    fn merge_env_pairs_keeps_the_first_value_and_skips_empty_scripts() {
+        let display = vec![
+            ("XDG_RUNTIME_DIR".to_string(), "/run/user/1000".to_string()),
+            ("WAYLAND_DISPLAY".to_string(), "wayland-0".to_string()),
+        ];
+        let audio = vec![
+            ("XDG_RUNTIME_DIR".to_string(), "/run/user/9999".to_string()),
+            (
+                "PULSE_SERVER".to_string(),
+                "unix:/run/user/1000/pulse/native".to_string(),
+            ),
+        ];
+        let merged = merge_env_pairs(&[&display, &audio]);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(
+            merged
+                .iter()
+                .find(|(key, _)| key == "XDG_RUNTIME_DIR")
+                .map(|(_, value)| value.as_str()),
+            Some("/run/user/1000")
+        );
+        assert_eq!(merged[2].0, "PULSE_SERVER");
+
+        assert_eq!(combine_scripts(&["".to_string(), "  \n".to_string()]), "");
+        assert_eq!(
+            combine_scripts(&["A".to_string(), String::new(), "B".to_string()]),
+            "A\nB"
+        );
     }
 }

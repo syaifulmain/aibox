@@ -500,6 +500,14 @@ pub mod qobject {
         fn set_environment_desktop(self: Pin<&mut Backend>, name: &QString, enabled: bool);
 
         #[qinvokable]
+        #[cxx_name = "setEnvironmentAudio"]
+        fn set_environment_audio(self: Pin<&mut Backend>, name: &QString, mode: &QString);
+
+        #[qinvokable]
+        #[cxx_name = "testEnvironmentAudio"]
+        fn test_environment_audio(self: Pin<&mut Backend>, name: &QString);
+
+        #[qinvokable]
         #[cxx_name = "setEnvironmentIdleStop"]
         fn set_environment_idle_stop(
             self: Pin<&mut Backend>,

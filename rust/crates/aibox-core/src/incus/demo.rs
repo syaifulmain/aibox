@@ -110,6 +110,7 @@ pub fn build_demo_state(record_sessions: bool, os_storage_path: &str, now_epoch:
     e1.insert("idleStopIgnorePorts".into(), json!(false));
     e1.insert("diskAlertLevel".into(), json!(0));
     e1.insert("isTemplate".into(), json!(false));
+    e1.insert("audioMode".into(), json!("output"));
     e1.insert("networkMode".into(), json!("online"));
     e1.insert("networkAllowlist".into(), json!(""));
     e1.insert("networkBlocked".into(), json!(false));
@@ -185,6 +186,7 @@ pub fn build_demo_state(record_sessions: bool, os_storage_path: &str, now_epoch:
     e2.insert("autoStopOnCritical".into(), json!(true));
     e2.insert("diskAlertLevel".into(), json!(1));
     e2.insert("isTemplate".into(), json!(false));
+    e2.insert("audioMode".into(), json!("full"));
     e2.insert("networkMode".into(), json!("allowlist"));
     e2.insert(
         "networkAllowlist".into(),
@@ -237,6 +239,7 @@ pub fn build_demo_state(record_sessions: bool, os_storage_path: &str, now_epoch:
     e3.insert("autoStopOnCritical".into(), json!(false));
     e3.insert("diskAlertLevel".into(), json!(0));
     e3.insert("isTemplate".into(), json!(true));
+    e3.insert("audioMode".into(), json!("off"));
     e3.insert("networkMode".into(), json!("offline"));
     e3.insert("networkAllowlist".into(), json!(""));
     e3.insert("networkBlocked".into(), json!(true));

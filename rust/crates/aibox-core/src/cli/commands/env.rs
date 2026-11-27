@@ -7,7 +7,9 @@ use serde_json::Value;
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
-    apply_devices_script, build_desktop_plan, detect_host_session, DesktopMode, DisplayPlan,
+    apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
+    combine_scripts, detect_host_audio, detect_host_session, merge_env_pairs, AudioMode, AudioPlan,
+    DesktopMode, DisplayPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -68,18 +70,43 @@ fn desktop_plan_for(env: &Environment) -> DisplayPlan {
     build_desktop_plan(mode, &detect_host_session())
 }
 
+fn audio_plan_for(env: &Environment) -> AudioPlan {
+    let mode = if crate::provision::is_vm_env_type(&env.env_type) {
+        AudioMode::Off
+    } else {
+        AudioMode::parse(&env.audio_mode)
+    };
+    let host = detect_host_audio();
+    build_audio_plan(mode, &host, host.uid)
+}
+
+fn session_bridge_script(name: &str, desktop: &DisplayPlan, audio: &AudioPlan) -> String {
+    combine_scripts(&[
+        apply_devices_script(name, desktop),
+        apply_audio_devices_script(name, audio),
+    ])
+}
+
+fn session_environment(desktop: &DisplayPlan, audio: &AudioPlan) -> Vec<(String, String)> {
+    merge_env_pairs(&[&desktop.env, &audio.env])
+}
+
 fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    let desktop = apply_devices_script(&env.name, &desktop_plan_for(env));
-    build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &desktop)
+    let desktop = desktop_plan_for(env);
+    let audio = audio_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio);
+    build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
 fn start_environment_script_for(engine: &Engine, env: &Environment) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    let desktop = apply_devices_script(&env.name, &desktop_plan_for(env));
-    start_environment_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &desktop)
+    let desktop = desktop_plan_for(env);
+    let audio = audio_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio);
+    start_environment_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
 fn stop_environment_script_for(
@@ -222,6 +249,8 @@ pub fn run_enter(
     let term = std::env::var("TERM").unwrap_or_default();
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let desktop = desktop_plan_for(&env);
+    let audio = audio_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio);
     // The plan owns DISPLAY when desktop integration is on; passing an empty
     // display keeps Off purely headless instead of falling back to `:0`.
     let exec_args = enter_incus_exec_args_with_env(
@@ -230,7 +259,7 @@ pub fn run_enter(
         &c_ws_path,
         "",
         &term,
-        &desktop.env,
+        &session_env,
     );
 
     if env.record_enabled && find_executable("script") {
@@ -299,12 +328,14 @@ pub fn run_exec(
 
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let desktop = desktop_plan_for(&env);
+    let audio = audio_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio);
     let args = exec_incus_command_args_with_env(
         &parsed.env_name,
         &parsed.exec_command,
         &remote_env_path,
         &c_ws_path,
-        &desktop.env,
+        &session_env,
     );
     io.run_forwarded("incus", &args)
 }

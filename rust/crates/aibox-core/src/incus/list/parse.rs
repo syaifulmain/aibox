@@ -8,6 +8,7 @@ use chrono::Utc;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
+use crate::display::AudioMode;
 use crate::health::swap::host_swap_info;
 use crate::secrets::store::parse_env_secret_names;
 use crate::session::effective_record_sessions;
@@ -414,6 +415,31 @@ fn parse_desktop_enabled(config: &HashMap<String, String>, item: &RawIncusInstan
     }
 }
 
+fn has_audio_device(devices: &BTreeMap<String, BTreeMap<String, String>>, name: &str) -> bool {
+    devices.contains_key(name)
+}
+
+fn parse_audio_mode(config: &HashMap<String, String>, item: &RawIncusInstance) -> String {
+    let raw = map_str(config, "user.aibox.audio").trim();
+    if !raw.is_empty() {
+        return AudioMode::parse(raw).config_value().to_string();
+    }
+    // Legacy instances have no key: the device set tells us what was shared.
+    if has_audio_device(&item.devices, "pipewire")
+        || has_audio_device(&item.expanded_devices, "pipewire")
+    {
+        AudioMode::Full
+    } else if has_audio_device(&item.devices, "pulse")
+        || has_audio_device(&item.expanded_devices, "pulse")
+    {
+        AudioMode::Output
+    } else {
+        AudioMode::Off
+    }
+    .config_value()
+    .to_string()
+}
+
 /// Computes a fast 64-bit FNV-1a hash of raw `incus list` bytes and parse inputs
 /// so identical polls can skip rebuilding the environment model.
 pub fn hash_list_inputs(json: &[u8], workspace_base: &str, defaults: ParseDefaults) -> u64 {
@@ -785,6 +811,7 @@ pub fn parse_with_now_checked(
         let env_record_enabled =
             effective_record_sessions(defaults.record_sessions, &record_override);
         let desktop_enabled = parse_desktop_enabled(config, item);
+        let audio_mode = parse_audio_mode(config, item);
         let last_used_epoch = map_str(config, "user.aibox.lastused")
             .trim()
             .parse::<i64>()
@@ -964,6 +991,7 @@ pub fn parse_with_now_checked(
             record_override,
             record_enabled: env_record_enabled,
             desktop_enabled,
+            audio_mode,
             last_used_epoch,
             disk_alert_level: 0,
             is_template,
@@ -1094,5 +1122,90 @@ mod tests {
         assert!(envs[0].desktop_enabled);
         let value = serde_json::to_value(&envs[0]).expect("serialize");
         assert_eq!(value["desktopEnabled"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn explicit_audio_mode_wins_over_devices() {
+        let json = r#"[
+            {
+                "name": "off-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.audio": "off"},
+                "devices": {"pipewire": {"type": "proxy"}},
+                "expanded_devices": {}
+            },
+            {
+                "name": "output-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.audio": "output"},
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "full-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.audio": "mic"},
+                "devices": {},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert_eq!(envs[0].audio_mode, "off");
+        assert_eq!(envs[1].audio_mode, "output");
+        assert_eq!(envs[2].audio_mode, "full");
+    }
+
+    #[test]
+    fn legacy_instances_infer_audio_mode_from_bridge_devices() {
+        let json = r#"[
+            {
+                "name": "pipewire-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {"pipewire": {"type": "proxy"}},
+                "expanded_devices": {}
+            },
+            {
+                "name": "pulse-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {},
+                "expanded_devices": {"pulse": {"type": "proxy"}}
+            },
+            {
+                "name": "silent-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {"workspace": {"type": "disk"}},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert_eq!(envs[0].audio_mode, "full");
+        assert_eq!(envs[1].audio_mode, "output");
+        assert_eq!(envs[2].audio_mode, "off");
+    }
+
+    #[test]
+    fn audio_mode_is_serialized_as_camel_case() {
+        let json = r#"[
+            {
+                "name": "full-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.audio": "full"},
+                "devices": {},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        let value = serde_json::to_value(&envs[0]).expect("serialize");
+        assert_eq!(value["audioMode"], serde_json::json!("full"));
     }
 }

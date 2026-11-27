@@ -1,6 +1,7 @@
 use crate::config::defaults::{OsEntry, Preset};
 use crate::display::{
-    build_desktop_plan, detect_host_session, set_desktop_mode_script, DesktopMode,
+    build_audio_plan, build_desktop_plan, combine_scripts, detect_host_audio, detect_host_session,
+    set_audio_mode_script, set_desktop_mode_script, AudioMode, DesktopMode,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
@@ -54,8 +55,9 @@ pub fn create_environment_script(
     )
 }
 
-/// Production create script that applies the desktop bridge snippet after the
-/// workspace device instead of mounting the X socket and calling `xhost +local:`.
+/// Production create script that applies the combined display+audio bridge
+/// snippet after the workspace device instead of mounting the X socket and
+/// calling `xhost +local:`.
 #[allow(clippy::too_many_arguments)]
 pub fn create_environment_script_with_desktop(
     name: &str,
@@ -74,6 +76,45 @@ pub fn create_environment_script_with_desktop(
     is_vm: bool,
     desktop_script: &str,
 ) -> String {
+    create_environment_script_with_session(
+        name,
+        local_alias,
+        remote_image,
+        workspace,
+        cache_base,
+        profile_flags,
+        ram_gib,
+        disk_gib,
+        cpu_cores,
+        x11,
+        process_limit,
+        io_limit,
+        swap_limit,
+        is_vm,
+        desktop_script,
+    )
+}
+
+/// Like [`create_environment_script_with_desktop`], but the injected snippet is
+/// the full session bridge (display and audio devices).
+#[allow(clippy::too_many_arguments)]
+pub fn create_environment_script_with_session(
+    name: &str,
+    local_alias: &str,
+    remote_image: &str,
+    workspace: &str,
+    cache_base: &str,
+    profile_flags: &str,
+    ram_gib: &str,
+    disk_gib: &str,
+    cpu_cores: i32,
+    x11: bool,
+    process_limit: &str,
+    io_limit: &str,
+    swap_limit: &str,
+    is_vm: bool,
+    session_script: &str,
+) -> String {
     create_environment_script_inner(
         name,
         local_alias,
@@ -89,7 +130,7 @@ pub fn create_environment_script_with_desktop(
         io_limit,
         swap_limit,
         is_vm,
-        Some(desktop_script),
+        Some(session_script),
     )
 }
 
@@ -111,7 +152,7 @@ fn create_environment_script_inner(
     io_limit: &str,
     swap_limit: &str,
     is_vm: bool,
-    desktop_script: Option<&str>,
+    session_script: Option<&str>,
 ) -> String {
     let mut root_opts = format!("size={}", disk_gib.trim());
     let clean_io = io_limit.trim();
@@ -137,7 +178,7 @@ fn create_environment_script_inner(
     let ws_snippet = workspace_create_snippet(workspace);
     let cache_root = format!("{cache_base}.root");
     let rollback_trap = rollback_trap_snippet("NAME");
-    let (x11_block, desktop_setup) = match desktop_script {
+    let (x11_block, session_setup) = match session_script {
         Some(script) => ("", script),
         None => (LEGACY_X11_BLOCK, ""),
     };
@@ -158,7 +199,7 @@ fn create_environment_script_inner(
             ("ROLLBACK_TRAP", &rollback_trap),
             ("WORKSPACE_CREATE", &ws_snippet),
             ("X11_BLOCK", x11_block),
-            ("DESKTOP_SETUP", desktop_setup),
+            ("DESKTOP_SETUP", session_setup),
         ],
     )
 }
@@ -222,7 +263,8 @@ pub fn prepare_create_environment(
     let is_vm = preset.flags.contains("--vm");
 
     // VMs stay headless for now; SPICE/VNC is out of scope for this bridge.
-    let desktop_mode = if preset.x11 && !is_vm {
+    let has_desktop = preset.x11 && !is_vm;
+    let desktop_mode = if has_desktop {
         DesktopMode::On
     } else {
         DesktopMode::Off
@@ -234,7 +276,22 @@ pub fn prepare_create_environment(
         desktop_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
     }
 
-    let script = create_environment_script_with_desktop(
+    // GUI containers start with playback only; microphone access is opt-in
+    // later through the Audio card. Headless containers and VMs stay silent.
+    let audio_mode = if has_desktop {
+        AudioMode::Output
+    } else {
+        AudioMode::Off
+    };
+    let host_audio = detect_host_audio();
+    let audio_plan = build_audio_plan(audio_mode, &host_audio, host_audio.uid);
+    let mut audio_script = set_audio_mode_script(&name, audio_mode, &host_audio);
+    for warning in &audio_plan.warnings {
+        audio_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
+    }
+    let session_script = combine_scripts(&[desktop_script, audio_script]);
+
+    let script = create_environment_script_with_session(
         &name,
         &local_alias,
         &format!("images:{}", os_entry.alias),
@@ -249,7 +306,7 @@ pub fn prepare_create_environment(
         &clean_io,
         swap_limit,
         is_vm,
-        &desktop_script,
+        &session_script,
     );
 
     Ok(CreateEnvironmentPlan {
@@ -541,6 +598,36 @@ mod tests {
         assert!(script.contains("'x11' 'proxy'"));
         assert!(script.contains("connect='unix:/tmp/.X11-unix/X0'"));
         assert!(!script.contains("xhost +local:"));
+        let workspace_at = script
+            .find("config device add \"$NAME\" workspace")
+            .unwrap();
+        let desktop_at = script.find("user.aibox.desktop").unwrap();
+        assert!(workspace_at < desktop_at);
+    }
+
+    #[test]
+    fn session_create_script_carries_display_and_audio_setup() {
+        let session = "incus config set 'box' user.aibox.desktop 'on'\nincus config set 'box' user.aibox.audio 'output'\nincus config device add 'box' 'pulse' 'proxy'";
+        let script = create_environment_script_with_session(
+            "box",
+            "aibox-archlinux",
+            "images:archlinux",
+            "/tmp/ws",
+            "/tmp/cache",
+            "-p default",
+            "6GiB",
+            "35GiB",
+            4,
+            true,
+            "",
+            "",
+            "",
+            false,
+            session,
+        );
+        assert!(script.contains("user.aibox.desktop 'on'"));
+        assert!(script.contains("user.aibox.audio 'output'"));
+        assert!(script.contains("'pulse' 'proxy'"));
         let workspace_at = script
             .find("config device add \"$NAME\" workspace")
             .unwrap();
