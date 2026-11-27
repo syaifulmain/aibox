@@ -9,7 +9,7 @@ use aibox_core::health::idle::{
 };
 use aibox_core::health::pool::{
     pool_warning_for_create, pool_warning_for_quota_edit, resize_storage_pool_script,
-    sum_root_disk_quotas_bytes, validate_storage_pool_resize,
+    sum_env_root_disk_quotas, validate_storage_pool_resize,
 };
 use aibox_core::task::lock::is_task_lock_active;
 use aibox_core::util::paths::home_dir;
@@ -56,21 +56,8 @@ impl qobject::Backend {
         if !pool.valid {
             return QString::default();
         }
-        let list_str = String::from_utf8_lossy(&self.last_list_json);
-        let (allocated_bytes, unbounded_count) = if !list_str.is_empty() {
-            sum_root_disk_quotas_bytes(&list_str, "", &pool.name)
-        } else {
-            let mut alloc = 0i64;
-            let mut unb = 0i32;
-            for e in &self.engine.environments {
-                if e.disk_quota_bytes > 0 {
-                    alloc += e.disk_quota_bytes;
-                } else {
-                    unb += 1;
-                }
-            }
-            (alloc, unb)
-        };
+        let (allocated_bytes, unbounded_count) =
+            sum_env_root_disk_quotas(&self.engine.environments, "", &pool.name);
         let warn = pool_warning_for_create(
             pool,
             allocated_bytes,
@@ -85,16 +72,16 @@ impl qobject::Backend {
         if !pool.valid {
             return QString::default();
         }
-        let list_str = String::from_utf8_lossy(&self.last_list_json);
         let fallback: Vec<(String, i64)> = self
             .engine
             .environments
             .iter()
+            .filter(|e| pool.name.is_empty() || e.root_pool.is_empty() || e.root_pool == pool.name)
             .map(|e| (e.name.clone(), e.disk_quota_bytes))
             .collect();
         let warn = pool_warning_for_quota_edit(
             pool,
-            &list_str,
+            "",
             &fallback,
             &env_name.to_string(),
             &disk_spec.to_string(),

@@ -32,15 +32,16 @@ fn dir_size_recursive(dir: &Path, total: &mut i64) {
         return;
     };
     for entry in entries.flatten() {
-        let Ok(meta) = fs::symlink_metadata(entry.path()) else {
+        let Ok(ft) = entry.file_type() else {
             continue;
         };
-        let ft = meta.file_type();
         if ft.is_symlink() {
             continue;
         }
         if ft.is_file() {
-            *total = total.saturating_add(meta.len() as i64);
+            if let Ok(meta) = entry.metadata() {
+                *total = total.saturating_add(meta.len() as i64);
+            }
         } else if ft.is_dir() {
             dir_size_recursive(&entry.path(), total);
         }

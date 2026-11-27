@@ -150,7 +150,9 @@ Rectangle {
 
         // Storage pool summary
         Item {
-            visible: backend.poolInfo.valid || false
+            id: poolSummary
+            readonly property var pool: backend.poolInfo
+            visible: pool.valid || false
             Layout.fillWidth: true
             implicitHeight: poolCard.implicitHeight
 
@@ -159,9 +161,9 @@ Rectangle {
                 anchors.fill: parent
                 showHeader: false
                 fillColor: theme.surfaceInput
-                borderColor: backend.poolInfo.alertLevel === 2
+                borderColor: poolSummary.pool.alertLevel === 2
                              ? theme.dangerBorder
-                             : (backend.poolInfo.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
+                             : (poolSummary.pool.alertLevel === 1 ? theme.warningBorder : theme.borderSubtle)
                 cardPadding: Style.padCard
                 contentSpacing: Style.gapSm
 
@@ -179,12 +181,12 @@ Rectangle {
                     }
 
                     Text {
-                        text: (backend.poolInfo.usedPercent !== undefined
-                               ? backend.poolInfo.usedPercent
+                        text: (poolSummary.pool.usedPercent !== undefined
+                               ? poolSummary.pool.usedPercent
                                : 0) + "%"
-                        color: backend.poolInfo.alertLevel === 2
+                        color: poolSummary.pool.alertLevel === 2
                                ? theme.dangerText
-                               : (backend.poolInfo.alertLevel === 1 ? theme.warningText : theme.accentText)
+                               : (poolSummary.pool.alertLevel === 1 ? theme.warningText : theme.accentText)
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontCaption
                         font.weight: Font.Medium
@@ -200,11 +202,11 @@ Rectangle {
 
                 MeterBar {
                     Layout.fillWidth: true
-                    value: backend.poolInfo.usedPercent !== undefined ? backend.poolInfo.usedPercent : 0
+                    value: poolSummary.pool.usedPercent !== undefined ? poolSummary.pool.usedPercent : 0
                     minFillWidth: Style.gapSm
-                    fillColor: backend.poolInfo.alertLevel === 2
+                    fillColor: poolSummary.pool.alertLevel === 2
                                ? theme.danger
-                               : (backend.poolInfo.alertLevel === 1 ? theme.warning : theme.accent)
+                               : (poolSummary.pool.alertLevel === 1 ? theme.warning : theme.accent)
                 }
 
                 RowLayout {
@@ -215,18 +217,18 @@ Rectangle {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
                         text: qsTr("%1 / %2 used")
-                                  .arg(backend.poolInfo.usedText || "0 MiB")
-                                  .arg(backend.poolInfo.totalText || "0 MiB")
+                                  .arg(poolSummary.pool.usedText || "0 MiB")
+                                  .arg(poolSummary.pool.totalText || "0 MiB")
                         color: theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontCaption
                     }
 
                     Text {
-                        visible: (backend.poolInfo.allocatedBytes || 0) > 0
+                        visible: (poolSummary.pool.allocatedBytes || 0) > 0
                         elide: Text.ElideRight
-                        text: qsTr("Allocated %1").arg(backend.poolInfo.allocatedText || "0 MiB")
-                        color: (backend.poolInfo.overcommitted || false) ? theme.warningText : theme.textMuted
+                        text: qsTr("Allocated %1").arg(poolSummary.pool.allocatedText || "0 MiB")
+                        color: (poolSummary.pool.overcommitted || false) ? theme.warningText : theme.textMuted
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontCaption
                     }

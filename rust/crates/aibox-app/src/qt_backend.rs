@@ -22,7 +22,7 @@ use aibox_core::health::pool::StoragePoolInfo;
 use aibox_core::health::swap::host_swap_info;
 use aibox_core::incus::catalog::catalog_for_entries;
 use aibox_core::incus::demo::build_demo_state_now;
-use aibox_core::incus::list::{templates as extract_templates, Environment};
+use aibox_core::incus::list::Environment;
 use aibox_core::snapshot::SnapshotSizeCache;
 use aibox_core::util::paths::{
     clean_path, default_os_storage_path, default_system_path, default_workspace_path,
@@ -37,7 +37,7 @@ use crate::qt_convert::{
 };
 
 type QListQVariant = QList<QVariant>;
-type QMapQStringQVariant = QMap<QMapPair_QString_QVariant>;
+pub(crate) type QMapQStringQVariant = QMap<QMapPair_QString_QVariant>;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -908,60 +908,60 @@ pub struct BackendRust {
     pub(crate) task_log: QString,
     pub(crate) pending_env_name: QString,
     pub(crate) status_message: QString,
-    error_message: QString,
+    pub(crate) error_message: QString,
     pub(crate) downloading_os_id: QString,
-    system_path: QString,
-    default_system_path: QString,
-    workspace_base: QString,
-    container_workspace_path: QString,
-    os_storage_path: QString,
+    pub(crate) system_path: QString,
+    pub(crate) default_system_path: QString,
+    pub(crate) workspace_base: QString,
+    pub(crate) container_workspace_path: QString,
+    pub(crate) os_storage_path: QString,
     pub(crate) default_workspace_base: QString,
     pub(crate) default_os_storage_path: QString,
-    config_file_path: QString,
-    first_run: bool,
-    presets: QListQVariant,
-    disk_options: QStringList,
-    ram_options: QStringList,
-    cpu_options: QListQVariant,
-    default_preset_id: QString,
-    default_os_id: QString,
-    default_disk: QString,
-    default_ram: QString,
-    default_cpu: i32,
+    pub(crate) config_file_path: QString,
+    pub(crate) first_run: bool,
+    pub(crate) presets: QListQVariant,
+    pub(crate) disk_options: QStringList,
+    pub(crate) ram_options: QStringList,
+    pub(crate) cpu_options: QListQVariant,
+    pub(crate) default_preset_id: QString,
+    pub(crate) default_os_id: QString,
+    pub(crate) default_disk: QString,
+    pub(crate) default_ram: QString,
+    pub(crate) default_cpu: i32,
     pub(crate) auto_snapshot_enabled: bool,
-    auto_snapshot_keep: i32,
-    process_limit_options: QStringList,
-    io_limit_options: QStringList,
-    swap_options: QStringList,
-    default_process_limit: QString,
-    default_io_limit: QString,
-    host_swap_available: bool,
-    watchdog_enabled: bool,
+    pub(crate) auto_snapshot_keep: i32,
+    pub(crate) process_limit_options: QStringList,
+    pub(crate) io_limit_options: QStringList,
+    pub(crate) swap_options: QStringList,
+    pub(crate) default_process_limit: QString,
+    pub(crate) default_io_limit: QString,
+    pub(crate) host_swap_available: bool,
+    pub(crate) watchdog_enabled: bool,
     pub(crate) watchdog_disk_warn: i32,
     pub(crate) watchdog_disk_critical: i32,
     pub(crate) watchdog_auto_stop: bool,
-    idle_stop_minutes: i32,
-    idle_stop_options: QListQVariant,
+    pub(crate) idle_stop_minutes: i32,
+    pub(crate) idle_stop_options: QListQVariant,
     pub(crate) stale_days: i32,
-    stale_day_options: QListQVariant,
+    pub(crate) stale_day_options: QListQVariant,
     pub(crate) stale_report: QMapQStringQVariant,
     pub(crate) record_sessions: bool,
-    theme_mode_override: QString,
-    high_contrast: bool,
-    reduce_motion: bool,
+    pub(crate) theme_mode_override: QString,
+    pub(crate) high_contrast: bool,
+    pub(crate) reduce_motion: bool,
     pub(crate) recorded_sessions: QListQVariant,
     pub(crate) operation_history: QListQVariant,
     pub(crate) egress_logs: QListQVariant,
     pub(crate) egress_logs_env_name: QString,
     pub(crate) backup_archives: QListQVariant,
-    diff_excludes: QStringList,
+    pub(crate) diff_excludes: QStringList,
     pub(crate) diff_loading: bool,
     pub(crate) diff_entries: QListQVariant,
     pub(crate) diff_summary: QMapQStringQVariant,
     pub(crate) selected_diff_text: QString,
     pub(crate) selected_diff_info: QString,
     pub(crate) secrets_error: QString,
-    secrets_store_path: QString,
+    pub(crate) secrets_store_path: QString,
     pub(crate) environment_secrets: QListQVariant,
     pub(crate) environment_secrets_error: QString,
     pub(crate) environment_secrets_env_name: QString,
@@ -973,9 +973,10 @@ pub struct BackendRust {
     pub(crate) remember_system_location: bool,
     pub(crate) demo_mode: bool,
     pub(crate) demo_environments: Vec<serde_json::Value>,
+    pub(crate) selected_environment_cache: QMapQStringQVariant,
+    pub(crate) templates_cache: QListQVariant,
     pub(crate) history_seen_id: String,
     pub(crate) last_images_json: Vec<u8>,
-    pub(crate) last_list_json: Vec<u8>,
     pub(crate) environments_arc: Arc<[Environment]>,
     pub(crate) last_environments_hash: u64,
     pub(crate) last_list_hash: u64,
@@ -984,6 +985,7 @@ pub struct BackendRust {
     pub(crate) last_refresh_at: Option<Instant>,
     pub(crate) last_pool_refresh_at: Option<Instant>,
     pub(crate) refresh_in_flight: Arc<AtomicBool>,
+    pub(crate) pending_refresh: Option<(bool, Option<bool>)>,
     pub(crate) stop_flag: Arc<AtomicBool>,
     pub(crate) poll_started: bool,
     pub(crate) window_active: Arc<AtomicBool>,
@@ -994,6 +996,9 @@ pub struct BackendRust {
     pub(crate) monitor_child: Arc<std::sync::Mutex<Option<std::process::Child>>>,
     pub(crate) task_watch_active: Arc<AtomicBool>,
     pub(crate) diff_generation: Arc<AtomicU64>,
+    pub(crate) file_diff_generation: Arc<AtomicU64>,
+    pub(crate) stale_report_generation: Arc<AtomicU64>,
+    pub(crate) prefetch_in_flight: Arc<Mutex<HashSet<String>>>,
     pub(crate) diff_cache: WorkspaceDiffCache,
     pub(crate) log_offset: i64,
     pub(crate) line_buffer: String,
@@ -1108,9 +1113,10 @@ impl Default for BackendRust {
             remember_system_location: false,
             demo_mode: false,
             demo_environments: Vec::new(),
+            selected_environment_cache: QMapQStringQVariant::default(),
+            templates_cache: QListQVariant::default(),
             history_seen_id: String::new(),
             last_images_json: Vec::new(),
-            last_list_json: Vec::new(),
             environments_arc: Arc::from(Vec::new()),
             last_environments_hash: 0,
             last_list_hash: 0,
@@ -1119,6 +1125,7 @@ impl Default for BackendRust {
             last_refresh_at: None,
             last_pool_refresh_at: None,
             refresh_in_flight: Arc::new(AtomicBool::new(false)),
+            pending_refresh: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
             poll_started: false,
             window_active: Arc::new(AtomicBool::new(true)),
@@ -1129,6 +1136,9 @@ impl Default for BackendRust {
             monitor_child: Arc::new(std::sync::Mutex::new(None)),
             task_watch_active: Arc::new(AtomicBool::new(false)),
             diff_generation: Arc::new(AtomicU64::new(0)),
+            file_diff_generation: Arc::new(AtomicU64::new(0)),
+            stale_report_generation: Arc::new(AtomicU64::new(0)),
+            prefetch_in_flight: Arc::new(Mutex::new(HashSet::new())),
             diff_cache: WorkspaceDiffCache::default(),
             log_offset: 0,
             line_buffer: String::new(),
@@ -1170,20 +1180,7 @@ impl cxx_qt::Initialize for qobject::Backend {
 
 impl qobject::Backend {
     pub fn templates(&self) -> QListQVariant {
-        if self.demo_mode {
-            let tmpls: Vec<serde_json::Value> = self
-                .demo_environments
-                .iter()
-                .filter(|v| v.get("isTemplate").and_then(|b| b.as_bool()) == Some(true))
-                .cloned()
-                .collect();
-            return json_array_to_qvariant_list(&tmpls);
-        }
-        let tmpls: Vec<_> = extract_templates(&self.engine.environments)
-            .into_iter()
-            .cloned()
-            .collect();
-        serialize_to_qvariant_list(&tmpls)
+        self.templates_cache.clone()
     }
 
     pub fn recent_failed_history_count(&self) -> i32 {
@@ -1271,124 +1268,6 @@ impl qobject::Backend {
         self.as_mut().attach_existing_task();
     }
 
-    pub(crate) fn sync_config_properties(mut self: Pin<&mut Self>) {
-        let (
-            system_path,
-            workspace_base,
-            os_storage_path,
-            config_file_path,
-            first_run,
-            presets,
-            disk_options,
-            ram_options,
-            cpu_options,
-            default_preset_id,
-            default_os_id,
-            default_disk,
-            default_ram,
-            default_cpu,
-            auto_snapshot_enabled,
-            auto_snapshot_keep,
-            watchdog_enabled,
-            watchdog_disk_warn,
-            watchdog_disk_critical,
-            watchdog_auto_stop,
-            idle_stop_minutes,
-            stale_days,
-            record_sessions,
-            theme_mode_override,
-            high_contrast,
-            reduce_motion,
-            diff_excludes,
-            secrets_store_path,
-            secrets_error,
-        ) = {
-            let cfg = &self.engine.config;
-            let paths = &self.engine.paths;
-            (
-                QString::from(paths.system_path.as_str()),
-                QString::from(cfg.workspace_base.as_str()),
-                QString::from(cfg.os_storage_path.as_str()),
-                QString::from(paths.config_file_path.as_str()),
-                !cfg.first_run_completed,
-                serialize_to_qvariant_list(&cfg.presets),
-                strings_to_qstringlist(&cfg.disk_options),
-                strings_to_qstringlist(&cfg.ram_options),
-                i32s_to_qvariant_list(&cfg.cpu_options),
-                QString::from(cfg.default_preset_id.as_str()),
-                QString::from(cfg.default_os_id.as_str()),
-                QString::from(cfg.default_disk.as_str()),
-                QString::from(cfg.default_ram.as_str()),
-                cfg.default_cpu,
-                cfg.auto_snapshot_enabled,
-                cfg.auto_snapshot_keep,
-                cfg.watchdog_enabled,
-                cfg.watchdog_disk_warn,
-                cfg.watchdog_disk_critical,
-                cfg.watchdog_auto_stop,
-                cfg.idle_stop_minutes,
-                cfg.stale_days,
-                cfg.record_sessions,
-                QString::from(cfg.theme_mode_override.as_str()),
-                cfg.high_contrast,
-                cfg.reduce_motion,
-                strings_to_qstringlist(&cfg.diff_excludes),
-                QString::from(self.engine.secrets.secrets_path.as_str()),
-                QString::from(self.engine.secrets.secrets_error.as_str()),
-            )
-        };
-
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.system_path = system_path;
-            rust.workspace_base = workspace_base;
-            rust.os_storage_path = os_storage_path;
-            rust.config_file_path = config_file_path;
-            rust.first_run = first_run;
-            rust.presets = presets;
-            rust.disk_options = disk_options;
-            rust.ram_options = ram_options;
-            rust.cpu_options = cpu_options;
-            rust.default_preset_id = default_preset_id;
-            rust.default_os_id = default_os_id;
-            rust.default_disk = default_disk;
-            rust.default_ram = default_ram;
-            rust.default_cpu = default_cpu;
-            rust.auto_snapshot_enabled = auto_snapshot_enabled;
-            rust.auto_snapshot_keep = auto_snapshot_keep;
-            rust.watchdog_enabled = watchdog_enabled;
-            rust.watchdog_disk_warn = watchdog_disk_warn;
-            rust.watchdog_disk_critical = watchdog_disk_critical;
-            rust.watchdog_auto_stop = watchdog_auto_stop;
-            rust.idle_stop_minutes = idle_stop_minutes;
-            rust.stale_days = stale_days;
-            rust.record_sessions = record_sessions;
-            rust.theme_mode_override = theme_mode_override;
-            rust.high_contrast = high_contrast;
-            rust.reduce_motion = reduce_motion;
-            rust.diff_excludes = diff_excludes;
-            rust.secrets_store_path = secrets_store_path;
-            rust.secrets_error = secrets_error;
-        }
-        let swap_options = strings_to_qstringlist(&self.engine.config.swap_options);
-        self.as_mut().rust_mut().swap_options = swap_options;
-
-        self.as_mut().system_path_changed();
-        self.as_mut().workspace_base_changed();
-        self.as_mut().os_storage_path_changed();
-        self.as_mut().config_file_path_changed();
-        self.as_mut().first_run_changed();
-        self.as_mut().create_options_changed();
-        self.as_mut().auto_snapshot_settings_changed();
-        self.as_mut().watchdog_settings_changed();
-        self.as_mut().idle_stop_settings_changed();
-        self.as_mut().stale_report_settings_changed();
-        self.as_mut().record_sessions_settings_changed();
-        self.as_mut().appearance_settings_changed();
-        self.as_mut().diff_excludes_changed();
-        self.as_mut().secrets_changed();
-    }
-
     pub(crate) fn rebuild_os_catalog(mut self: Pin<&mut Self>) {
         let downloading = self.downloading_os_id.to_string();
         let catalog = catalog_for_entries(
@@ -1440,6 +1319,8 @@ impl qobject::Backend {
             rust.backup_archives = q_backups;
             rust.pool_info = q_pool;
             rust.recorded_sessions = q_sessions;
+            rust.rebuild_templates_cache();
+            rust.rebuild_selected_environment_cache();
         }
 
         self.as_mut().environments_changed();
@@ -1451,11 +1332,6 @@ impl qobject::Backend {
         self.as_mut().recorded_sessions_changed();
         self.as_mut().secrets_changed();
         self.as_mut().refresh_stale_report();
-    }
-
-    pub(crate) fn save_config(&self) -> Result<(), String> {
-        aibox_core::config::model::save(&self.engine.paths.config_file_path, &self.engine.config)
-            .map_err(|e| e.to_string())
     }
 
     pub(crate) fn set_status_message(mut self: Pin<&mut Self>, msg: &str) {
@@ -1513,6 +1389,7 @@ impl qobject::Backend {
         {
             let mut rust = self.as_mut().rust_mut();
             rust.selected_index = index;
+            rust.rebuild_selected_environment_cache();
         }
         self.as_mut().selected_index_changed();
     }

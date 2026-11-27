@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cxx_qt::{CxxQtType, Threading};
@@ -441,6 +442,7 @@ impl qobject::Backend {
 
         let gen = self.diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let gen_ref = self.diff_generation.clone();
+        self.file_diff_generation.fetch_add(1, Ordering::SeqCst);
         let args = build_workspace_diff_args(&snap_path, &ws_path, &excludes);
 
         let initial_summary = serde_json::json!({
@@ -524,7 +526,7 @@ impl qobject::Backend {
                         match reader.read_line(&mut line) {
                             Ok(0) | Err(_) => break,
                             Ok(_) => {
-                                if tx.send(line.clone()).is_err() {
+                                if tx.send(std::mem::take(&mut line)).is_err() {
                                     break;
                                 }
                             }
@@ -701,6 +703,8 @@ impl qobject::Backend {
             }
             FileDiffPrep::RunDiff { args } => args,
         };
+        let file_gen = self.file_diff_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let file_gen_ref = Arc::clone(&self.file_diff_generation);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let out = Command::new("diff").args(&args).output();
@@ -714,6 +718,9 @@ impl qobject::Backend {
                 Err(e) => (String::new(), format!("Failed to run diff: {e}")),
             };
             let _ = qt_thread.queue(move |mut qobject| {
+                if file_gen_ref.load(Ordering::SeqCst) != file_gen {
+                    return;
+                }
                 {
                     let mut rust = qobject.as_mut().rust_mut();
                     rust.selected_diff_text = QString::from(text.as_str());

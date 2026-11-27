@@ -12,9 +12,9 @@ use cxx_qt_lib::{QMap, QMapPair_QString_QVariant};
 use aibox_core::backup::{build_stale_report, scan_backup_archives};
 use aibox_core::config::model::Config;
 use aibox_core::engine::{Engine, RawSnapshot, RefreshContext, RefreshDelta, ResolvedPaths};
-use aibox_core::health::pool::StoragePoolInfo;
+use aibox_core::health::pool::{sum_env_root_disk_quotas, StoragePoolInfo};
 use aibox_core::incus::catalog::OsCatalogEntry;
-use aibox_core::incus::list::{CounterState, Environment};
+use aibox_core::incus::list::{templates as extract_templates, CounterState, Environment};
 use aibox_core::incus::monitor::parse_lifecycle_event;
 use aibox_core::process::SystemRunner;
 use aibox_core::session::scan_recorded_sessions;
@@ -23,7 +23,7 @@ use aibox_core::workspace::file_access::{
     apply_file_access_state, attach_file_access_fields, ApplyFileAccessResult, FileAccessEnvInput,
 };
 
-use crate::qt_backend::qobject;
+use crate::qt_backend::{qobject, BackendRust};
 use crate::qt_convert::{
     json_array_to_qvariant_list, json_object_to_qvariant_map, serialize_to_qvariant_list,
     value_to_qvariant_map,
@@ -202,11 +202,53 @@ pub(crate) fn hash_bytes(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+fn hash_json_value(val: &serde_json::Value, hasher: &mut DefaultHasher) {
+    match val {
+        serde_json::Value::Null => 0u8.hash(hasher),
+        serde_json::Value::Bool(b) => {
+            1u8.hash(hasher);
+            b.hash(hasher);
+        }
+        serde_json::Value::Number(n) => {
+            2u8.hash(hasher);
+            if let Some(i) = n.as_i64() {
+                0u8.hash(hasher);
+                i.hash(hasher);
+            } else if let Some(u) = n.as_u64() {
+                1u8.hash(hasher);
+                u.hash(hasher);
+            } else if let Some(f) = n.as_f64() {
+                2u8.hash(hasher);
+                f.to_bits().hash(hasher);
+            }
+        }
+        serde_json::Value::String(s) => {
+            3u8.hash(hasher);
+            s.hash(hasher);
+        }
+        serde_json::Value::Array(arr) => {
+            4u8.hash(hasher);
+            arr.len().hash(hasher);
+            for item in arr {
+                hash_json_value(item, hasher);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            5u8.hash(hasher);
+            map.len().hash(hasher);
+            for (k, v) in map {
+                k.hash(hasher);
+                hash_json_value(v, hasher);
+            }
+        }
+    }
+}
+
 pub(crate) fn hash_json_values(values: &[serde_json::Value]) -> u64 {
     let mut hasher = DefaultHasher::new();
     values.len().hash(&mut hasher);
     for v in values {
-        v.to_string().hash(&mut hasher);
+        hash_json_value(v, &mut hasher);
     }
     hasher.finish()
 }
@@ -233,13 +275,12 @@ pub(crate) struct WorkerRefreshInput {
     pub(crate) prev_templates: Vec<Environment>,
     pub(crate) prev_os_catalog: Vec<OsCatalogEntry>,
     pub(crate) prev_pool_info: StoragePoolInfo,
+    pub(crate) last_pool_quotas: (i64, i32),
     pub(crate) ctx: RefreshContext,
-    pub(crate) last_list_hash: u64,
 }
 
 pub(crate) struct WorkerRefreshOutput {
     pub(crate) snapshot_list_hash: u64,
-    pub(crate) list_json: Vec<u8>,
     pub(crate) images_json: Vec<u8>,
     pub(crate) include_catalog: bool,
     pub(crate) include_pool: bool,
@@ -248,9 +289,11 @@ pub(crate) struct WorkerRefreshOutput {
     pub(crate) templates: Vec<Environment>,
     pub(crate) os_catalog: Vec<OsCatalogEntry>,
     pub(crate) pool_info: StoragePoolInfo,
+    pub(crate) pool_quotas: (i64, i32),
     pub(crate) counter_state: CounterState,
     pub(crate) file_access: ApplyFileAccessResult,
     pub(crate) env_values: Vec<serde_json::Value>,
+    pub(crate) env_values_hash: u64,
     pub(crate) pool_json: Option<serde_json::Value>,
 }
 
@@ -261,8 +304,7 @@ pub(crate) fn parse_refresh_in_worker(
     mut input: WorkerRefreshInput,
 ) -> Result<WorkerRefreshOutput, String> {
     let snapshot_list_hash = hash_bytes(&snapshot.list_json);
-    let list_unchanged = input.last_list_hash != 0 && input.last_list_hash == snapshot_list_hash;
-    input.ctx.compute_pool_quotas = !list_unchanged;
+    input.ctx.compute_pool_quotas = true;
 
     let mut temp_engine = Engine::from_parts(
         input.paths,
@@ -281,25 +323,33 @@ pub(crate) fn parse_refresh_in_worker(
 
     let env_values =
         build_environment_json_values(&temp_engine.environments, &temp_engine.file_access);
+    let env_values_hash = hash_json_values(&env_values);
 
-    let pool_json = if snapshot.include_pool {
-        let pool_json_str = temp_engine
-            .pool_info
-            .to_json(delta.allocated_bytes, delta.unbounded_count);
-        Some(serde_json::from_str(&pool_json_str).unwrap_or(serde_json::Value::Null))
+    let (pool_quotas, pool_json) = if snapshot.include_pool {
+        let quotas = (delta.allocated_bytes, delta.unbounded_count);
+        (
+            quotas,
+            Some(temp_engine.pool_info.to_value(quotas.0, quotas.1)),
+        )
+    } else if delta.list_parsed && temp_engine.pool_info.valid {
+        let quotas =
+            sum_env_root_disk_quotas(&temp_engine.environments, "", &temp_engine.pool_info.name);
+        if quotas != input.last_pool_quotas {
+            (
+                quotas,
+                Some(temp_engine.pool_info.to_value(quotas.0, quotas.1)),
+            )
+        } else {
+            (input.last_pool_quotas, None)
+        }
     } else {
-        None
+        (input.last_pool_quotas, None)
     };
 
     let environments: Arc<[Environment]> = Arc::from(temp_engine.environments);
 
     Ok(WorkerRefreshOutput {
         snapshot_list_hash,
-        list_json: if delta.list_parsed {
-            snapshot.list_json
-        } else {
-            Vec::new()
-        },
         images_json: snapshot.images_json,
         include_catalog: snapshot.include_catalog,
         include_pool: snapshot.include_pool,
@@ -308,17 +358,17 @@ pub(crate) fn parse_refresh_in_worker(
         templates: temp_engine.templates,
         os_catalog: temp_engine.os_catalog,
         pool_info: temp_engine.pool_info,
+        pool_quotas,
         counter_state: temp_engine.counter_state,
         file_access: temp_engine.file_access,
         env_values,
+        env_values_hash,
         pool_json,
     })
 }
 
-impl qobject::Backend {
-    /// The inspector reads root file access state from this map, so the live
-    /// `file-access` keys must ride along with the selected environment.
-    pub fn selected_environment(&self) -> QMapQStringQVariant {
+impl BackendRust {
+    pub(crate) fn rebuild_selected_environment_cache(&mut self) {
         if self.selected_index >= 0 {
             if self.demo_mode {
                 if let Some(serde_json::Value::Object(map)) =
@@ -326,7 +376,8 @@ impl qobject::Backend {
                 {
                     let mut val = serde_json::Value::Object(map.clone());
                     attach_file_access_fields(&mut val, None);
-                    return value_to_qvariant_map(&val);
+                    self.selected_environment_cache = value_to_qvariant_map(&val);
+                    return;
                 }
             } else if let Some(env) = self.engine.environments.get(self.selected_index as usize) {
                 let mut val = serde_json::to_value(env).unwrap_or(serde_json::Value::Null);
@@ -337,10 +388,37 @@ impl qobject::Backend {
                         .envs
                         .get(self.selected_index as usize),
                 );
-                return value_to_qvariant_map(&val);
+                self.selected_environment_cache = value_to_qvariant_map(&val);
+                return;
             }
         }
-        QMapQStringQVariant::default()
+        self.selected_environment_cache = QMapQStringQVariant::default();
+    }
+
+    pub(crate) fn rebuild_templates_cache(&mut self) {
+        if self.demo_mode {
+            let tmpls: Vec<serde_json::Value> = self
+                .demo_environments
+                .iter()
+                .filter(|v| v.get("isTemplate").and_then(|b| b.as_bool()) == Some(true))
+                .cloned()
+                .collect();
+            self.templates_cache = json_array_to_qvariant_list(&tmpls);
+            return;
+        }
+        let tmpls: Vec<_> = extract_templates(&self.engine.environments)
+            .into_iter()
+            .cloned()
+            .collect();
+        self.templates_cache = serialize_to_qvariant_list(&tmpls);
+    }
+}
+
+impl qobject::Backend {
+    /// The inspector reads root file access state from this cached map, so it stays
+    /// updated whenever `selected_index`, `environments`, or `file_access` changes.
+    pub fn selected_environment(&self) -> QMapQStringQVariant {
+        self.selected_environment_cache.clone()
     }
 
     pub fn set_window_active(mut self: Pin<&mut Self>, active: bool) {
@@ -377,7 +455,30 @@ impl qobject::Backend {
         );
     }
 
+    pub(crate) fn sync_demo_environments(mut self: Pin<&mut Self>) {
+        let q_envs = json_array_to_qvariant_list(&self.demo_environments);
+        let count = self.demo_environments.len() as i32;
+        {
+            let mut rust = self.as_mut().rust_mut();
+            let max_idx = (count - 1).max(0);
+            if rust.selected_index >= count {
+                rust.selected_index = max_idx;
+            }
+            rust.environments = q_envs;
+            rust.count = count;
+            rust.rebuild_templates_cache();
+            rust.rebuild_selected_environment_cache();
+        }
+        self.as_mut().environments_changed();
+        self.as_mut().count_changed();
+        self.as_mut().selected_index_changed();
+    }
+
     pub(crate) fn sync_environments_from_engine(mut self: Pin<&mut Self>) {
+        if self.demo_mode {
+            self.sync_demo_environments();
+            return;
+        }
         let state_dir = self.engine.paths.state_dir.clone();
         let fa_inputs: Vec<FileAccessEnvInput> = self
             .engine
@@ -405,6 +506,8 @@ impl qobject::Backend {
             rust.environments_arc = envs_arc;
             rust.last_environments_hash = model_hash;
             rust.count = count;
+            rust.rebuild_templates_cache();
+            rust.rebuild_selected_environment_cache();
         }
         self.as_mut().environments_changed();
         self.as_mut().count_changed();
@@ -597,6 +700,19 @@ impl qobject::Backend {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
+            let mut rust = self.as_mut().rust_mut();
+            rust.pending_refresh = Some(match rust.pending_refresh {
+                Some((prev_cat, prev_pool)) => {
+                    let merged_pool = match (prev_pool, include_pool_opt) {
+                        (Some(true), _) | (_, Some(true)) => Some(true),
+                        (Some(false), Some(false)) => Some(false),
+                        (Some(v), None) | (None, Some(v)) => Some(v),
+                        (None, None) => None,
+                    };
+                    (prev_cat || include_catalog, merged_pool)
+                }
+                None => (include_catalog, include_pool_opt),
+            });
             return;
         }
 
@@ -629,6 +745,7 @@ impl qobject::Backend {
                 prev_templates: rust.engine.templates.clone(),
                 prev_os_catalog: rust.engine.os_catalog.clone(),
                 prev_pool_info: rust.engine.pool_info.clone(),
+                last_pool_quotas: rust.last_pool_quotas,
                 ctx: RefreshContext {
                     elapsed_wall_ns,
                     track_cpu_and_net: true,
@@ -638,7 +755,6 @@ impl qobject::Backend {
                     downloading_os_id: rust.downloading_os_id.to_string(),
                     compute_pool_quotas: true,
                 },
-                last_list_hash: rust.last_list_hash,
             }
         };
 
@@ -650,11 +766,14 @@ impl qobject::Backend {
                     .and_then(|snap| parse_refresh_in_worker(snap, worker_input));
             in_flight.store(false, Ordering::SeqCst);
 
-            let Ok(output) = result else {
-                return;
-            };
-            let _ = qt_thread.queue(move |mut backend| {
-                backend.as_mut().apply_worker_refresh_output(output);
+            let _ = qt_thread.queue(move |mut backend| match result {
+                Ok(output) => backend.as_mut().apply_worker_refresh_output(output),
+                Err(_) => {
+                    let pending = backend.as_mut().rust_mut().pending_refresh.take();
+                    if let Some((cat, pool)) = pending {
+                        backend.as_mut().refresh_with_options(cat, pool);
+                    }
+                }
             });
         });
     }
@@ -670,23 +789,17 @@ impl qobject::Backend {
                 rust.last_pool_refresh_at = Some(Instant::now());
             }
 
-            let list_unchanged =
-                rust.last_list_hash != 0 && rust.last_list_hash == output.snapshot_list_hash;
-            let (allocated_bytes, unbounded_count) = if list_unchanged {
-                rust.last_pool_quotas
-            } else {
-                (output.delta.allocated_bytes, output.delta.unbounded_count)
-            };
-            let quotas_changed = (allocated_bytes, unbounded_count) != rust.last_pool_quotas;
+            let quotas_changed = output.pool_quotas != rust.last_pool_quotas;
             let pool_changed = output.delta.pool_changed
-                || (output.include_pool && (quotas_changed || rust.pool_info.is_empty()));
+                || (output.include_pool && (quotas_changed || rust.pool_info.is_empty()))
+                || (quotas_changed && output.pool_json.is_some());
             if pool_changed {
                 rust.engine.pool_info = output.pool_info;
                 rust.pool_info = match &output.pool_json {
                     Some(serde_json::Value::Object(map)) => json_object_to_qvariant_map(map),
                     _ => QMapQStringQVariant::default(),
                 };
-                rust.last_pool_quotas = (allocated_bytes, unbounded_count);
+                rust.last_pool_quotas = output.pool_quotas;
             } else if output.include_pool {
                 rust.engine.pool_info = output.pool_info;
             }
@@ -702,25 +815,22 @@ impl qobject::Backend {
             }
 
             let mut pending_sizes: Vec<(String, String, bool, Vec<String>)> = Vec::new();
+            let mut cache_modified_env = false;
+            let mut updated_envs: Option<Vec<Environment>> = None;
+
             if output.delta.list_parsed {
                 rust.last_list_hash = output.snapshot_list_hash;
-                rust.last_list_json = output.list_json;
-            }
-            let mut envs_vec = output.environments.to_vec();
-            let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
-            let mut cache_modified_env = false;
-            if output.delta.list_parsed {
+                let mut envs_vec = output.environments.to_vec();
+                let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
+                let live_names: Vec<&str> = envs_vec.iter().map(|e| e.name.as_str()).collect();
+                cache.prune_deleted_envs(&live_names);
+
                 for env in &mut envs_vec {
                     if !env.snapshot_sizes.is_empty() {
                         cache.insert_incus(&env.name, env.snapshot_sizes.clone());
                     }
                     cache.prune_removed(&env.name, &env.snapshots, &env.workspace_snapshots);
-                    let before_sizes = env.snapshot_sizes.clone();
-                    let before_ws_sizes = env.workspace_snapshot_sizes.clone();
-                    cache.apply_to_environment(env);
-                    if env.snapshot_sizes != before_sizes
-                        || env.workspace_snapshot_sizes != before_ws_sizes
-                    {
+                    if cache.apply_to_environment(env) {
                         cache_modified_env = true;
                     }
 
@@ -738,21 +848,30 @@ impl qobject::Backend {
                         ));
                     }
                 }
+                rust.snapshot_size_cache = cache;
+                updated_envs = Some(envs_vec);
             }
-            rust.snapshot_size_cache = cache;
 
             if cache_modified_env {
-                output.env_values = build_environment_json_values(&envs_vec, &output.file_access);
+                if let Some(ref envs_vec) = updated_envs {
+                    output.env_values =
+                        build_environment_json_values(envs_vec, &output.file_access);
+                }
             }
 
-            let model_hash = hash_json_values(&output.env_values);
+            let model_hash = if cache_modified_env {
+                hash_json_values(&output.env_values)
+            } else {
+                output.env_values_hash
+            };
             // Root file access changes do not touch `incus list`, so the model
             // hash must be compared on every refresh, not only when the list
             // JSON changed.
             let changed = model_hash != rust.last_environments_hash
-                || (rust.environments.is_empty() && !envs_vec.is_empty());
+                || (rust.environments.is_empty() && !output.environments.is_empty());
 
             if changed {
+                let envs_vec = updated_envs.unwrap_or_else(|| output.environments.to_vec());
                 let final_arc: Arc<[Environment]> = if cache_modified_env {
                     Arc::from(envs_vec.clone())
                 } else {
@@ -767,15 +886,22 @@ impl qobject::Backend {
                 rust.environments = json_array_to_qvariant_list(&output.env_values);
                 rust.count = rust.engine.environments.len() as i32;
                 rust.last_environments_hash = model_hash;
+
+                let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
+                if rust.selected_index >= rust.engine.environments.len() as i32 {
+                    rust.selected_index = max_idx;
+                }
+                rust.rebuild_templates_cache();
+                rust.rebuild_selected_environment_cache();
+            } else {
+                let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
+                if rust.selected_index >= rust.engine.environments.len() as i32 {
+                    rust.selected_index = max_idx;
+                    rust.rebuild_selected_environment_cache();
+                }
             }
 
-            let max_idx = (rust.engine.environments.len() as i32 - 1).max(0);
-            if rust.selected_index >= rust.engine.environments.len() as i32 {
-                rust.selected_index = max_idx;
-            }
-            let envs_changed = changed;
-
-            (envs_changed, pool_changed, catalog_changed, pending_sizes)
+            (changed, pool_changed, catalog_changed, pending_sizes)
         };
 
         if pool_changed {
@@ -785,15 +911,16 @@ impl qobject::Backend {
             self.as_mut().environments_changed();
             self.as_mut().count_changed();
             self.as_mut().selected_index_changed();
-            if !self.stale_report.is_empty() {
-                self.as_mut().refresh_stale_report();
-            }
         }
         self.as_mut().schedule_snapshot_size_worker(pending_sizes);
         self.as_mut().evaluate_all_watchdogs();
         self.as_mut().trigger_idle_auto_stops_check();
         if catalog_changed {
             self.as_mut().os_catalog_changed();
+        }
+        let pending = self.as_mut().rust_mut().pending_refresh.take();
+        if let Some((cat, pool)) = pending {
+            self.as_mut().refresh_with_options(cat, pool);
         }
     }
 
@@ -866,14 +993,18 @@ impl qobject::Backend {
                         let fa_result = apply_file_access_state(&state_dir, &fa_inputs);
                         let env_values =
                             build_environment_json_values(&rust.engine.environments, &fa_result);
+                        rust.engine.file_access = fa_result;
                         rust.last_environments_hash = hash_json_values(&env_values);
                         rust.environments_arc = Arc::from(rust.engine.environments.clone());
                         rust.environments = json_array_to_qvariant_list(&env_values);
+                        rust.rebuild_templates_cache();
+                        rust.rebuild_selected_environment_cache();
                     }
                     any_new
                 };
                 if changed {
                     backend.as_mut().environments_changed();
+                    backend.as_mut().selected_index_changed();
                 }
             });
         });
@@ -902,29 +1033,54 @@ impl qobject::Backend {
     }
 
     pub fn refresh_stale_report(mut self: Pin<&mut Self>) {
-        let envs_arr = if self.demo_mode {
-            self.demo_environments.clone()
-        } else {
-            let envs_val = serde_json::to_value(&self.engine.environments).unwrap_or_default();
-            envs_val.as_array().cloned().unwrap_or_default()
-        };
+        let workspace_base = self.engine.config.workspace_base.clone();
         let backups_dir = aibox_core::backup::backups_dir_path(&self.engine.config.os_storage_path);
-        let report = build_stale_report(
-            &envs_arr,
-            &self.engine.config.workspace_base,
-            &backups_dir,
-            self.stale_days,
-            0,
-        );
-        let q_report = match report {
-            serde_json::Value::Object(map) => json_object_to_qvariant_map(&map),
-            _ => QMapQStringQVariant::default(),
-        };
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.stale_report = q_report;
+        let stale_days = self.stale_days;
+
+        if self.demo_mode {
+            let report = build_stale_report(
+                &self.demo_environments,
+                &workspace_base,
+                &backups_dir,
+                stale_days,
+                0,
+            );
+            let q_report = match report {
+                serde_json::Value::Object(map) => json_object_to_qvariant_map(&map),
+                _ => QMapQStringQVariant::default(),
+            };
+            {
+                let mut rust = self.as_mut().rust_mut();
+                rust.stale_report = q_report;
+            }
+            self.as_mut().stale_report_changed();
+            return;
         }
-        self.as_mut().stale_report_changed();
+
+        let gen = self.stale_report_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let gen_ref = Arc::clone(&self.stale_report_generation);
+        let envs_arc = Arc::clone(&self.environments_arc);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let envs_val = serde_json::to_value(&*envs_arc).unwrap_or_default();
+            let envs_arr = envs_val.as_array().cloned().unwrap_or_default();
+            let report =
+                build_stale_report(&envs_arr, &workspace_base, &backups_dir, stale_days, 0);
+            let _ = qt_thread.queue(move |mut backend| {
+                if gen_ref.load(Ordering::SeqCst) != gen {
+                    return;
+                }
+                let q_report = match report {
+                    serde_json::Value::Object(map) => json_object_to_qvariant_map(&map),
+                    _ => QMapQStringQVariant::default(),
+                };
+                {
+                    let mut rust = backend.as_mut().rust_mut();
+                    rust.stale_report = q_report;
+                }
+                backend.as_mut().stale_report_changed();
+            });
+        });
     }
 }
 
@@ -1014,11 +1170,11 @@ mod tests {
             prev_templates: Vec::new(),
             prev_os_catalog: Vec::new(),
             prev_pool_info: StoragePoolInfo::default(),
+            last_pool_quotas: (0, 0),
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
             },
-            last_list_hash: 0,
         };
         let out1 = parse_refresh_in_worker(snap1, input1).expect("first parse");
         assert!(out1.delta.list_parsed);
@@ -1042,11 +1198,11 @@ mod tests {
             prev_templates: out1.templates,
             prev_os_catalog: out1.os_catalog,
             prev_pool_info: out1.pool_info,
+            last_pool_quotas: out1.pool_quotas,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
             },
-            last_list_hash: out1.snapshot_list_hash,
         };
         let out2 = parse_refresh_in_worker(snap2, input2).expect("second parse");
         assert!(!out2.delta.list_parsed);
@@ -1054,5 +1210,104 @@ mod tests {
         assert_ne!(hash1, 0);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn unchanged_list_with_pool_refresh_preserves_allocated_quotas() {
+        let sample = br#"[
+            {
+                "name": "quota-box",
+                "status": "Stopped",
+                "type": "container",
+                "expanded_devices": {
+                    "root": { "pool": "default", "size": "20GiB" }
+                }
+            }
+        ]"#;
+        let tmp = std::env::temp_dir().join(format!(
+            "aibox-refresh-pool-unit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&tmp);
+        let paths = ResolvedPaths::resolve(Some(tmp.to_string_lossy().as_ref()), true, ".");
+        let config = Config::new_defaults(&paths.workspace_base, &paths.os_storage_path);
+
+        let pool_yaml = "info:\n  driver: btrfs\n  name: default\n  space used: \"1000\"\n  total space: \"100000000000\"\n".to_string();
+
+        let snap1 = RawSnapshot {
+            list_json: sample.to_vec(),
+            images_json: Vec::new(),
+            storage_info_text: pool_yaml.clone(),
+            pool_size_text: "100GiB".to_string(),
+            include_catalog: false,
+            include_pool: true,
+        };
+        let input1 = WorkerRefreshInput {
+            paths: paths.clone(),
+            config: config.clone(),
+            counter_state: CounterState::new(),
+            prev_environments: Arc::from(Vec::new()),
+            prev_templates: Vec::new(),
+            prev_os_catalog: Vec::new(),
+            prev_pool_info: StoragePoolInfo::default(),
+            last_pool_quotas: (0, 0),
+            ctx: RefreshContext {
+                track_cpu_and_net: true,
+                ..RefreshContext::default()
+            },
+        };
+        let out1 = parse_refresh_in_worker(snap1, input1).expect("first parse");
+        let expected_bytes = 20 * 1024 * 1024 * 1024_i64;
+        assert_eq!(out1.pool_quotas, (expected_bytes, 0));
+        assert_eq!(
+            out1.pool_json.as_ref().unwrap()["allocatedBytes"],
+            expected_bytes
+        );
+
+        // Second refresh: identical list_json + include_pool == true must NOT zero out quotas.
+        let snap2 = RawSnapshot {
+            list_json: sample.to_vec(),
+            images_json: Vec::new(),
+            storage_info_text: pool_yaml,
+            pool_size_text: "100GiB".to_string(),
+            include_catalog: false,
+            include_pool: true,
+        };
+        let input2 = WorkerRefreshInput {
+            paths,
+            config,
+            counter_state: out1.counter_state,
+            prev_environments: Arc::clone(&out1.environments),
+            prev_templates: out1.templates,
+            prev_os_catalog: out1.os_catalog,
+            prev_pool_info: out1.pool_info,
+            last_pool_quotas: out1.pool_quotas,
+            ctx: RefreshContext {
+                track_cpu_and_net: true,
+                ..RefreshContext::default()
+            },
+        };
+        let out2 = parse_refresh_in_worker(snap2, input2).expect("second parse");
+        assert!(!out2.delta.list_parsed);
+        assert_eq!(out2.pool_quotas, (expected_bytes, 0));
+        assert_eq!(
+            out2.pool_json.as_ref().unwrap()["allocatedBytes"],
+            expected_bytes
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn hash_json_values_distinguishes_types_and_matches_identical() {
+        let a = vec![serde_json::json!({"x": 1, "y": "true"})];
+        let b = vec![serde_json::json!({"x": 1, "y": true})];
+        let c = vec![serde_json::json!({"x": 1, "y": "true"})];
+        assert_eq!(hash_json_values(&a), hash_json_values(&c));
+        assert_ne!(hash_json_values(&a), hash_json_values(&b));
     }
 }

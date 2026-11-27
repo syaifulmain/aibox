@@ -6,6 +6,7 @@ import "../components"
 ModalDialog {
     id: staleReportDialogRoot
     property QtObject app: null
+    readonly property var report: backend.staleReport
     open: app.staleReportVisible
     zOrder: 28
     size: "lg"
@@ -18,11 +19,11 @@ ModalDialog {
     ModalHeader {
         title: qsTr("Stale Environments & Disk Orphans")
         subtitle: qsTr("Unused >= %1d · Reclaimable: %2 · Stale: %3 · Unknown: %4 · Orphans: %5")
-                  .arg(backend.staleReport.staleDays !== undefined ? backend.staleReport.staleDays : backend.staleDays)
-                  .arg(backend.staleReport.totalReclaimableDisplay || "0 KB")
-                  .arg(backend.staleReport.staleCount !== undefined ? backend.staleReport.staleCount : 0)
-                  .arg(backend.staleReport.unknownCount !== undefined ? backend.staleReport.unknownCount : 0)
-                  .arg(backend.staleReport.orphanCount !== undefined ? backend.staleReport.orphanCount : 0)
+                  .arg(staleReportDialogRoot.report.staleDays !== undefined ? staleReportDialogRoot.report.staleDays : backend.staleDays)
+                  .arg(staleReportDialogRoot.report.totalReclaimableDisplay || "0 KB")
+                  .arg(staleReportDialogRoot.report.staleCount !== undefined ? staleReportDialogRoot.report.staleCount : 0)
+                  .arg(staleReportDialogRoot.report.unknownCount !== undefined ? staleReportDialogRoot.report.unknownCount : 0)
+                  .arg(staleReportDialogRoot.report.orphanCount !== undefined ? staleReportDialogRoot.report.orphanCount : 0)
         subtitleMono: true
         onClosed: {
             app.staleConfirmAction = ""
@@ -173,7 +174,7 @@ ModalDialog {
             spacing: Style.padCard
 
             Text {
-                text: qsTr("Stale & Unknown Environments (%1)").arg((backend.staleReport.entries || []).length)
+                text: qsTr("Stale & Unknown Environments (%1)").arg((staleReportDialogRoot.report.entries || []).length)
                 color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.fontBody
@@ -181,15 +182,15 @@ ModalDialog {
             }
 
             Text {
-                visible: (backend.staleReport.entries || []).length === 0
-                text: qsTr("No environments have been unused for %1+ days (templates excluded).").arg(backend.staleReport.staleDays || backend.staleDays)
+                visible: (staleReportDialogRoot.report.entries || []).length === 0
+                text: qsTr("No environments have been unused for %1+ days (templates excluded).").arg(staleReportDialogRoot.report.staleDays || backend.staleDays)
                 color: theme.textMuted
                 font.family: Style.fontSans
                 font.pixelSize: Style.fontBody
             }
 
             Repeater {
-                model: backend.staleReport.entries || []
+                model: staleReportDialogRoot.report.entries || []
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true
@@ -307,7 +308,7 @@ ModalDialog {
             }
 
             Text {
-                text: qsTr("Orphaned Folders, Snapshots & Backups (%1)").arg((backend.staleReport.orphans || []).length)
+                text: qsTr("Orphaned Folders, Snapshots & Backups (%1)").arg((staleReportDialogRoot.report.orphans || []).length)
                 color: theme.textPrimary
                 font.family: Style.fontSans
                 font.pixelSize: Style.fontBody
@@ -315,7 +316,7 @@ ModalDialog {
             }
 
             Text {
-                visible: (backend.staleReport.orphans || []).length === 0
+                visible: (staleReportDialogRoot.report.orphans || []).length === 0
                 text: qsTr("No orphaned workspace folders, workspace snapshot directories, or unpaired backup workspace archives found.")
                 color: theme.textMuted
                 font.family: Style.fontSans
@@ -323,7 +324,7 @@ ModalDialog {
             }
 
             Repeater {
-                model: backend.staleReport.orphans || []
+                model: staleReportDialogRoot.report.orphans || []
                 delegate: Rectangle {
                     required property var modelData
                     Layout.fillWidth: true

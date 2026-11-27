@@ -306,16 +306,19 @@ impl qobject::Backend {
             let mut updated = false;
             {
                 let mut rust = self.as_mut().rust_mut();
-                for env in &mut rust.engine.environments {
-                    if env.name == name_s {
-                        env.secret_names = clean_names.clone();
-                        updated = true;
+                let secrets_json = serde_json::json!(clean_names);
+                for env in &mut rust.demo_environments {
+                    if env.get("name").and_then(|v| v.as_str()) == Some(name_s.as_str()) {
+                        if let Some(obj) = env.as_object_mut() {
+                            obj.insert("secretNames".to_string(), secrets_json);
+                            updated = true;
+                        }
                         break;
                     }
                 }
             }
             if updated {
-                self.as_mut().sync_environments_from_engine();
+                self.as_mut().sync_demo_environments();
                 if self.engine.secrets.environment_secrets_env == name_s {
                     self.as_mut().reload_environment_secrets(name);
                 }

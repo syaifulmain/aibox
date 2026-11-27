@@ -315,12 +315,21 @@ impl qobject::Backend {
         ) else {
             return;
         };
+        let in_flight = std::sync::Arc::clone(&self.prefetch_in_flight);
+        if let Ok(mut guard) = in_flight.lock() {
+            if !guard.insert(os_s.clone()) {
+                return;
+            }
+        }
         std::thread::spawn(move || {
             let _ = std::process::Command::new("/bin/bash")
                 .args(["-c", &plan.script])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status();
+            if let Ok(mut guard) = in_flight.lock() {
+                guard.remove(&os_s);
+            }
         });
     }
 

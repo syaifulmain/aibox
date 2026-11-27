@@ -7,6 +7,7 @@ import "../components"
 Card {
     id: root
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     readonly property string snapshotNameText: snapNameInput.text
 
     Layout.fillHeight: true
@@ -21,7 +22,7 @@ Card {
             placeholder: qsTr("Snapshot label (optional)")
             onAccepted: {
                 if (!backend.busy) {
-                    backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
+                    backend.createSnapshot(root.env.name || "", snapNameInput.text)
                     snapNameInput.text = ""
                 }
             }
@@ -31,7 +32,7 @@ Card {
             disabled: backend.busy
             Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
             onClicked: {
-                backend.createSnapshot(backend.selectedEnvironment.name || "", snapNameInput.text)
+                backend.createSnapshot(root.env.name || "", snapNameInput.text)
                 snapNameInput.text = ""
             }
         }
@@ -43,31 +44,31 @@ Card {
         spacing: Style.gap
 
         ToggleChip {
-            readonly property bool policyOn: backend.selectedEnvironment.autoSnapshotEnabled !== false
+            readonly property bool policyOn: root.env.autoSnapshotEnabled !== false
             label: qsTr("Auto-snapshot")
             checked: policyOn
             disabled: backend.busy
             onToggled: backend.setEnvironmentAutoSnapshot(
-                backend.selectedEnvironment.name || "", !policyOn)
+                root.env.name || "", !policyOn)
         }
 
         ToggleChip {
-            readonly property bool policyOn: backend.selectedEnvironment.workspaceSnapshotEnabled !== false
-            visible: backend.selectedEnvironment.workspaceIsSubvolume || false
+            readonly property bool policyOn: root.env.workspaceSnapshotEnabled !== false
+            visible: root.env.workspaceIsSubvolume || false
             label: qsTr("Workspace")
             checked: policyOn
             disabled: backend.busy
             onToggled: backend.setEnvironmentWorkspaceSnapshot(
-                backend.selectedEnvironment.name || "", !policyOn)
+                root.env.name || "", !policyOn)
         }
 
         ToggleChip {
-            readonly property bool policyOn: backend.selectedEnvironment.autoStopOnCritical || false
+            readonly property bool policyOn: root.env.autoStopOnCritical || false
             label: qsTr("Auto-stop critical")
             checked: policyOn
             disabled: backend.busy
             onToggled: backend.setEnvironmentAutoStop(
-                backend.selectedEnvironment.name || "", !policyOn)
+                root.env.name || "", !policyOn)
         }
 
         Item { Layout.fillWidth: true }
@@ -83,12 +84,12 @@ Card {
     RowLayout {
         Layout.fillWidth: true
         spacing: Style.gap
-        visible: ((backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)) || (backend.selectedEnvironment.hasPreSubvolBackup || false)
+        visible: ((root.env.workspaceOnBtrfs || false) && !(root.env.workspaceIsSubvolume || false)) || (root.env.hasPreSubvolBackup || false)
 
         Text {
             Layout.fillWidth: true
             elide: Text.ElideRight
-            text: (backend.selectedEnvironment.hasPreSubvolBackup || false)
+            text: (root.env.hasPreSubvolBackup || false)
                   ? qsTr("Pre-subvolume backup (.pre-subvol) is kept on disk.")
                   : qsTr("Workspace is a plain folder. Convert to Btrfs subvolume to enable paired %1 snapshots.").arg(backend.containerWorkspacePath)
             color: theme.textSecondary
@@ -97,23 +98,23 @@ Card {
         }
 
         ActionButton {
-            visible: (backend.selectedEnvironment.workspaceOnBtrfs || false) && !(backend.selectedEnvironment.workspaceIsSubvolume || false)
+            visible: (root.env.workspaceOnBtrfs || false) && !(root.env.workspaceIsSubvolume || false)
             label: qsTr("Convert to Subvolume")
-            disabled: backend.busy || (backend.selectedEnvironment.running || false)
-            onClicked: backend.convertWorkspaceToSubvolume(backend.selectedEnvironment.name || "")
+            disabled: backend.busy || (root.env.running || false)
+            onClicked: backend.convertWorkspaceToSubvolume(root.env.name || "")
         }
 
         ActionButton {
-            visible: backend.selectedEnvironment.hasPreSubvolBackup || false
+            visible: root.env.hasPreSubvolBackup || false
             label: qsTr("Delete .pre-subvol")
             variant: "danger"
             disabled: backend.busy
-            onClicked: backend.deletePreSubvolBackup(backend.selectedEnvironment.name || "")
+            onClicked: backend.deletePreSubvolBackup(root.env.name || "")
         }
     }
 
     Text {
-        visible: (!backend.selectedEnvironment.snapshots || backend.selectedEnvironment.snapshots.length === 0) && (!backend.selectedEnvironment.orphanWorkspaceSnapshots || backend.selectedEnvironment.orphanWorkspaceSnapshots.length === 0)
+        visible: (!root.env.snapshots || root.env.snapshots.length === 0) && (!root.env.orphanWorkspaceSnapshots || root.env.orphanWorkspaceSnapshots.length === 0)
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter
         text: qsTr("No snapshots saved for this environment yet.")
@@ -127,12 +128,13 @@ Card {
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true
+        reuseItems: true
         spacing: Style.gapSm
-        model: backend.selectedEnvironment.snapshots || []
+        model: root.env.snapshots || []
 
         delegate: Rectangle {
             required property string modelData
-            readonly property bool hasWsHalf: (backend.selectedEnvironment.workspaceSnapshots || []).indexOf(modelData) >= 0
+            readonly property bool hasWsHalf: (root.env.workspaceSnapshots || []).indexOf(modelData) >= 0
             width: snapListView.width
             height: Style.rowHeight
             radius: Math.min(Style.radiusSm, theme.radius)
@@ -177,13 +179,13 @@ Card {
                 }
 
                 Text {
-                    readonly property string snapSize: (backend.selectedEnvironment.snapshotSizes
-                                                        && backend.selectedEnvironment.snapshotSizes[modelData])
-                                                       ? backend.selectedEnvironment.snapshotSizes[modelData]
+                    readonly property string snapSize: (root.env.snapshotSizes
+                                                        && root.env.snapshotSizes[modelData])
+                                                       ? root.env.snapshotSizes[modelData]
                                                        : ""
-                    readonly property string wsSize: (backend.selectedEnvironment.workspaceSnapshotSizes
-                                                      && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
-                                                     ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
+                    readonly property string wsSize: (root.env.workspaceSnapshotSizes
+                                                      && root.env.workspaceSnapshotSizes[modelData])
+                                                     ? root.env.workspaceSnapshotSizes[modelData]
                                                      : ""
                     readonly property string combinedSize: {
                         if (snapSize.length > 0 && wsSize.length > 0)
@@ -220,7 +222,7 @@ Card {
                     label: qsTr("Delete")
                     variant: "danger"
                     disabled: backend.busy
-                    onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
+                    onClicked: backend.deleteSnapshot(root.env.name || "", modelData)
                 }
             }
         }
@@ -230,7 +232,7 @@ Card {
     ColumnLayout {
         Layout.fillWidth: true
         spacing: Style.gapSm
-        visible: (backend.selectedEnvironment.orphanWorkspaceSnapshots || []).length > 0
+        visible: (root.env.orphanWorkspaceSnapshots || []).length > 0
 
         Text {
             text: qsTr("Workspace-only snapshots")
@@ -240,7 +242,7 @@ Card {
         }
 
         Repeater {
-            model: backend.selectedEnvironment.orphanWorkspaceSnapshots || []
+            model: root.env.orphanWorkspaceSnapshots || []
 
             delegate: Rectangle {
                 required property string modelData
@@ -273,9 +275,9 @@ Card {
                     }
 
                     Text {
-                        readonly property string wsOnlySize: (backend.selectedEnvironment.workspaceSnapshotSizes
-                                                              && backend.selectedEnvironment.workspaceSnapshotSizes[modelData])
-                                                             ? backend.selectedEnvironment.workspaceSnapshotSizes[modelData]
+                        readonly property string wsOnlySize: (root.env.workspaceSnapshotSizes
+                                                              && root.env.workspaceSnapshotSizes[modelData])
+                                                             ? root.env.workspaceSnapshotSizes[modelData]
                                                              : ""
                         visible: wsOnlySize.length > 0
                         text: wsOnlySize
@@ -302,7 +304,7 @@ Card {
                         label: qsTr("Delete")
                         variant: "danger"
                         disabled: backend.busy
-                        onClicked: backend.deleteSnapshot(backend.selectedEnvironment.name || "", modelData)
+                        onClicked: backend.deleteSnapshot(root.env.name || "", modelData)
                     }
                 }
             }

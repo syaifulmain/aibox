@@ -35,8 +35,8 @@ impl Default for StoragePoolInfo {
 }
 
 impl StoragePoolInfo {
-    /// Serializes pool metrics into the JSON shape expected by `poolInfoToVariantMap`.
-    pub fn to_json(&self, allocated_bytes: i64, unbounded_count: i32) -> String {
+    /// Serializes pool metrics into the JSON `Value` expected by `poolInfoToVariantMap`.
+    pub fn to_value(&self, allocated_bytes: i64, unbounded_count: i32) -> Value {
         let mut map = Map::new();
         map.insert("valid".to_string(), Value::Bool(self.valid));
         map.insert("name".to_string(), Value::String(self.name.clone()));
@@ -100,7 +100,12 @@ impl StoragePoolInfo {
             0
         };
         map.insert("alertLevel".to_string(), Value::Number(alert_level.into()));
-        Value::Object(map).to_string()
+        Value::Object(map)
+    }
+
+    /// Serializes pool metrics into the JSON shape expected by `poolInfoToVariantMap`.
+    pub fn to_json(&self, allocated_bytes: i64, unbounded_count: i32) -> String {
+        self.to_value(allocated_bytes, unbounded_count).to_string()
     }
 }
 
@@ -212,6 +217,33 @@ pub fn parse_incus_storage_info(output: &str) -> StoragePoolInfo {
 
     finalize_used_percent(&mut info);
     info
+}
+
+/// Sums root disk quotas in bytes across already-parsed `Environment` structs without
+/// re-parsing JSON, returning `(total_bytes, unbounded_count)`.
+pub fn sum_env_root_disk_quotas(
+    envs: &[crate::incus::list::Environment],
+    exclude_env_name: &str,
+    pool_name: &str,
+) -> (i64, i32) {
+    let mut total: i64 = 0;
+    let mut unbounded: i32 = 0;
+
+    for env in envs {
+        if env.name.is_empty() || (!exclude_env_name.is_empty() && env.name == exclude_env_name) {
+            continue;
+        }
+        if !pool_name.is_empty() && !env.root_pool.is_empty() && env.root_pool != pool_name {
+            continue;
+        }
+        if env.disk_quota_bytes > 0 {
+            total += env.disk_quota_bytes;
+        } else {
+            unbounded += 1;
+        }
+    }
+
+    (total, unbounded)
 }
 
 /// Sums root disk quotas in bytes from `incus list --format=json`, returning `(total_bytes, unbounded_count)`.
@@ -622,5 +654,33 @@ info:
         assert!(script.contains("incus storage set 'default' size='2GiB'"));
         assert!(script.contains("incus storage info 'default'"));
         assert!(script.contains("@@STAGE:100"));
+    }
+
+    #[test]
+    fn sum_env_root_disk_quotas_matches_json_sum_and_filters_pool() {
+        let list_json = br#"[
+            {"name":"env-a","type":"container","status":"Stopped","devices":{},"expanded_devices":{"root":{"path":"/","pool":"default","size":"20GiB"}}},
+            {"name":"env-b","type":"container","status":"Stopped","devices":{"root":{"size":"15GiB"}},"expanded_devices":{"root":{"path":"/","pool":"default","size":"15GiB"}}},
+            {"name":"env-noquota","type":"container","status":"Stopped","devices":{},"expanded_devices":{"root":{"path":"/","pool":"default"}}},
+            {"name":"env-otherpool","type":"container","status":"Stopped","devices":{},"expanded_devices":{"root":{"path":"/","pool":"ssd2","size":"100GiB"}}}
+        ]"#;
+        let mut state = crate::incus::list::CounterState::new();
+        let envs = crate::incus::list::parse(
+            list_json,
+            "/tmp/ws",
+            &mut state,
+            0,
+            crate::incus::list::ParseDefaults::default(),
+            false,
+        );
+        let json_str = std::str::from_utf8(list_json).unwrap();
+        assert_eq!(
+            sum_env_root_disk_quotas(&envs, "", "default"),
+            sum_root_disk_quotas_bytes(json_str, "", "default")
+        );
+        assert_eq!(
+            sum_env_root_disk_quotas(&envs, "env-a", "default"),
+            sum_root_disk_quotas_bytes(json_str, "env-a", "default")
+        );
     }
 }

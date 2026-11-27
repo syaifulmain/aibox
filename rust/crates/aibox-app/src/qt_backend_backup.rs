@@ -192,12 +192,10 @@ impl qobject::Backend {
             let fn_name = format!("{clean}-{stamp}.tar.gz");
             {
                 let mut rust = self.as_mut().rust_mut();
-                rust.engine.environments.retain(|e| e.name != clean);
-                if rust.selected_index >= rust.engine.environments.len() as i32 {
-                    rust.selected_index = (rust.engine.environments.len() as i32 - 1).max(0);
-                }
+                rust.demo_environments
+                    .retain(|e| e.get("name").and_then(|v| v.as_str()) != Some(clean.as_str()));
             }
-            self.as_mut().sync_environments_from_engine();
+            self.as_mut().sync_demo_environments();
             self.as_mut().refresh_stale_report();
             self.as_mut().set_status_message(&format!(
                 "[Demo] Exported backup '{fn_name}' and wiped '{clean}'."

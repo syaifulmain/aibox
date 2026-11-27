@@ -8,14 +8,15 @@ Card {
     id: root
     property QtObject app: null
 
-    readonly property string ipAddress: backend.selectedEnvironment.ipv4 || ""
-    readonly property bool offline: backend.selectedEnvironment.networkMode === "offline"
-    readonly property bool template: backend.selectedEnvironment.isTemplate || false
+    readonly property var env: backend.selectedEnvironment
+    readonly property string ipAddress: root.env.ipv4 || ""
+    readonly property bool offline: root.env.networkMode === "offline"
+    readonly property bool template: root.env.isTemplate || false
 
     title: qsTr("Network")
     borderColor: root.offline
                  ? theme.warningBorder
-                 : (backend.selectedEnvironment.networkMode === "allowlist" ? theme.accentBorder : theme.borderSubtle)
+                 : (root.env.networkMode === "allowlist" ? theme.accentBorder : theme.borderSubtle)
 
     // Controls on the left (50%), live network telemetry grid on the right (50%)
     RowLayout {
@@ -40,7 +41,7 @@ Card {
                     ]
                     delegate: SelectChip {
                         required property var modelData
-                        readonly property string activeMode: backend.selectedEnvironment.networkMode || "online"
+                        readonly property string activeMode: root.env.networkMode || "online"
                         text: modelData.label
                         selected: (modelData.id === "allowlist" && app.netAllowlistEditing)
                                   || (!app.netAllowlistEditing && activeMode === modelData.id)
@@ -54,11 +55,11 @@ Card {
                         interactive: !backend.busy && !root.template
                         opacity: backend.busy ? Style.opacityDisabled : 1.0
                         onClicked: {
-                            const name = backend.selectedEnvironment.name || ""
+                            const name = root.env.name || ""
                             if (modelData.id === "allowlist") {
                                 app.netAllowlistEditing = true
                                 if (app.netAllowlistDraft.length === 0)
-                                    app.netAllowlistDraft = backend.selectedEnvironment.networkAllowlist || ""
+                                    app.netAllowlistDraft = root.env.networkAllowlist || ""
                             } else {
                                 app.netAllowlistEditing = false
                                 backend.setNetworkMode(name, modelData.id, "")
@@ -74,16 +75,16 @@ Card {
 
                 ToggleChip {
                     label: qsTr("Record")
-                    checked: backend.selectedEnvironment.egressRecording || false
+                    checked: root.env.egressRecording || false
                     disabled: backend.busy || root.template || root.offline
                     onToggled: backend.setEgressRecording(
-                        backend.selectedEnvironment.name || "",
-                        !(backend.selectedEnvironment.egressRecording || false))
+                        root.env.name || "",
+                        !(root.env.egressRecording || false))
                 }
 
                 ActionButton {
-                    label: (backend.selectedEnvironment.portForwardCount || 0) > 0
-                           ? qsTr("Ports (%1)").arg(backend.selectedEnvironment.portForwardCount)
+                    label: (root.env.portForwardCount || 0) > 0
+                           ? qsTr("Ports (%1)").arg(root.env.portForwardCount)
                            : qsTr("Ports")
                     disabled: root.template
                     onClicked: app.openPortsDialog()
@@ -92,7 +93,7 @@ Card {
                 ActionButton {
                     label: qsTr("Egress Log")
                     disabled: root.template
-                    onClicked: app.openEgressDialog(backend.selectedEnvironment.name || "")
+                    onClicked: app.openEgressDialog(root.env.name || "")
                 }
             }
         }
@@ -113,12 +114,12 @@ Card {
 
             Repeater {
                 model: [
-                    { label: qsTr("Receiving"), value: backend.selectedEnvironment.netRxRateText || "—", accent: false },
-                    { label: qsTr("Sending"), value: backend.selectedEnvironment.netTxRateText || "—", accent: false },
-                    { label: qsTr("Downloaded"), value: backend.selectedEnvironment.netRxTotalText || "—", accent: false },
-                    { label: qsTr("Uploaded"), value: backend.selectedEnvironment.netTxTotalText || "—", accent: false },
+                    { label: qsTr("Receiving"), value: root.env.netRxRateText || "—", accent: false },
+                    { label: qsTr("Sending"), value: root.env.netTxRateText || "—", accent: false },
+                    { label: qsTr("Downloaded"), value: root.env.netRxTotalText || "—", accent: false },
+                    { label: qsTr("Uploaded"), value: root.env.netTxTotalText || "—", accent: false },
                     { label: qsTr("IP Address"), value: (root.ipAddress.length > 0 && !root.offline) ? root.ipAddress : "—", accent: true },
-                    { label: qsTr("Interface"), value: backend.selectedEnvironment.hostInterface || "—", accent: false }
+                    { label: qsTr("Interface"), value: root.env.hostInterface || "—", accent: false }
                 ]
 
                 delegate: RowLayout {
@@ -164,7 +165,7 @@ Card {
 
     // Row 3: Allowlist ACL editor
     RowLayout {
-        visible: app.netAllowlistEditing || backend.selectedEnvironment.networkMode === "allowlist"
+        visible: app.netAllowlistEditing || root.env.networkMode === "allowlist"
         Layout.fillWidth: true
         spacing: Style.gap
 
@@ -176,7 +177,7 @@ Card {
             placeholder: qsTr("Allowed domains or CIDRs (e.g. github.com, 1.1.1.1)")
             onAccepted: {
                 if (!backend.busy)
-                    backend.setNetworkMode(backend.selectedEnvironment.name || "", "allowlist", app.netAllowlistDraft)
+                    backend.setNetworkMode(root.env.name || "", "allowlist", app.netAllowlistDraft)
             }
         }
 
@@ -184,14 +185,14 @@ Card {
             label: qsTr("Apply ACL")
             variant: "primary"
             disabled: backend.busy || app.netAllowlistDraft.trim().length === 0 || root.template
-            onClicked: backend.setNetworkMode(backend.selectedEnvironment.name || "", "allowlist", app.netAllowlistDraft)
+            onClicked: backend.setNetworkMode(root.env.name || "", "allowlist", app.netAllowlistDraft)
         }
 
         ActionButton {
-            visible: backend.selectedEnvironment.networkMode === "allowlist"
+            visible: root.env.networkMode === "allowlist"
             label: qsTr("Refresh IPs")
             disabled: backend.busy || root.template
-            onClicked: backend.refreshNetworkAllowlist(backend.selectedEnvironment.name || "")
+            onClicked: backend.refreshNetworkAllowlist(root.env.name || "")
         }
     }
 }

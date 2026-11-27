@@ -283,12 +283,14 @@ impl qobject::Theme {
 
         let stop_flag = Arc::new(AtomicBool::new(false));
         let qt_thread_fs = self.qt_thread();
-        let watch_handle =
-            SharedWatcher::global().subscribe(theme_watch_dirs(Path::new(&directory)), move || {
+        let watch_handle = SharedWatcher::global().subscribe(
+            theme_watch_dirs_for(Path::new(&directory), !hyprctl.is_empty()),
+            move || {
                 let _ = qt_thread_fs.queue(|theme| {
                     theme.reload();
                 });
-            });
+            },
+        );
 
         let rounding_wake_tx = if !hyprctl.is_empty() {
             let (wake_tx, wake_rx) = mpsc::channel::<()>();
@@ -305,7 +307,7 @@ impl qobject::Theme {
                             theme.apply_rounding(radius);
                         });
                     }
-                    match wake_rx.recv_timeout(Duration::from_millis(1000)) {
+                    match wake_rx.recv_timeout(Duration::from_secs(30)) {
                         Ok(()) => {
                             // Drain any extra wakeups before polling once.
                             while wake_rx.try_recv().is_ok() {}
@@ -372,10 +374,11 @@ impl qobject::Theme {
     }
 
     fn reload(mut self: Pin<&mut Self>) {
-        let (directory, rounding_wake_tx, palette_options, loaded, last_hash) = {
+        let (directory, hyprctl_active, rounding_wake_tx, palette_options, loaded, last_hash) = {
             let rust = self.rust();
             (
                 rust.directory.clone(),
+                !rust.hyprctl.is_empty(),
                 rust.rounding_wake_tx.clone(),
                 rust.palette_options,
                 rust.loaded,
@@ -389,7 +392,7 @@ impl qobject::Theme {
 
         let dir_path = Path::new(&directory);
         if let Some(handle) = self.rust().watch_handle.as_ref() {
-            handle.update_dirs(theme_watch_dirs(dir_path));
+            handle.update_dirs(theme_watch_dirs_for(dir_path, hyprctl_active));
         }
 
         let content_hash = theme_content_hash(dir_path, palette_options);
@@ -458,7 +461,7 @@ fn find_executable(name: &str) -> Option<String> {
     None
 }
 
-fn theme_watch_dirs(directory: &Path) -> Vec<PathBuf> {
+fn theme_watch_dirs_for(directory: &Path, watch_hypr: bool) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(ancestor) = nearest_existing_dir(directory) {
         if let Some(parent) = ancestor.parent() {
@@ -474,6 +477,14 @@ fn theme_watch_dirs(directory: &Path) -> Vec<PathBuf> {
     let theme_subdir = directory.join("theme");
     if theme_subdir.is_dir() {
         dirs.push(theme_subdir);
+    }
+    if watch_hypr {
+        if let Ok(home) = std::env::var("HOME") {
+            let hypr_dir = Path::new(&home).join(".config/hypr");
+            if hypr_dir.is_dir() {
+                dirs.push(hypr_dir);
+            }
+        }
     }
     dirs
 }

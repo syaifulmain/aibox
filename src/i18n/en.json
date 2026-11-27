@@ -112,5 +112,7 @@
   "Container swap is provided by the host.": "Container swap is provided by the host.",
   "Stop Environment '%1'?": "Stop Environment '%1'?",
   "This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.": "This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.",
-  "Stop Environment": "Stop Environment"
+  "Stop Environment": "Stop Environment",
+  "Backup archives (*.tar.zst *.tar.gz)": "Backup archives (*.tar.zst *.tar.gz)",
+  "WARN": "WARN"
 }

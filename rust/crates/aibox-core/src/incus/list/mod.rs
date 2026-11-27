@@ -8,7 +8,10 @@ pub use model::{
     environment_by_name, templates, CounterState, Environment, ExtraMountEntry, ParseDefaults,
     PortForwardEntry,
 };
-pub use parse::{hash_list_inputs, parse, parse_if_changed, parse_json, parse_with_now};
+pub use parse::{
+    hash_list_inputs, parse, parse_checked, parse_if_changed, parse_if_changed_checked, parse_json,
+    parse_with_now, parse_with_now_checked,
+};
 
 #[cfg(test)]
 mod tests {
@@ -562,5 +565,32 @@ mod tests {
             avg_elapsed
         );
         let _ = avg_elapsed;
+    }
+
+    #[test]
+    fn parse_checked_returns_err_on_invalid_json_and_extracts_root_pool() {
+        let mut state = CounterState::new();
+        assert!(parse_checked(
+            b"{bad",
+            "/tmp/ws",
+            &mut state,
+            0,
+            ParseDefaults::default(),
+            false
+        )
+        .is_err());
+
+        let valid = br#"[{"name":"pool-box","type":"container","status":"Stopped","expanded_devices":{"root":{"pool":"fast-pool","size":"10GiB"}}}]"#;
+        let envs = parse_checked(
+            valid,
+            "/tmp/ws",
+            &mut state,
+            0,
+            ParseDefaults::default(),
+            false,
+        )
+        .expect("valid json");
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0].root_pool, "fast-pool");
     }
 }

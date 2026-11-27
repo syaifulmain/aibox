@@ -4,7 +4,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 
-use aibox_core::config::model;
+use aibox_core::config::model::{self, Config};
 use aibox_core::config::settings::{
     complete_first_run, remove_os_entry, reset_create_options, reset_os_catalog,
     save_appearance_settings, save_auto_snapshot_settings, save_create_options, save_diff_excludes,
@@ -14,12 +14,144 @@ use aibox_core::config::settings::{
 use aibox_core::util::paths::{default_location_file_path, save_location_file};
 
 use crate::qt_backend::{find_executable, qobject};
-use crate::qt_convert::json_array_to_qvariant_list;
+use crate::qt_convert::{
+    i32s_to_qvariant_list, json_array_to_qvariant_list, serialize_to_qvariant_list,
+    strings_to_qstringlist,
+};
 
 const BUSY_CONFIG_MSG: &str =
     "Wait for the current operation to finish before changing the configuration.";
 
 impl qobject::Backend {
+    pub(crate) fn save_config_value(&self, cfg: &Config) -> Result<(), String> {
+        model::save(&self.engine.paths.config_file_path, cfg).map_err(|e| {
+            let _ = e;
+            format!(
+                "Could not save the configuration file: {}",
+                self.engine.paths.config_file_path
+            )
+        })
+    }
+
+    pub(crate) fn sync_config_properties(mut self: Pin<&mut Self>) {
+        let (
+            system_path,
+            workspace_base,
+            os_storage_path,
+            config_file_path,
+            first_run,
+            presets,
+            disk_options,
+            ram_options,
+            cpu_options,
+            swap_options,
+            default_preset_id,
+            default_os_id,
+            default_disk,
+            default_ram,
+            default_cpu,
+            auto_snapshot_enabled,
+            auto_snapshot_keep,
+            watchdog_enabled,
+            watchdog_disk_warn,
+            watchdog_disk_critical,
+            watchdog_auto_stop,
+            idle_stop_minutes,
+            stale_days,
+            record_sessions,
+            theme_mode_override,
+            high_contrast,
+            reduce_motion,
+            diff_excludes,
+            secrets_store_path,
+            secrets_error,
+        ) = {
+            let cfg = &self.engine.config;
+            let paths = &self.engine.paths;
+            (
+                QString::from(paths.system_path.as_str()),
+                QString::from(cfg.workspace_base.as_str()),
+                QString::from(cfg.os_storage_path.as_str()),
+                QString::from(paths.config_file_path.as_str()),
+                !cfg.first_run_completed,
+                serialize_to_qvariant_list(&cfg.presets),
+                strings_to_qstringlist(&cfg.disk_options),
+                strings_to_qstringlist(&cfg.ram_options),
+                i32s_to_qvariant_list(&cfg.cpu_options),
+                strings_to_qstringlist(&cfg.swap_options),
+                QString::from(cfg.default_preset_id.as_str()),
+                QString::from(cfg.default_os_id.as_str()),
+                QString::from(cfg.default_disk.as_str()),
+                QString::from(cfg.default_ram.as_str()),
+                cfg.default_cpu,
+                cfg.auto_snapshot_enabled,
+                cfg.auto_snapshot_keep,
+                cfg.watchdog_enabled,
+                cfg.watchdog_disk_warn,
+                cfg.watchdog_disk_critical,
+                cfg.watchdog_auto_stop,
+                cfg.idle_stop_minutes,
+                cfg.stale_days,
+                cfg.record_sessions,
+                QString::from(cfg.theme_mode_override.as_str()),
+                cfg.high_contrast,
+                cfg.reduce_motion,
+                strings_to_qstringlist(&cfg.diff_excludes),
+                QString::from(self.engine.secrets.secrets_path.as_str()),
+                QString::from(self.engine.secrets.secrets_error.as_str()),
+            )
+        };
+
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.system_path = system_path;
+            rust.workspace_base = workspace_base;
+            rust.os_storage_path = os_storage_path;
+            rust.config_file_path = config_file_path;
+            rust.first_run = first_run;
+            rust.presets = presets;
+            rust.disk_options = disk_options;
+            rust.ram_options = ram_options;
+            rust.cpu_options = cpu_options;
+            rust.swap_options = swap_options;
+            rust.default_preset_id = default_preset_id;
+            rust.default_os_id = default_os_id;
+            rust.default_disk = default_disk;
+            rust.default_ram = default_ram;
+            rust.default_cpu = default_cpu;
+            rust.auto_snapshot_enabled = auto_snapshot_enabled;
+            rust.auto_snapshot_keep = auto_snapshot_keep;
+            rust.watchdog_enabled = watchdog_enabled;
+            rust.watchdog_disk_warn = watchdog_disk_warn;
+            rust.watchdog_disk_critical = watchdog_disk_critical;
+            rust.watchdog_auto_stop = watchdog_auto_stop;
+            rust.idle_stop_minutes = idle_stop_minutes;
+            rust.stale_days = stale_days;
+            rust.record_sessions = record_sessions;
+            rust.theme_mode_override = theme_mode_override;
+            rust.high_contrast = high_contrast;
+            rust.reduce_motion = reduce_motion;
+            rust.diff_excludes = diff_excludes;
+            rust.secrets_store_path = secrets_store_path;
+            rust.secrets_error = secrets_error;
+        }
+
+        self.as_mut().system_path_changed();
+        self.as_mut().workspace_base_changed();
+        self.as_mut().os_storage_path_changed();
+        self.as_mut().config_file_path_changed();
+        self.as_mut().first_run_changed();
+        self.as_mut().create_options_changed();
+        self.as_mut().auto_snapshot_settings_changed();
+        self.as_mut().watchdog_settings_changed();
+        self.as_mut().idle_stop_settings_changed();
+        self.as_mut().stale_report_settings_changed();
+        self.as_mut().record_sessions_settings_changed();
+        self.as_mut().appearance_settings_changed();
+        self.as_mut().diff_excludes_changed();
+        self.as_mut().secrets_changed();
+    }
+
     pub fn complete_first_run(mut self: Pin<&mut Self>, system_path: &QString) -> QString {
         let sys_arg = system_path.to_string();
         let res = {
@@ -40,46 +172,33 @@ impl qobject::Backend {
             Err(e) => return QString::from(e.to_string().as_str()),
         };
 
-        let sys_changed = paths.system_path != self.engine.paths.system_path;
-        let ws_changed = paths.workspace_base != self.engine.config.workspace_base;
-        let os_changed = paths.os_storage_path != self.engine.config.os_storage_path;
         let cfg_changed = paths.config_path != self.engine.paths.config_file_path;
+        let mut next_cfg = if cfg_changed && Path::new(&paths.config_path).exists() {
+            model::load(
+                &paths.config_path,
+                &paths.workspace_base,
+                &paths.os_storage_path,
+            )
+        } else {
+            let mut c = self.engine.config.clone();
+            c.workspace_base = paths.workspace_base.clone();
+            c.os_storage_path = paths.os_storage_path.clone();
+            c
+        };
+        next_cfg.first_run_completed = true;
 
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.engine.paths.system_path = paths.system_path.clone();
-            rust.engine.paths.workspace_base = paths.workspace_base.clone();
-            rust.engine.paths.os_storage_path = paths.os_storage_path.clone();
-            rust.engine.paths.state_dir = paths.state_dir.clone();
-            rust.engine.paths.config_file_path = paths.config_path.clone();
-            rust.default_workspace_base = QString::from(paths.workspace_base.as_str());
-            rust.default_os_storage_path = QString::from(paths.os_storage_path.as_str());
-            if cfg_changed && Path::new(&paths.config_path).exists() {
-                rust.engine.config = model::load(
-                    &paths.config_path,
-                    &paths.workspace_base,
-                    &paths.os_storage_path,
-                );
-            } else {
-                rust.engine.config.workspace_base = paths.workspace_base.clone();
-                rust.engine.config.os_storage_path = paths.os_storage_path.clone();
-            }
-            rust.engine.config.first_run_completed = true;
-        }
-
-        if self.save_config().is_err() {
+        if let Err(err) = model::save(&paths.config_path, &next_cfg) {
+            let _ = err;
             return QString::from(
                 format!(
                     "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
+                    paths.config_path
                 )
                 .as_str(),
             );
         }
 
-        if self.remember_system_location
-            && save_location_file(&self.engine.paths.system_path).is_err()
-        {
+        if self.remember_system_location && save_location_file(&paths.system_path).is_err() {
             return QString::from(
                 format!(
                     "Could not save the system location preference: {}",
@@ -87,6 +206,18 @@ impl qobject::Backend {
                 )
                 .as_str(),
             );
+        }
+
+        {
+            let mut rust = self.as_mut().rust_mut();
+            rust.engine.paths.system_path = paths.system_path;
+            rust.engine.paths.workspace_base = paths.workspace_base.clone();
+            rust.engine.paths.os_storage_path = paths.os_storage_path.clone();
+            rust.engine.paths.state_dir = paths.state_dir;
+            rust.engine.paths.config_file_path = paths.config_path;
+            rust.default_workspace_base = QString::from(paths.workspace_base.as_str());
+            rust.default_os_storage_path = QString::from(paths.os_storage_path.as_str());
+            rust.engine.config = next_cfg;
         }
 
         self.as_mut().sync_config_properties();
@@ -111,19 +242,6 @@ impl qobject::Backend {
             }
         }
 
-        self.as_mut().first_run_changed();
-        if sys_changed {
-            self.as_mut().system_path_changed();
-        }
-        if ws_changed {
-            self.as_mut().workspace_base_changed();
-        }
-        if os_changed {
-            self.as_mut().os_storage_path_changed();
-        }
-        if cfg_changed {
-            self.as_mut().config_file_path_changed();
-        }
         QString::default()
     }
 
@@ -150,36 +268,22 @@ impl qobject::Backend {
             Err(e) => return QString::from(e.to_string().as_str()),
         };
 
-        let prev_ws = self.engine.config.workspace_base.clone();
-        let prev_os = self.engine.config.os_storage_path.clone();
-        let was_first_run = *self.first_run();
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
 
+        let os_changed = next_cfg.os_storage_path != self.engine.config.os_storage_path;
         {
             let mut rust = self.as_mut().rust_mut();
+            rust.engine.paths.workspace_base = next_cfg.workspace_base.clone();
+            rust.engine.paths.os_storage_path = next_cfg.os_storage_path.clone();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
 
-        let ws_changed = self.engine.config.workspace_base != prev_ws;
-        let os_changed = self.engine.config.os_storage_path != prev_os;
         self.as_mut().sync_config_properties();
-        if ws_changed {
-            self.as_mut().workspace_base_changed();
-        }
         if os_changed {
-            self.as_mut().os_storage_path_changed();
             self.as_mut().rebuild_os_catalog();
-        }
-        if was_first_run {
-            self.as_mut().first_run_changed();
+            self.as_mut().refresh_backups();
         }
         self.as_mut().set_status_message("Configuration saved.");
         QString::default()
@@ -217,18 +321,12 @@ impl qobject::Backend {
             Err(e) => return QString::from(e.to_string().as_str()),
         };
 
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
-        }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
         }
 
         self.as_mut().rebuild_os_catalog();
@@ -253,18 +351,12 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
-        }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
         }
         self.as_mut().rebuild_os_catalog();
         self.as_mut()
@@ -277,18 +369,12 @@ impl qobject::Backend {
             return QString::from(BUSY_CONFIG_MSG);
         }
         let next_cfg = reset_os_catalog(&self.engine.config);
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
-        }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
         }
         self.as_mut().rebuild_os_catalog();
         QString::default()
@@ -314,21 +400,14 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().create_options_changed();
         QString::default()
     }
 
@@ -350,21 +429,14 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().create_options_changed();
         QString::default()
     }
 
@@ -373,21 +445,14 @@ impl qobject::Backend {
             return QString::from(BUSY_CONFIG_MSG);
         }
         let next_cfg = reset_create_options(&self.engine.config);
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().create_options_changed();
         QString::default()
     }
 
@@ -403,6 +468,9 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         let mut env_updated = false;
         {
             let mut rust = self.as_mut().rust_mut();
@@ -414,17 +482,7 @@ impl qobject::Backend {
                 }
             }
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().auto_snapshot_settings_changed();
         if env_updated {
             self.as_mut().sync_environments_from_engine();
         }
@@ -451,6 +509,9 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         let mut env_updated = false;
         {
             let mut rust = self.as_mut().rust_mut();
@@ -462,17 +523,7 @@ impl qobject::Backend {
                 }
             }
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().watchdog_settings_changed();
         if env_updated {
             self.as_mut().sync_environments_from_engine();
         }
@@ -487,21 +538,14 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().idle_stop_settings_changed();
         QString::default()
     }
 
@@ -513,21 +557,14 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().stale_report_settings_changed();
         if !self.stale_report().is_empty() {
             self.as_mut().refresh_stale_report();
         }
@@ -539,6 +576,9 @@ impl qobject::Backend {
             return QString::from(BUSY_CONFIG_MSG);
         }
         let next_cfg = save_session_recording_settings(&self.engine.config, enabled);
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         let mut env_updated = false;
         {
             let mut rust = self.as_mut().rust_mut();
@@ -550,17 +590,7 @@ impl qobject::Backend {
                 }
             }
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().record_sessions_settings_changed();
         if env_updated {
             self.as_mut().sync_environments_from_engine();
         }
@@ -572,21 +602,14 @@ impl qobject::Backend {
             return QString::from(BUSY_CONFIG_MSG);
         }
         let next_cfg = save_diff_excludes(&self.engine.config, &raw_excludes.to_string());
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().diff_excludes_changed();
         QString::default()
     }
 
@@ -608,21 +631,14 @@ impl qobject::Backend {
             Ok(c) => c,
             Err(e) => return QString::from(e.to_string().as_str()),
         };
+        if let Err(err) = self.save_config_value(&next_cfg) {
+            return QString::from(err.as_str());
+        }
         {
             let mut rust = self.as_mut().rust_mut();
             rust.engine.config = next_cfg;
         }
-        if self.save_config().is_err() {
-            return QString::from(
-                format!(
-                    "Could not save the configuration file: {}",
-                    self.engine.paths.config_file_path
-                )
-                .as_str(),
-            );
-        }
         self.as_mut().sync_config_properties();
-        self.as_mut().appearance_settings_changed();
         QString::default()
     }
 }

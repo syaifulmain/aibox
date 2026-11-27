@@ -71,21 +71,30 @@ impl qobject::Backend {
             let mut updated = false;
             {
                 let mut rust = self.as_mut().rust_mut();
-                for env in &mut rust.engine.environments {
-                    if env.name == name_s {
-                        env.record_override = val.to_string();
-                        env.record_enabled = if val == "inherit" {
-                            global_enabled
-                        } else {
-                            val == "true"
-                        };
-                        updated = true;
+                let enabled_val = if val == "inherit" {
+                    global_enabled
+                } else {
+                    val == "true"
+                };
+                for env in &mut rust.demo_environments {
+                    if env.get("name").and_then(|v| v.as_str()) == Some(name_s.as_str()) {
+                        if let Some(obj) = env.as_object_mut() {
+                            obj.insert(
+                                "recordOverride".to_string(),
+                                serde_json::Value::String(val.to_string()),
+                            );
+                            obj.insert(
+                                "recordEnabled".to_string(),
+                                serde_json::Value::Bool(enabled_val),
+                            );
+                            updated = true;
+                        }
                         break;
                     }
                 }
             }
             if updated {
-                self.as_mut().sync_environments_from_engine();
+                self.as_mut().sync_demo_environments();
             }
             return;
         }

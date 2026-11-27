@@ -6,8 +6,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use crate::util::paths::{clean_path, CONTAINER_WORKSPACE_PATH};
 use crate::util::shell::shell_quote;
@@ -76,13 +76,10 @@ pub fn is_btrfs_subvolume(path: &str) -> bool {
         return false;
     }
     let p = Path::new(&clean);
-    if !p.exists() || !is_btrfs_filesystem(&clean) {
-        return false;
-    }
     let Ok(meta) = fs::symlink_metadata(p) else {
         return false;
     };
-    meta.file_type().is_dir() && meta.ino() == 256
+    meta.file_type().is_dir() && meta.ino() == 256 && path_is_btrfs(p)
 }
 
 /// Lists sorted directory names under the workspace snapshot directory for `env_name`.
@@ -166,7 +163,7 @@ pub fn container_workspace_path_for(name: &str, demo_mode: bool) -> String {
     if demo_mode || name.trim().is_empty() {
         return CONTAINER_WORKSPACE_PATH.to_string();
     }
-    let Ok(mut child) = Command::new("incus")
+    let Ok(child) = Command::new("incus")
         .args(["config", "device", "get", name, "workspace", "path"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -175,26 +172,23 @@ pub fn container_workspace_path_for(name: &str, demo_mode: bool) -> String {
         return CONTAINER_WORKSPACE_PATH.to_string();
     };
 
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                let output = child.wait_with_output();
-                if let Ok(out) = output {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    return parse_container_workspace_path_output(out.status.success(), &stdout);
-                }
-                return CONTAINER_WORKSPACE_PATH.to_string();
+    let pid = child.id();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(Ok(out)) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            parse_container_workspace_path_output(out.status.success(), &stdout)
+        }
+        Ok(Err(_)) => CONTAINER_WORKSPACE_PATH.to_string(),
+        Err(_) => {
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
             }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return CONTAINER_WORKSPACE_PATH.to_string();
-                }
-                thread::sleep(Duration::from_millis(10));
-            }
-            Err(_) => return CONTAINER_WORKSPACE_PATH.to_string(),
+            CONTAINER_WORKSPACE_PATH.to_string()
         }
     }
 }

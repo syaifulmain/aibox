@@ -50,8 +50,9 @@ ModalDialog {
         border.width: Style.hairline
         border.color: theme.borderSubtle
 
-        readonly property var spaceInfo: (app.backupsVisible && backend.selectedEnvironment && backend.selectedEnvironment.name)
-            ? backend.checkExportSpace(backend.selectedEnvironment.name, app.backupIncludeWorkspace)
+        readonly property string selectedEnvName: backend.selectedEnvironment.name || ""
+        readonly property var spaceInfo: (app.backupsVisible && selectedEnvName.length > 0)
+            ? backend.checkExportSpace(selectedEnvName, app.backupIncludeWorkspace)
             : ({ ok: true, estimatedDisplay: "—", availableDisplay: "—", message: "" })
 
         ColumnLayout {
@@ -63,8 +64,8 @@ ModalDialog {
             Text {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: (backend.selectedEnvironment && backend.selectedEnvironment.name)
-                      ? qsTr("Export '%1'").arg(backend.selectedEnvironment.name)
+                text: exportCard.selectedEnvName.length > 0
+                      ? qsTr("Export '%1'").arg(exportCard.selectedEnvName)
                       : qsTr("No environment selected to export")
                 color: theme.textPrimary
                 font.family: Style.fontSans
@@ -284,9 +285,9 @@ ModalDialog {
         ActionButton {
             label: qsTr("Export Backup")
             variant: "primary"
-            disabled: backend.busy || !(backend.selectedEnvironment && backend.selectedEnvironment.name) || !exportCard.spaceInfo.ok
+            disabled: backend.busy || exportCard.selectedEnvName.length === 0 || !exportCard.spaceInfo.ok
             onClicked: {
-                const err = backend.exportEnvironment(backend.selectedEnvironment.name, app.backupIncludeWorkspace)
+                const err = backend.exportEnvironment(exportCard.selectedEnvName, app.backupIncludeWorkspace)
                 if (err.length > 0) {
                     app.backupError = err
                 } else {
@@ -300,7 +301,7 @@ ModalDialog {
         id: backupBrowseDialog
         title: qsTr("Choose Environment Backup Archive")
         currentFolder: backend.pathToUrl(backend.backupsDirPath)
-        nameFilters: [qsTr("Backup archives (*.tar.gz)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("Backup archives (*.tar.zst *.tar.gz)"), qsTr("All files (*)")]
         onAccepted: {
             app.importBackupFile = backend.localPath(selectedFile)
             app.importWsFile = ""

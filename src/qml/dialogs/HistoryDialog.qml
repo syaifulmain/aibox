@@ -80,13 +80,15 @@ ModalDialog {
                     readonly property bool selected: app.selectedHistoryId === (modelData.id || "")
                     readonly property string statusText: modelData.status === "failed"
                                                          ? qsTr("FAILED")
-                                                         : (modelData.status === "cancelled" ? qsTr("CANCELLED") : qsTr("OK"))
+                                                         : (modelData.status === "cancelled"
+                                                            ? qsTr("CANCELLED")
+                                                            : (modelData.status === "warning" ? qsTr("WARN") : qsTr("OK")))
                     readonly property string statusTone: modelData.status === "failed"
                                                          ? "danger"
-                                                         : (modelData.status === "cancelled" ? "warning" : "success")
+                                                         : ((modelData.status === "cancelled" || modelData.status === "warning") ? "warning" : "success")
                     readonly property color statusBorder: modelData.status === "failed"
                                                           ? theme.dangerBorder
-                                                          : (modelData.status === "cancelled" ? theme.warningBorder : theme.successBorder)
+                                                          : ((modelData.status === "cancelled" || modelData.status === "warning") ? theme.warningBorder : theme.successBorder)
                     readonly property string durationText: modelData.durationMs !== undefined
                                                            ? (modelData.durationMs >= 1000
                                                               ? (Math.round(modelData.durationMs / 100) / 10) + "s"

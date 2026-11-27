@@ -424,8 +424,28 @@ pub fn parse(
     defaults: ParseDefaults,
     track_cpu_and_net: bool,
 ) -> Vec<Environment> {
+    parse_checked(
+        json,
+        workspace_base,
+        state,
+        elapsed_wall_ns,
+        defaults,
+        track_cpu_and_net,
+    )
+    .unwrap_or_default()
+}
+
+/// Parses `incus list` JSON in a single pass, returning a `serde_json::Error` on invalid JSON.
+pub fn parse_checked(
+    json: &[u8],
+    workspace_base: &str,
+    state: &mut CounterState,
+    elapsed_wall_ns: i64,
+    defaults: ParseDefaults,
+    track_cpu_and_net: bool,
+) -> Result<Vec<Environment>, serde_json::Error> {
     let now_utc_ms = Utc::now().timestamp_millis();
-    parse_with_now(
+    parse_with_now_checked(
         json,
         workspace_base,
         state,
@@ -446,24 +466,44 @@ pub fn parse_if_changed(
     defaults: ParseDefaults,
     track_cpu_and_net: bool,
 ) -> Option<Vec<Environment>> {
-    let input_hash = hash_list_inputs(json, workspace_base, defaults);
-    if state.last_list_hash == Some(input_hash) && !state.last_parse_had_active_rates {
-        return None;
-    }
-
-    let envs = parse(
+    parse_if_changed_checked(
         json,
         workspace_base,
         state,
         elapsed_wall_ns,
         defaults,
         track_cpu_and_net,
-    );
+    )
+    .unwrap_or_else(|_| Some(Vec::new()))
+}
+
+/// Checked variant of `parse_if_changed` that validates/parses JSON in a single pass.
+pub fn parse_if_changed_checked(
+    json: &[u8],
+    workspace_base: &str,
+    state: &mut CounterState,
+    elapsed_wall_ns: i64,
+    defaults: ParseDefaults,
+    track_cpu_and_net: bool,
+) -> Result<Option<Vec<Environment>>, serde_json::Error> {
+    let input_hash = hash_list_inputs(json, workspace_base, defaults);
+    if state.last_list_hash == Some(input_hash) && !state.last_parse_had_active_rates {
+        return Ok(None);
+    }
+
+    let envs = parse_checked(
+        json,
+        workspace_base,
+        state,
+        elapsed_wall_ns,
+        defaults,
+        track_cpu_and_net,
+    )?;
     state.last_list_hash = Some(input_hash);
     state.last_parse_had_active_rates = envs
         .iter()
         .any(|e| e.running && (e.cpu_percent > 0 || e.net_rx_rate > 0 || e.net_tx_rate > 0));
-    Some(envs)
+    Ok(Some(envs))
 }
 
 pub fn parse_with_now(
@@ -475,13 +515,33 @@ pub fn parse_with_now(
     track_cpu_and_net: bool,
     now_utc_ms: i64,
 ) -> Vec<Environment> {
-    let Ok(items) = serde_json::from_slice::<Vec<RawIncusInstance>>(json) else {
-        return Vec::new();
-    };
+    parse_with_now_checked(
+        json,
+        workspace_base,
+        state,
+        elapsed_wall_ns,
+        defaults,
+        track_cpu_and_net,
+        now_utc_ms,
+    )
+    .unwrap_or_default()
+}
+
+pub fn parse_with_now_checked(
+    json: &[u8],
+    workspace_base: &str,
+    state: &mut CounterState,
+    elapsed_wall_ns: i64,
+    defaults: ParseDefaults,
+    track_cpu_and_net: bool,
+    now_utc_ms: i64,
+) -> Result<Vec<Environment>, serde_json::Error> {
+    let items = serde_json::from_slice::<Vec<RawIncusInstance>>(json)?;
 
     let mut next_cpu_snapshot = HashMap::new();
     let mut next_net_snapshot = HashMap::new();
     let mut btrfs_parent_cache: HashMap<String, bool> = HashMap::new();
+    let mut cached_host_swap_total: Option<i64> = None;
     let host_core_weights = read_host_core_weights(state);
     let poll_ctx = MetricPollContext {
         elapsed_wall_ns,
@@ -645,11 +705,11 @@ pub fn parse_with_now(
 
         // Container swap is host-provided: an explicit limit bounds it, otherwise
         // the host swap total is the only meaningful denominator. Read host swap
-        // lazily so an idle list poll stays cheap.
+        // lazily (and at most once per refresh) so an idle list poll stays cheap.
         let (swap_usage, swap_percent) =
             if swap_bytes > 0 && env_type != "VIRTUAL-MACHINE" && swap_limit != "Off" {
                 let swap_total_bytes = if swap_limit.is_empty() {
-                    host_swap_info().total_bytes
+                    *cached_host_swap_total.get_or_insert_with(|| host_swap_info().total_bytes)
                 } else {
                     parse_size_bytes(&swap_limit)
                 };
@@ -775,7 +835,7 @@ pub fn parse_with_now(
                 res
             }
         };
-        let ws_is_subvolume = ws_exists && is_btrfs_subvolume(&workspace_path);
+        let ws_is_subvolume = ws_exists && ws_on_btrfs && is_btrfs_subvolume(&workspace_path);
         let ws_snap_enabled = ws_is_subvolume && ws_snap_override != "false";
         let ws_snap_dir = workspace_snapshot_dir(&workspace_path, name);
         let ws_snapshots = list_workspace_snapshots(&workspace_path, name);
@@ -881,6 +941,7 @@ pub fn parse_with_now(
             network_blocked,
             egress_recording,
             swap_limit,
+            root_pool: limits.root_pool.to_string(),
         });
     }
 
@@ -889,7 +950,7 @@ pub fn parse_with_now(
         state.net_counters = next_net_snapshot;
     }
 
-    result
+    Ok(result)
 }
 
 pub fn parse_json(

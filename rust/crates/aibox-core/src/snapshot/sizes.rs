@@ -237,6 +237,14 @@ impl SnapshotSizeCache {
         }
     }
 
+    /// Drops cached entries for environments that no longer exist.
+    pub fn prune_deleted_envs(&mut self, live_env_names: &[&str]) {
+        let live: BTreeSet<&str> = live_env_names.iter().copied().collect();
+        self.incus.retain(|name, _| live.contains(name.as_str()));
+        self.workspace
+            .retain(|name, _| live.contains(name.as_str()));
+    }
+
     /// Merges cached sizes into a typed `Environment` struct. Returns `true` if modified.
     pub fn apply_to_environment(&self, env: &mut Environment) -> bool {
         let mut changed = false;
@@ -442,5 +450,22 @@ qgroupid         rfer         excl
         let sizes = obj["snapshotSizes"].as_object().expect("sizes");
         assert_eq!(sizes["old"], "1 KiB");
         assert_eq!(sizes["new"], "2 MiB");
+    }
+
+    #[test]
+    fn prune_deleted_envs_drops_removed_environments() {
+        let mut cache = SnapshotSizeCache::default();
+        let mut s1 = BTreeMap::new();
+        s1.insert("snap1".to_string(), "1 MiB".to_string());
+        cache.insert_incus("keep-env", s1.clone());
+        cache.insert_incus("dead-env", s1.clone());
+        cache.insert_workspace("keep-env", s1.clone());
+        cache.insert_workspace("dead-env", s1);
+
+        cache.prune_deleted_envs(&["keep-env"]);
+        assert!(cache.incus.contains_key("keep-env"));
+        assert!(!cache.incus.contains_key("dead-env"));
+        assert!(cache.workspace.contains_key("keep-env"));
+        assert!(!cache.workspace.contains_key("dead-env"));
     }
 }

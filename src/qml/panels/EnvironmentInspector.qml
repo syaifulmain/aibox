@@ -8,9 +8,10 @@ import "../components"
 Item {
     id: root
     property QtObject app: null
+    readonly property var env: backend.selectedEnvironment
     property string cpuExpandedEnv: ""
     readonly property bool cpuExpanded: cpuExpandedEnv.length > 0
-                                         && cpuExpandedEnv === (backend.selectedEnvironment.name || "")
+                                         && cpuExpandedEnv === (root.env.name || "")
     readonly property string snapshotNameText: snapshotsCard.snapshotNameText
 
     // Per-core load shown inside the expanded CPU card, two columns of cores.
@@ -24,7 +25,7 @@ Item {
             width: parent ? parent.width : 0
 
             Repeater {
-                model: backend.selectedEnvironment.cpuCorePercents || []
+                model: root.env.cpuCorePercents || []
 
                 delegate: ColumnLayout {
                     required property int index
@@ -95,7 +96,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        text: backend.selectedEnvironment.name || ""
+                        text: root.env.name || ""
                         color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontDisplay
@@ -106,7 +107,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         elide: Text.ElideRight
-                        text: (backend.selectedEnvironment.osName || "") + "  ·  " + (backend.selectedEnvironment.preset || "")
+                        text: (root.env.osName || "") + "  ·  " + (root.env.preset || "")
                         color: theme.textSecondary
                         font.family: Style.fontSans
                         font.pixelSize: Style.fontSmall
@@ -118,9 +119,9 @@ Item {
                     Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
 
                     ActionButton {
-                        label: (backend.selectedEnvironment.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
-                        variant: (backend.selectedEnvironment.running || false) ? "danger" : "accent"
-                        disabled: backend.busy || (backend.selectedEnvironment.isTemplate || false)
+                        label: (root.env.running || false) ? qsTr("Stop OS") : qsTr("Start OS")
+                        variant: (root.env.running || false) ? "danger" : "accent"
+                        disabled: backend.busy || (root.env.isTemplate || false)
                         onClicked: app.requestStartStop()
                     }
 
@@ -131,17 +132,16 @@ Item {
                     }
 
                     ActionButton {
-                        label: (backend.selectedEnvironment.isTemplate || false)
+                        label: (root.env.isTemplate || false)
                                ? qsTr("New from Template")
                                : qsTr("Enter OS Terminal")
                         variant: "primary"
                         disabled: backend.busy
                         onClicked: {
-                            const env = backend.selectedEnvironment
-                            if (env.isTemplate)
-                                app.openCreateDialog("", env.name || "")
+                            if (root.env.isTemplate)
+                                app.openCreateDialog("", root.env.name || "")
                             else
-                                backend.enterEnvironment(env.name || "")
+                                backend.enterEnvironment(root.env.name || "")
                         }
                     }
                 }
@@ -158,13 +158,13 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: cpuCard.Layout.preferredHeight
                     title: qsTr("Disk Usage")
-                    value: (backend.selectedEnvironment.diskUsage || "0 MB") + " / " + (backend.selectedEnvironment.diskLimit || "—")
-                    badge: (backend.selectedEnvironment.diskAlertLevel === 2
+                    value: (root.env.diskUsage || "0 MB") + " / " + (root.env.diskLimit || "—")
+                    badge: (root.env.diskAlertLevel === 2
                             ? qsTr("CRIT ")
-                            : (backend.selectedEnvironment.diskAlertLevel === 1 ? qsTr("WARN ") : ""))
-                           + (backend.selectedEnvironment.diskPercent !== undefined ? backend.selectedEnvironment.diskPercent : 0) + "%"
-                    percent: backend.selectedEnvironment.diskPercent !== undefined ? backend.selectedEnvironment.diskPercent : 0
-                    alertLevel: backend.selectedEnvironment.diskAlertLevel !== undefined ? backend.selectedEnvironment.diskAlertLevel : 0
+                            : (root.env.diskAlertLevel === 1 ? qsTr("WARN ") : ""))
+                           + (root.env.diskPercent !== undefined ? root.env.diskPercent : 0) + "%"
+                    percent: root.env.diskPercent !== undefined ? root.env.diskPercent : 0
+                    alertLevel: root.env.diskAlertLevel !== undefined ? root.env.diskAlertLevel : 0
                     hasBar: true
                     active: true
                 }
@@ -173,22 +173,22 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: cpuCard.Layout.preferredHeight
                     title: qsTr("Memory Usage")
-                    value: (backend.selectedEnvironment.memoryUsage || "0 MB") + " / " + (backend.selectedEnvironment.memoryLimit || "—")
-                    badge: (backend.selectedEnvironment.memoryPercent !== undefined ? backend.selectedEnvironment.memoryPercent : 0) + "%"
-                    percent: backend.selectedEnvironment.memoryPercent !== undefined ? backend.selectedEnvironment.memoryPercent : 0
+                    value: (root.env.memoryUsage || "0 MB") + " / " + (root.env.memoryLimit || "—")
+                    badge: (root.env.memoryPercent !== undefined ? root.env.memoryPercent : 0) + "%"
+                    percent: root.env.memoryPercent !== undefined ? root.env.memoryPercent : 0
                     hasBar: true
-                    active: backend.selectedEnvironment.running || false
+                    active: root.env.running || false
                 }
 
                 ResourceMeterCard {
                     id: cpuCard
                     Layout.fillWidth: true
                     title: qsTr("CPU Usage")
-                    value: (backend.selectedEnvironment.cpuUsage || "0%") + " / " + (backend.selectedEnvironment.cpuLimit || "—")
-                    badge: backend.selectedEnvironment.cpuUsage || "0%"
-                    percent: backend.selectedEnvironment.cpuPercent !== undefined ? backend.selectedEnvironment.cpuPercent : 0
+                    value: (root.env.cpuUsage || "0%") + " / " + (root.env.cpuLimit || "—")
+                    badge: root.env.cpuUsage || "0%"
+                    percent: root.env.cpuPercent !== undefined ? root.env.cpuPercent : 0
                     hasBar: true
-                    active: backend.selectedEnvironment.running || false
+                    active: root.env.running || false
                     interactive: true
                     expanded: root.cpuExpanded
                     expandedContent: cpuCoresGrid
@@ -197,15 +197,15 @@ Item {
                           : qsTr("Click to expand core usage")
                     onClicked: root.cpuExpandedEnv = root.cpuExpanded
                                                     ? ""
-                                                    : (backend.selectedEnvironment.name || "")
+                                                    : (root.env.name || "")
                 }
             }
 
             Card {
                 Layout.fillWidth: true
                 title: qsTr("Swap Memory")
-                subtitle: (backend.selectedEnvironment.type === "VIRTUAL-MACHINE"
-                           || backend.selectedEnvironment.type === "VM")
+                subtitle: (root.env.type === "VIRTUAL-MACHINE"
+                           || root.env.type === "VM")
                           ? qsTr("VM swap is managed inside the guest.")
                           : qsTr("Container swap is provided by the host.")
 
@@ -216,10 +216,9 @@ Item {
                     KeyValue {
                         label: qsTr("Allowance")
                         value: {
-                            const env = backend.selectedEnvironment
-                            if ((env.type || "") === "VIRTUAL-MACHINE" || (env.type || "") === "VM")
+                            if ((root.env.type || "") === "VIRTUAL-MACHINE" || (root.env.type || "") === "VM")
                                 return qsTr("Guest-managed")
-                            const raw = env.swapLimit || ""
+                            const raw = root.env.swapLimit || ""
                             if (raw.length === 0)
                                 return qsTr("Host")
                             if (raw === "Off")
@@ -229,24 +228,24 @@ Item {
                     }
 
                     KeyValue {
-                        visible: (backend.selectedEnvironment.type || "") !== "VIRTUAL-MACHINE"
-                                 && (backend.selectedEnvironment.type || "") !== "VM"
+                        visible: (root.env.type || "") !== "VIRTUAL-MACHINE"
+                                 && (root.env.type || "") !== "VM"
                         label: qsTr("Usage")
                         value: {
-                            if (!(backend.selectedEnvironment.running || false))
+                            if (!(root.env.running || false))
                                 return "—"
-                            return (backend.selectedEnvironment.swapUsage || "0 B")
-                                   + " / " + (backend.selectedEnvironment.swapLimit || qsTr("Host"))
+                            return (root.env.swapUsage || "0 B")
+                                   + " / " + (root.env.swapLimit || qsTr("Host"))
                         }
                     }
                 }
 
                 MeterBar {
-                    visible: (backend.selectedEnvironment.type || "") !== "VIRTUAL-MACHINE"
-                             && (backend.selectedEnvironment.type || "") !== "VM"
-                             && (backend.selectedEnvironment.running || false)
+                    visible: (root.env.type || "") !== "VIRTUAL-MACHINE"
+                             && (root.env.type || "") !== "VM"
+                             && (root.env.running || false)
                     Layout.fillWidth: true
-                    value: backend.selectedEnvironment.swapPercent || 0
+                    value: root.env.swapPercent || 0
                 }
             }
 
@@ -267,20 +266,20 @@ Item {
                     title: qsTr("Shared Workspace")
                     actions: [
                         ActionButton {
-                            label: (backend.selectedEnvironment.extraMountCount || 0) > 0
-                                   ? qsTr("Mounts (%1)").arg(backend.selectedEnvironment.extraMountCount)
+                            label: (root.env.extraMountCount || 0) > 0
+                                   ? qsTr("Mounts (%1)").arg(root.env.extraMountCount)
                                    : qsTr("Extra Mounts")
                             onClicked: app.openMountsDialog()
                         },
                         ActionButton {
                             label: qsTr("Open Shared Folder")
-                            onClicked: backend.openWorkspaceFolder(backend.selectedEnvironment.name || "")
+                            onClicked: backend.openWorkspaceFolder(root.env.name || "")
                         }
                     ]
 
                     KeyValue {
                         label: qsTr("Host ↔ Guest")
-                        value: (backend.selectedEnvironment.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
+                        value: (root.env.workspacePath || "") + "  ⟷  " + backend.containerWorkspacePath
                         bodyValue: true
                     }
                 }
@@ -292,25 +291,25 @@ Item {
                     Layout.preferredWidth: 1
                     Layout.preferredHeight: Math.max(sharedWorkspaceCard.implicitHeight, rootFilesCard.implicitHeight)
                     title: qsTr("Root Files")
-                    borderColor: (backend.selectedEnvironment.fileAccessActive || false)
+                    borderColor: (root.env.fileAccessActive || false)
                                  ? theme.accentBorder
                                  : theme.borderSubtle
                     actions: [
                         ActionButton {
-                            visible: backend.selectedEnvironment.fileAccessActive || false
+                            visible: root.env.fileAccessActive || false
                             label: qsTr("Open")
-                            onClicked: backend.openFileAccess(backend.selectedEnvironment.name || "")
+                            onClicked: backend.openFileAccess(root.env.name || "")
                         },
                         ToggleChip {
                             label: qsTr("Enabled")
-                            checked: backend.selectedEnvironment.fileAccessActive || false
+                            checked: root.env.fileAccessActive || false
                             disabled: backend.busy
-                                      || (backend.selectedEnvironment.isTemplate || false)
-                                      || (!(backend.selectedEnvironment.fileAccessActive || false)
-                                          && !(backend.selectedEnvironment.running || false))
+                                      || (root.env.isTemplate || false)
+                                      || (!(root.env.fileAccessActive || false)
+                                          && !(root.env.running || false))
                             onToggled: {
-                                const name = backend.selectedEnvironment.name || ""
-                                if (backend.selectedEnvironment.fileAccessActive || false)
+                                const name = root.env.name || ""
+                                if (root.env.fileAccessActive || false)
                                     backend.disableFileAccess(name)
                                 else
                                     backend.enableFileAccess(name)
@@ -322,36 +321,36 @@ Item {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         elide: Text.ElideMiddle
-                        text: (backend.selectedEnvironment.fileAccessActive || false)
-                              ? (backend.selectedEnvironment.fileAccessUrl || "")
-                              : (backend.selectedEnvironment.running
+                        text: (root.env.fileAccessActive || false)
+                              ? (root.env.fileAccessUrl || "")
+                              : (root.env.running
                                  ? qsTr("Off — browse the container root in your file manager")
                                  : qsTr("Off — start the environment to enable"))
-                        color: (backend.selectedEnvironment.fileAccessActive || false)
+                        color: (root.env.fileAccessActive || false)
                                ? theme.accentText
                                : theme.textMuted
-                        font.family: (backend.selectedEnvironment.fileAccessActive || false)
+                        font.family: (root.env.fileAccessActive || false)
                                      ? Style.fontMono
                                      : Style.fontSans
-                        font.pixelSize: (backend.selectedEnvironment.fileAccessActive || false)
+                        font.pixelSize: (root.env.fileAccessActive || false)
                                         ? Style.fontBody
                                         : Style.fontSmall
                         ToolTip.visible: rootUrlHover.hovered
                         ToolTip.delay: 400
-                        ToolTip.text: (backend.selectedEnvironment.fileAccessActive || false)
+                        ToolTip.text: (root.env.fileAccessActive || false)
                                       ? qsTr("Click to copy this SFTP URL")
                                       : qsTr("Browse this environment's root filesystem in your file manager over a localhost-only, passwordless SFTP connection. Anyone on this machine can read and write files as root while it is enabled.")
 
                         HoverHandler {
                             id: rootUrlHover
-                            cursorShape: (backend.selectedEnvironment.fileAccessActive || false)
+                            cursorShape: (root.env.fileAccessActive || false)
                                          ? Qt.PointingHandCursor : Qt.ArrowCursor
                         }
 
                         TapHandler {
-                            enabled: backend.selectedEnvironment.fileAccessActive || false
+                            enabled: root.env.fileAccessActive || false
                             onTapped: backend.copyText(
-                                backend.selectedEnvironment.fileAccessUrl || "",
+                                root.env.fileAccessUrl || "",
                                 qsTr("SFTP URL"))
                         }
                     }

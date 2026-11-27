@@ -9,6 +9,7 @@ pub(crate) struct RootLimits<'a> {
     pub disk_quota_bytes: i64,
     pub disk_read_limit: &'a str,
     pub disk_write_limit: &'a str,
+    pub root_pool: &'a str,
 }
 
 pub(crate) fn extract_root_limits<'a>(
@@ -39,12 +40,18 @@ pub(crate) fn extract_root_limits<'a>(
     } else {
         parse_size_bytes(disk_limit)
     };
+    let root_dev = exp_root.filter(|m| !m.is_empty()).or(dev_root);
+    let root_pool = root_dev
+        .and_then(|r| r.get("pool"))
+        .map(String::as_str)
+        .unwrap_or("");
 
     RootLimits {
         disk_limit,
         disk_quota_bytes,
         disk_read_limit: pick("limits.read", "Unlimited"),
         disk_write_limit: pick("limits.write", "Unlimited"),
+        root_pool,
     }
 }
 

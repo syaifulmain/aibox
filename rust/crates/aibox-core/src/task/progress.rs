@@ -126,22 +126,29 @@ pub fn feed_process_output_streaming(
     secret_values: &[String],
 ) -> TaskOutputDelta {
     let raw = String::from_utf8_lossy(chunk);
-    state.line_buffer.push_str(&raw);
+    let mut line_buf = std::mem::take(&mut state.line_buffer);
+    line_buf.push_str(&raw);
 
     let mut progress_changed = false;
-    while let Some(pos) = state.line_buffer.find(['\r', '\n']) {
-        let raw_line: String = state.line_buffer.drain(..pos).collect();
-        // Drain the delimiter itself
-        let delim = state.line_buffer.chars().next();
-        if let Some(ch) = delim {
-            state.line_buffer.drain(..ch.len_utf8());
-        }
-        let redacted = redact_secrets(&raw_line, secret_values);
+    let mut cursor = 0usize;
+    let bytes = line_buf.as_bytes();
+    while let Some(rel_pos) = bytes[cursor..]
+        .iter()
+        .position(|&b| b == b'\r' || b == b'\n')
+    {
+        let end = cursor + rel_pos;
+        let raw_line = &line_buf[cursor..end];
+        cursor = end + 1;
+        let redacted = redact_secrets(raw_line, secret_values);
         let clean = strip_csi_ansi(&redacted);
         if process_line(state, &clean) {
             progress_changed = true;
         }
     }
+    if cursor > 0 {
+        line_buf.drain(..cursor);
+    }
+    state.line_buffer = line_buf;
     TaskOutputDelta { progress_changed }
 }
 
@@ -336,7 +343,7 @@ pub fn evaluate_check_background_task(
                 let _ = f.seek(SeekFrom::Start(new_offset as u64));
                 let mut buf = Vec::new();
                 if f.read_to_end(&mut buf).is_ok() {
-                    new_offset = file_len;
+                    new_offset = new_offset.saturating_add(buf.len() as i64);
                     let delta = feed_process_output_streaming(&mut progress, &buf, secret_values);
                     progress_changed = delta.progress_changed;
                 }
@@ -642,5 +649,26 @@ mod tests {
         assert_eq!(result.status, "success");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn streaming_large_chunk_handles_multi_line_and_remainder() {
+        let mut state = TaskProgressState {
+            pending_env_name: "dev".to_string(),
+            ..Default::default()
+        };
+        let mut payload = Vec::new();
+        for i in 0..500 {
+            payload.extend_from_slice(format!("line-{i}\n").as_bytes());
+        }
+        payload.extend_from_slice(b"@@STAGE:77:Finalizing");
+        let delta = feed_process_output_streaming(&mut state, &payload, &[]);
+        assert!(delta.progress_changed);
+        assert_eq!(state.task_log, "line-499");
+        assert_eq!(state.line_buffer, "@@STAGE:77:Finalizing");
+        flush_process_output_streaming(&mut state, &[]);
+        assert_eq!(state.task_progress, 77);
+        assert_eq!(state.task_stage, "Finalizing");
+        assert!(state.line_buffer.is_empty());
     }
 }

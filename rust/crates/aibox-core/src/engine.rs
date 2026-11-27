@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::config::error::ConfigError;
 use crate::config::model::{self, Config};
-use crate::health::pool::{parse_incus_storage_info, sum_root_disk_quotas_bytes, StoragePoolInfo};
+use crate::health::pool::{parse_incus_storage_info, sum_env_root_disk_quotas, StoragePoolInfo};
 use crate::history::{
     acknowledge_operation_history, clear_operation_history, load_history_seen_marker,
     load_operation_history, recent_failed_history_count, record_operation_history,
@@ -14,7 +14,8 @@ use crate::history::{
 };
 use crate::incus::catalog::{build_os_catalog, catalog_for_entries, OsCatalogEntry};
 use crate::incus::list::{
-    parse as parse_incus_list, parse_if_changed as parse_incus_list_if_changed,
+    parse_checked as parse_incus_list_checked,
+    parse_if_changed_checked as parse_incus_list_if_changed_checked,
     templates as extract_templates, CounterState, Environment, ParseDefaults,
 };
 use crate::process::CommandRunner;
@@ -294,16 +295,9 @@ impl Engine {
         raw: &RawSnapshot,
         ctx: &RefreshContext,
     ) -> Result<RefreshDelta, EngineError> {
-        if let Err(source) = serde_json::from_slice::<Vec<serde::de::IgnoredAny>>(&raw.list_json) {
-            return Err(EngineError::InvalidJson {
-                context: "incus list",
-                source,
-            });
-        }
-
         let defaults = self.parse_defaults();
         let parsed_envs = if ctx.force_reparse || !ctx.track_cpu_and_net {
-            Some(parse_incus_list(
+            Some(parse_incus_list_checked(
                 &raw.list_json,
                 &self.paths.workspace_base,
                 &mut self.counter_state,
@@ -312,7 +306,7 @@ impl Engine {
                 ctx.track_cpu_and_net,
             ))
         } else {
-            parse_incus_list_if_changed(
+            parse_incus_list_if_changed_checked(
                 &raw.list_json,
                 &self.paths.workspace_base,
                 &mut self.counter_state,
@@ -320,6 +314,18 @@ impl Engine {
                 defaults,
                 ctx.track_cpu_and_net,
             )
+            .transpose()
+        };
+
+        let parsed_envs = match parsed_envs {
+            Some(Ok(envs)) => Some(envs),
+            Some(Err(source)) => {
+                return Err(EngineError::InvalidJson {
+                    context: "incus list",
+                    source,
+                });
+            }
+            None => None,
         };
 
         let mut delta = RefreshDelta::default();
@@ -369,9 +375,8 @@ impl Engine {
                 next_pool.resizable = true;
             }
             if ctx.compute_pool_quotas {
-                let list_str = String::from_utf8_lossy(&raw.list_json);
                 let (allocated, unbounded) =
-                    sum_root_disk_quotas_bytes(&list_str, "", &next_pool.name);
+                    sum_env_root_disk_quotas(&self.environments, "", &next_pool.name);
                 delta.allocated_bytes = allocated;
                 delta.unbounded_count = unbounded;
             }

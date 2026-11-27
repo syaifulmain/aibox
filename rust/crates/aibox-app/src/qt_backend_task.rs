@@ -695,9 +695,20 @@ impl qobject::Backend {
         let busy = *self.busy();
         let batch = evaluate_all_watchdogs(&inputs, disk_warn, disk_critical, 95, 92, busy);
 
+        let live_names: std::collections::HashSet<&str> =
+            inputs.iter().map(|i| i.name.as_str()).collect();
         let mut alert_changed = false;
         {
             let mut rust = self.as_mut().rust_mut();
+            let prune = |map: &mut std::collections::HashMap<String, i32>| {
+                map.retain(|k, _| live_names.contains(k.as_str()));
+            };
+            prune(&mut rust.watchdog_disk_level);
+            prune(&mut rust.watchdog_cpu_level);
+            prune(&mut rust.watchdog_cpu_high_streak);
+            prune(&mut rust.watchdog_ram_level);
+            prune(&mut rust.watchdog_ram_high_streak);
+
             for (idx, er) in batch.envs.iter().enumerate() {
                 rust.watchdog_disk_level
                     .insert(er.name.clone(), er.new_disk_level);

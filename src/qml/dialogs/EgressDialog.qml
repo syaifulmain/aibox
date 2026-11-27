@@ -93,6 +93,7 @@ ModalDialog {
             anchors.fill: parent
             anchors.margins: Style.gapMd
             clip: true
+            reuseItems: true
             spacing: Style.gapSm
             model: backend.egressLogs
             delegate: Rectangle {

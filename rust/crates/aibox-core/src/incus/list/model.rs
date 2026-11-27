@@ -134,6 +134,9 @@ pub struct Environment {
     /// when the instance follows the Incus default (`Host`).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub swap_limit: String,
+    /// Root storage pool name from `expanded_devices.root.pool` / `devices.root.pool` (not serialized).
+    #[serde(skip)]
+    pub root_pool: String,
 }
 
 pub fn environment_by_name<'a>(envs: &'a [Environment], name: &str) -> Option<&'a Environment> {
