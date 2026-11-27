@@ -15,6 +15,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "snapshots" => Command::Snapshots,
         "restore" => Command::Restore,
         "diff" => Command::Diff,
+        "run" => Command::Run,
         "ssh-config" => Command::SshConfig,
         "svc" => Command::Svc,
         "theme" => Command::Theme,
@@ -113,7 +114,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
 
         if arg == "--" && !after_double_dash {
             saw_double_dash = true;
-            if parsed.command == Command::Exec {
+            if parsed.command == Command::Exec || parsed.command == Command::Run {
                 parsing_exec_tail = true;
             } else {
                 after_double_dash = true;
@@ -230,6 +231,39 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                         );
                     }
                 }
+                i += 1;
+                continue;
+            }
+            if arg == "--ephemeral" {
+                parsed.ephemeral = true;
+                i += 1;
+                continue;
+            }
+            if arg == "--keep-on-fail" {
+                parsed.keep_on_fail = true;
+                i += 1;
+                continue;
+            }
+            if arg == "--from" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error(
+                        "--from requires a template or environment name.",
+                        Command::Run,
+                    );
+                }
+                i += 1;
+                parsed.from_template = args[i].clone();
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--from=") {
+                if val.trim().is_empty() {
+                    return make_usage_error(
+                        "--from requires a template or environment name.",
+                        Command::Run,
+                    );
+                }
+                parsed.from_template = val.to_string();
                 i += 1;
                 continue;
             }
@@ -367,6 +401,14 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     {
         return make_usage_error("--lines is only supported for 'svc'.", parsed.command);
     }
+    if (parsed.ephemeral || !parsed.from_template.is_empty() || parsed.keep_on_fail)
+        && parsed.command != Command::Run
+    {
+        return make_usage_error(
+            "--ephemeral, --from, and --keep-on-fail are only supported for 'run'.",
+            parsed.command,
+        );
+    }
 
     parsed.json_output = saw_json;
     parsed.fix = saw_fix;
@@ -400,6 +442,20 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 return make_usage_error("Missing command after '--'.", Command::Exec);
             }
             parsed.env_name = positionals[0].clone();
+        }
+        Command::Run => {
+            if !parsed.ephemeral || parsed.from_template.is_empty() {
+                return make_usage_error(
+                    "run requires '--ephemeral --from <template> -- <cmd...>'.",
+                    Command::Run,
+                );
+            }
+            if !positionals.is_empty() || !saw_double_dash || parsed.exec_command.is_empty() {
+                return make_usage_error(
+                    "run requires '-- <cmd...>' with a command to execute.",
+                    Command::Run,
+                );
+            }
         }
         Command::Snapshot => {
             if positionals.is_empty() || positionals.len() > 2 {

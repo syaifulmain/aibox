@@ -44,6 +44,10 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] diff <env> [snap] [--json]\n\n\
              Show /home/workspace file changes compared against a snapshot (default: latest).\n"
         }
+        Command::Run => {
+            "Usage: aibox [--project <dir>] run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>\n\n\
+             Clone a temporary environment from <template>, run <cmd...>, and delete it afterward.\n"
+        }
         Command::SshConfig => {
             "Usage: aibox [--project <dir>] ssh-config [env]\n\n\
              Print SSH config stanzas (Host aibox-<env>) using incus exec ProxyCommand.\n"
@@ -75,6 +79,8 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20 restore <env> <snap> [--system-only|--workspace-only] [--yes]\n\
              \x20                                                     Restore snapshot\n\
              \x20 diff <env> [snap] [--json]                          Review /home/workspace changes\n\
+             \x20 run --ephemeral --from <tpl> [--keep-on-fail] -- <cmd...>\n\
+             \x20                                                     Run command in disposable clone\n\
              \x20 ssh-config [env]                                    Print SSH config stanzas\n\
              \x20 svc <env> <action> [unit] [--lines <n>] [--json]    Manage container services\n\
              \x20 completions <bash|zsh|fish>                         Generate shell completions\n\

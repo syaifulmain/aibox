@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Ephemeral Environments (`aibox run --ephemeral --from <template>`) (`rust/crates/aibox-core/src/cli/commands/run.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>` to clone a disposable environment (`eph-<template>-<epoch>`), start it, forward the command, and delete both the Incus instance and workspace afterward (or keep them on non-zero exit when `--keep-on-fail` is passed).
+- Updated `aibox help` and bash/zsh/fish shell completions.
+
 ### Service Management (`aibox svc` & `aibox-core::services`) (`rust/crates/aibox-core/src/services/mod.rs`, `lib.rs`, `cli/commands/svc.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/completions.rs`)
 
 - Added `aibox-core::services` with `ServiceEntry`, `is_valid_unit_name`, `list_services_script`, `parse_systemd_units`, `parse_openrc_units`, `parse_service_list`, `service_action_script` (`start`, `stop`, `restart`, `enable`, `disable`), and `service_logs_script` (`journalctl -u` with `/var/log/<unit>.log` fallback).

@@ -50,6 +50,7 @@ pub enum Command {
     Snapshots,
     Restore,
     Diff,
+    Run,
     SshConfig,
     Svc,
     Theme,
@@ -71,6 +72,7 @@ impl Command {
             Command::Snapshots => "snapshots",
             Command::Restore => "restore",
             Command::Diff => "diff",
+            Command::Run => "run",
             Command::SshConfig => "ssh-config",
             Command::Svc => "svc",
             Command::Theme => "theme",
@@ -94,6 +96,9 @@ pub struct ParsedArgs {
     pub svc_action: String,
     pub svc_unit: String,
     pub log_lines: usize,
+    pub ephemeral: bool,
+    pub from_template: String,
+    pub keep_on_fail: bool,
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
@@ -121,6 +126,9 @@ impl Default for ParsedArgs {
             svc_action: String::new(),
             svc_unit: String::new(),
             log_lines: 50,
+            ephemeral: false,
+            from_template: String::new(),
+            keep_on_fail: false,
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
@@ -496,6 +504,23 @@ mod tests {
             assert_eq!(p.svc_unit, "nginx");
             assert_eq!(p.log_lines, 100);
         }
+        {
+            let p = parse_args(&svec(&[
+                "run",
+                "--ephemeral",
+                "--from",
+                "arch-tpl",
+                "--keep-on-fail",
+                "--",
+                "pytest",
+            ]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::Run);
+            assert!(p.ephemeral);
+            assert_eq!(p.from_template, "arch-tpl");
+            assert!(p.keep_on_fail);
+            assert_eq!(p.exec_command, svec(&["pytest"]));
+        }
 
         let bad_cases = [
             svec(&["unknowncmd"]),
@@ -513,6 +538,10 @@ mod tests {
             svec(&["svc", "web"]),
             svec(&["svc", "web", "restart"]),
             svec(&["svc", "web", "list", "nginx"]),
+            svec(&["run", "--from", "tpl", "--", "true"]),
+            svec(&["run", "--ephemeral", "--", "true"]),
+            svec(&["run", "--ephemeral", "--from", "tpl"]),
+            svec(&["start", "dev", "--ephemeral"]),
             svec(&[
                 "restore",
                 "dev-box",
