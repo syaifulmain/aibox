@@ -1,3 +1,5 @@
+pub mod system_diff;
+
 use serde::Serialize;
 
 use crate::util::shell::shell_quote;

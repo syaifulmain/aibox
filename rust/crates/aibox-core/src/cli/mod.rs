@@ -97,6 +97,7 @@ pub struct ParsedArgs {
     pub snapshot_name: String,
     pub exec_command: Vec<String>,
     pub timeout_secs: Option<u64>,
+    pub summary: bool,
     pub svc_action: String,
     pub svc_unit: String,
     pub log_lines: usize,
@@ -128,6 +129,7 @@ impl Default for ParsedArgs {
             snapshot_name: String::new(),
             exec_command: Vec::new(),
             timeout_secs: None,
+            summary: false,
             svc_action: String::new(),
             svc_unit: String::new(),
             log_lines: 50,
@@ -480,12 +482,14 @@ mod tests {
                 "exec",
                 "--timeout",
                 "30m",
+                "--summary",
                 "dev-box",
                 "--",
                 "echo",
                 "hi",
             ]));
             assert!(p.valid);
+            assert!(p.summary);
             assert_eq!(p.command, Command::Exec);
             assert_eq!(p.timeout_secs, Some(1800));
             assert_eq!(p.env_name, "dev-box");
@@ -556,6 +560,7 @@ mod tests {
             svec(&["exec", "--", "ls"]),
             svec(&["start", "dev-box", "--json"]),
             svec(&["start", "dev-box", "--timeout", "10s"]),
+            svec(&["start", "dev-box", "--summary"]),
             svec(&["exec", "--timeout", "0s", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "25h", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "abc", "dev-box", "--", "true"]),

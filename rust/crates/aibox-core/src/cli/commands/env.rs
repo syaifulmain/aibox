@@ -27,6 +27,10 @@ use crate::provision::lifecycle::{
     stop_environment_script_with_session,
 };
 use crate::secrets::inject::push_environment_secrets_to_container;
+use crate::services::system_diff::{
+    capture_system_state_script, diff_system_state, format_system_change_summary,
+    parse_system_state,
+};
 use crate::session::{
     prepare_recorded_session_paths, prune_recorded_sessions, redact_session_log_file,
     sessions_dir_path,
@@ -419,7 +423,15 @@ pub fn run_exec(
         &c_ws_path,
         &session_env,
     );
-    if let Some(secs) = parsed.timeout_secs {
+    let before_state = if parsed.summary {
+        let probe = capture_system_state_script(&parsed.env_name);
+        let out = runner.run("/bin/bash", &["-c", &probe]);
+        Some(parse_system_state(&out.std_out))
+    } else {
+        None
+    };
+
+    let rc = if let Some(secs) = parsed.timeout_secs {
         let mut timeout_args = vec![
             "--signal=TERM".to_string(),
             "--kill-after=10s".to_string(),
@@ -431,9 +443,28 @@ pub fn run_exec(
         if rc == 124 {
             io.write_stderr(format!("Warning: Command timed out after {secs}s.\n").as_bytes());
         }
-        return rc;
+        rc
+    } else {
+        io.run_forwarded("incus", &args)
+    };
+
+    if let Some(before) = before_state {
+        let probe = capture_system_state_script(&parsed.env_name);
+        let out = runner.run("/bin/bash", &["-c", &probe]);
+        let after = parse_system_state(&out.std_out);
+        let rollback_snap = env
+            .snapshots
+            .iter()
+            .rev()
+            .find(|s| s.starts_with("auto-"))
+            .or_else(|| env.snapshots.last())
+            .map(String::as_str)
+            .unwrap_or("");
+        let summary = diff_system_state(&before, &after, rollback_snap);
+        let text = format_system_change_summary(&parsed.env_name, &summary);
+        io.write_stderr(text.as_bytes());
     }
-    io.run_forwarded("incus", &args)
+    rc
 }
 
 pub fn run_start(

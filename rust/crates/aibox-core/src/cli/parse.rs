@@ -206,6 +206,11 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 i += 1;
                 continue;
             }
+            if arg == "--summary" {
+                parsed.summary = true;
+                i += 1;
+                continue;
+            }
             if arg == "--lines" {
                 if i + 1 >= args.len() {
                     return make_usage_error("--lines requires a positive integer.", Command::Svc);
@@ -398,6 +403,9 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     }
     if parsed.timeout_secs.is_some() && parsed.command != Command::Exec {
         return make_usage_error("--timeout is only supported for 'exec'.", parsed.command);
+    }
+    if parsed.summary && parsed.command != Command::Exec {
+        return make_usage_error("--summary is only supported for 'exec'.", parsed.command);
     }
     if args
         .iter()

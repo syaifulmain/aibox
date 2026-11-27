@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### System Change Summary (`aibox exec --summary`) (`rust/crates/aibox-core/src/services/system_diff.rs`, `services/mod.rs`, `cli/commands/env.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox-core::services::system_diff` to snapshot installed packages (`pacman`, `dpkg-query`, `apk`), enabled services (`systemctl`, `rc-update`), and listening ports (`ss`) before and after `aibox exec --summary`.
+- Prints added/removed packages, services, and ports plus an `aibox restore <env> <snap>` rollback command when a snapshot exists.
+
 ### Declarative `aibox.toml` Manifest (`aibox export-config` & `aibox up`) (`rust/crates/aibox-core/src/config/manifest.rs`, `config/mod.rs`, `cli/commands/manifest.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
 
 - Added zero-dependency `aibox-core::config::manifest` with `EnvManifest`, `manifest_from_environment`, `render_manifest_toml`, `parse_manifest_toml`, `parse_manifest_port_spec`, and `reconcile_manifest_script` (applying autostart, desktop/audio/D-Bus/extra device toggles, missing port forwards, and optional packages).

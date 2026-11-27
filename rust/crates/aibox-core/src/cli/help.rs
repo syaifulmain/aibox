@@ -15,10 +15,11 @@ pub fn help_text(cmd: Command) -> &'static str {
              Run pre-steps (auto-snapshot, allowlist refresh, start if stopped) and attach an interactive shell in /home/workspace.\n"
         }
         Command::Exec => {
-            "Usage: aibox [--project <dir>] exec [--timeout <dur>] <env> -- <cmd...>\n\n\
+            "Usage: aibox [--project <dir>] exec [--timeout <dur>] [--summary] <env> -- <cmd...>\n\n\
              Run pre-steps and execute a non-interactive command in /home/workspace, returning its exit code.\n\n\
              Options:\n\
-             \x20 --timeout <dur>   Terminate the command after <dur> (e.g. 30s, 15m, 1h30m; max 24h)\n"
+             \x20 --timeout <dur>   Terminate the command after <dur> (e.g. 30s, 15m, 1h30m; max 24h)\n\
+             \x20 --summary         Print package, service, and port changes after the command\n"
         }
         Command::Start => {
             "Usage: aibox [--project <dir>] start <env>\n\n\
@@ -79,7 +80,7 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20 list [--json]                                       List environments\n\
              \x20 check [--fix] [--json]                              Check/repair host setup\n\
              \x20 enter <env>                                         Open interactive shell in /home/workspace\n\
-             \x20 exec [--timeout <dur>] <env> -- <cmd...>          Run command in /home/workspace\n\
+             \x20 exec [--timeout <dur>] [--summary] <env> -- <cmd...> Run command in /home/workspace\n\
              \x20 start <env>                                         Start environment\n\
              \x20 stop <env>                                          Stop environment\n\
              \x20 snapshot <env> [name]                               Create paired OS + /home/workspace snapshot\n\
