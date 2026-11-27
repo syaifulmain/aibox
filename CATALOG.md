@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Health Check Probes (`aibox healthcheck` & `aibox-core::health::probe`) (`rust/crates/aibox-core/src/health/probe.rs`, `health/mod.rs`, `cli/commands/healthcheck.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox-core::health::probe` with `HealthProbeResult`, `validate_probe_target` (supporting `http(s)://...`, `host:port`, and plain port normalization to `127.0.0.1:<port>`), `probe_target_script`, `set_healthcheck_script` (`user.aibox.healthcheck` / `user.aibox.healthcheck_restart`), and `notify_healthcheck_down_script` (`notify-send`).
+- Added `aibox healthcheck <env> [--url <url|port> | --set <url|port> | --off] [--auto-restart] [--json]` and updated `aibox help` and bash/zsh/fish completions.
+
 ### System Change Summary (`aibox exec --summary`) (`rust/crates/aibox-core/src/services/system_diff.rs`, `services/mod.rs`, `cli/commands/env.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/completions.rs`)
 
 - Added `aibox-core::services::system_diff` to snapshot installed packages (`pacman`, `dpkg-query`, `apk`), enabled services (`systemctl`, `rc-update`), and listening ports (`ss`) before and after `aibox exec --summary`.

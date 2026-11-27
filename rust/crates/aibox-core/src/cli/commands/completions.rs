@@ -40,7 +40,7 @@ const BASH_COMPLETIONS: &str = r#"_aibox_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local commands="list check enter exec start stop snapshot snapshots restore diff export-config run ssh-config svc up theme completions help"
+    local commands="list check enter exec start stop snapshot snapshots restore diff export-config healthcheck run ssh-config svc up theme completions help"
     local global_opts="--project -h --help"
 
     if [[ "$prev" == "--project" || "$prev" == "--output" || "$prev" == "--theme-dir" ]]; then
@@ -118,6 +118,7 @@ _aibox() {
         'restore:Restore snapshot'
         'diff:Review /home/workspace changes'
         'export-config:Export aibox.toml manifest'
+        'healthcheck:Probe service health and auto-restart'
         'run:Run command in disposable clone'
         'ssh-config:Print SSH config stanzas'
         'svc:Manage container services'
@@ -173,7 +174,7 @@ _aibox "$@"
 
 const FISH_COMPLETIONS: &str = r#"complete -c aibox -f
 
-set -l __aibox_cmds list check enter exec start stop snapshot snapshots restore diff export-config run ssh-config svc up theme completions help
+set -l __aibox_cmds list check enter exec start stop snapshot snapshots restore diff export-config healthcheck run ssh-config svc up theme completions help
 
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -l project -r -d "Select project directory"
 complete -c aibox -s h -l help -d "Show help"
@@ -189,6 +190,7 @@ complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a snapshot
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a restore -d "Restore snapshot"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a diff -d "Review /home/workspace changes"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a export-config -d "Export aibox.toml manifest"
+complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a healthcheck -d "Probe service health and auto-restart"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a run -d "Run command in disposable clone"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a ssh-config -d "Print SSH config stanzas"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a svc -d "Manage container services"

@@ -83,6 +83,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 - `aibox svc <env> <list|logs|start|stop|restart|enable|disable> [unit] [--lines <n>] [--json]` — inspect and control systemd or OpenRC services inside a running environment
 - `aibox run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>` — run a command inside a disposable clone and delete it afterward (unless `--keep-on-fail` is set on error)
 - `aibox export-config <env> [--output <path>]` / `aibox up [path]` — export an environment to `aibox.toml` or provision/reconcile an environment from `aibox.toml`
+- `aibox healthcheck <env> [--url <url|port> | --set <url|port> | --off] [--auto-restart] [--json]` — probe an HTTP(S) URL or TCP port for `<env>`, send a desktop notification on failure, and optionally restart it
 - `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
 - `aibox completions <bash|zsh|fish>` — generate shell completion scripts for `bash`, `zsh`, or `fish`
 

@@ -51,6 +51,7 @@ pub enum Command {
     Restore,
     Diff,
     ExportConfig,
+    Healthcheck,
     Run,
     SshConfig,
     Svc,
@@ -75,6 +76,7 @@ impl Command {
             Command::Restore => "restore",
             Command::Diff => "diff",
             Command::ExportConfig => "export-config",
+            Command::Healthcheck => "healthcheck",
             Command::Run => "run",
             Command::SshConfig => "ssh-config",
             Command::Svc => "svc",
@@ -105,6 +107,10 @@ pub struct ParsedArgs {
     pub from_template: String,
     pub keep_on_fail: bool,
     pub manifest_path: String,
+    pub health_url: String,
+    pub health_set: bool,
+    pub health_off: bool,
+    pub auto_restart: bool,
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
@@ -137,6 +143,10 @@ impl Default for ParsedArgs {
             from_template: String::new(),
             keep_on_fail: false,
             manifest_path: String::new(),
+            health_url: String::new(),
+            health_set: false,
+            health_off: false,
+            auto_restart: false,
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
@@ -549,6 +559,21 @@ mod tests {
             assert_eq!(p.command, Command::Up);
             assert_eq!(p.manifest_path, "/tmp/aibox.toml");
         }
+        {
+            let p = parse_args(&svec(&[
+                "healthcheck",
+                "web",
+                "--set",
+                "http://127.0.0.1:8080/health",
+                "--auto-restart",
+            ]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::Healthcheck);
+            assert_eq!(p.env_name, "web");
+            assert!(p.health_set);
+            assert!(p.auto_restart);
+            assert_eq!(p.health_url, "http://127.0.0.1:8080/health");
+        }
 
         let bad_cases = [
             svec(&["unknowncmd"]),
@@ -561,6 +586,9 @@ mod tests {
             svec(&["start", "dev-box", "--json"]),
             svec(&["start", "dev-box", "--timeout", "10s"]),
             svec(&["start", "dev-box", "--summary"]),
+            svec(&["healthcheck"]),
+            svec(&["healthcheck", "web", "--set", "3000", "--off"]),
+            svec(&["start", "web", "--auto-restart"]),
             svec(&["exec", "--timeout", "0s", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "25h", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "abc", "dev-box", "--", "true"]),

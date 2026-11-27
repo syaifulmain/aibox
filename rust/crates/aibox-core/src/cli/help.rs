@@ -53,6 +53,10 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] up [path]\n\n\
              Create or reconcile an environment from a declarative aibox.toml manifest (default: ./aibox.toml).\n"
         }
+        Command::Healthcheck => {
+            "Usage: aibox [--project <dir>] healthcheck <env> [--url <url|port> | --set <url|port> | --off] [--auto-restart] [--json]\n\n\
+             Probe an HTTP(S) URL or TCP port for <env>, notify on failure, and optionally restart.\n"
+        }
         Command::Run => {
             "Usage: aibox [--project <dir>] run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>\n\n\
              Clone a temporary environment from <template>, run <cmd...>, and delete it afterward.\n"
@@ -94,6 +98,7 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20 svc <env> <action> [unit] [--lines <n>] [--json]    Manage container services\n\
              \x20 export-config <env> [--output <path>]               Export aibox.toml manifest\n\
              \x20 up [path]                                           Provision/reconcile from aibox.toml\n\
+             \x20 healthcheck <env> [--url <t>|--set <t>|--off]       Probe service health & auto-restart\n\
              \x20 completions <bash|zsh|fish>                         Generate shell completions\n\
              \x20 help [command]                                      Show help\n\n\
              Global options:\n\

@@ -1,5 +1,6 @@
 pub mod completions;
 pub mod env;
+pub mod healthcheck;
 pub mod manifest;
 pub mod run;
 pub mod snapshot;
@@ -389,6 +390,7 @@ pub fn execute_with(
         Command::Run => run::run_ephemeral(&mut engine, parsed, io, runner),
         Command::ExportConfig => manifest::run_export_config(&mut engine, parsed, io, runner),
         Command::Up => manifest::run_up(&mut engine, parsed, io, runner, cwd),
+        Command::Healthcheck => healthcheck::run_healthcheck(&mut engine, parsed, io, runner),
         Command::Check | Command::Help | Command::None | Command::Theme | Command::Completions => {
             ExitCode::Usage.as_i32()
         }

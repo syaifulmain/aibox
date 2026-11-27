@@ -16,6 +16,7 @@ pub fn parse_command_name(token: &str) -> Command {
         "restore" => Command::Restore,
         "diff" => Command::Diff,
         "export-config" => Command::ExportConfig,
+        "healthcheck" => Command::Healthcheck,
         "run" => Command::Run,
         "ssh-config" => Command::SshConfig,
         "svc" => Command::Svc,
@@ -211,6 +212,52 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 i += 1;
                 continue;
             }
+            if arg == "--url" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error("--url requires a URL or port.", Command::Healthcheck);
+                }
+                i += 1;
+                parsed.health_url = args[i].clone();
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--url=") {
+                if val.trim().is_empty() {
+                    return make_usage_error("--url requires a URL or port.", Command::Healthcheck);
+                }
+                parsed.health_url = val.to_string();
+                i += 1;
+                continue;
+            }
+            if arg == "--set" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error("--set requires a URL or port.", Command::Healthcheck);
+                }
+                i += 1;
+                parsed.health_url = args[i].clone();
+                parsed.health_set = true;
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--set=") {
+                if val.trim().is_empty() {
+                    return make_usage_error("--set requires a URL or port.", Command::Healthcheck);
+                }
+                parsed.health_url = val.to_string();
+                parsed.health_set = true;
+                i += 1;
+                continue;
+            }
+            if arg == "--off" {
+                parsed.health_off = true;
+                i += 1;
+                continue;
+            }
+            if arg == "--auto-restart" {
+                parsed.auto_restart = true;
+                i += 1;
+                continue;
+            }
             if arg == "--lines" {
                 if i + 1 >= args.len() {
                     return make_usage_error("--lines requires a positive integer.", Command::Svc);
@@ -368,6 +415,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 | Command::Check
                 | Command::Snapshots
                 | Command::Diff
+                | Command::Healthcheck
                 | Command::Svc
                 | Command::Theme
         )
@@ -406,6 +454,20 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     }
     if parsed.summary && parsed.command != Command::Exec {
         return make_usage_error("--summary is only supported for 'exec'.", parsed.command);
+    }
+    if (!parsed.health_url.is_empty()
+        || parsed.health_set
+        || parsed.health_off
+        || parsed.auto_restart)
+        && parsed.command != Command::Healthcheck
+    {
+        return make_usage_error(
+            "--url, --set, --off, and --auto-restart are only supported for 'healthcheck'.",
+            parsed.command,
+        );
+    }
+    if parsed.health_set && parsed.health_off {
+        return make_usage_error("Cannot combine --set and --off.", Command::Healthcheck);
     }
     if args
         .iter()
@@ -514,6 +576,12 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             if let Some(path) = positionals.first() {
                 parsed.manifest_path = path.clone();
             }
+        }
+        Command::Healthcheck => {
+            if positionals.len() != 1 {
+                return make_usage_error("Expected <env>.", Command::Healthcheck);
+            }
+            parsed.env_name = positionals[0].clone();
         }
         Command::SshConfig => {
             if positionals.len() > 1 {
