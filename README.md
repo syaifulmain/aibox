@@ -115,6 +115,8 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 ./bin/install   # build and install into ~/.local/ (or --system for makepkg)
 ```
 
+When a deliberate output change makes a golden fixture fail, run the suite once with `AIBOX_UPDATE_GOLDEN=1` to rewrite only the changed rows, then re-run without it to verify.
+
 Source layout:
 
 - `rust/crates/aibox-core/` holds the pure Rust core (config, secrets,

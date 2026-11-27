@@ -78,15 +78,21 @@ where
     let path = golden_dir().join(format!("{module}.jsonl"));
     let contents = fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    // Set AIBOX_UPDATE_GOLDEN=1 to rewrite only the rows whose output changed.
+    // Always re-run the suite without it afterwards to verify the new fixtures.
+    let update = env::var_os("AIBOX_UPDATE_GOLDEN").is_some_and(|v| !v.is_empty());
+    let mut rewritten: Vec<String> = Vec::new();
+    let mut changed = false;
+
     for (idx, line) in contents.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
-        let row: Value = serde_json::from_str(line)
+        let mut row: Value = serde_json::from_str(line)
             .unwrap_or_else(|e| panic!("{}:{}: invalid JSON: {e}", path.display(), idx + 1));
-        let fn_name = row["fn"].as_str().expect("missing fn");
-        let case = row["case"].as_str().unwrap_or("");
-        let mut actual = eval(fn_name, case, &row["args"]);
+        let fn_name = row["fn"].as_str().expect("missing fn").to_string();
+        let case = row["case"].as_str().unwrap_or("").to_string();
+        let mut actual = eval(&fn_name, &case, &row["args"]);
         if fn_name == "Backend::buildStaleReport" {
             if let Some(ts) = actual.get("generatedAt").and_then(Value::as_str) {
                 assert_eq!(ts.len(), 19, "unexpected generatedAt format: {ts}");
@@ -95,12 +101,31 @@ where
                 obj.insert("generatedAt".to_string(), json!("<NOW>"));
             }
         }
+        if update && actual != row["out"] {
+            row["out"] = actual;
+            rewritten.push(
+                serde_json::to_string(&row)
+                    .unwrap_or_else(|e| panic!("failed to serialize {}: {e}", path.display())),
+            );
+            changed = true;
+            continue;
+        }
         assert_eq!(
             actual,
             row["out"],
             "{}:{}: mismatch for {fn_name} ({case})",
             path.display(),
             idx + 1
+        );
+        rewritten.push(line.to_string());
+    }
+
+    if changed {
+        fs::write(&path, format!("{}\n", rewritten.join("\n")))
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+        panic!(
+            "{}: golden fixtures updated; re-run without AIBOX_UPDATE_GOLDEN",
+            path.display()
         );
     }
 }
