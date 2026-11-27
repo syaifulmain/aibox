@@ -1,6 +1,7 @@
 pub mod backup;
 pub mod cli;
 pub mod config;
+pub mod display;
 pub mod engine;
 pub mod health;
 pub mod history;

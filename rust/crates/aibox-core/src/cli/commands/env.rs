@@ -6,6 +6,9 @@ use serde_json::Value;
 
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
+use crate::display::{
+    apply_devices_script, build_desktop_plan, detect_host_session, DesktopMode, DisplayPlan,
+};
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
 use crate::incus::list::Environment;
@@ -13,7 +16,8 @@ use crate::network::acl::build_allowlist_refresh_if_needed;
 use crate::network::allowlist::SystemResolver;
 use crate::process::CommandRunner;
 use crate::provision::lifecycle::{
-    build_prepare_script, enter_incus_exec_args, exec_incus_command_args, start_environment_script,
+    build_prepare_script_with_desktop, enter_incus_exec_args_with_env,
+    exec_incus_command_args_with_env, start_environment_script_with_desktop,
     stop_environment_script,
 };
 use crate::secrets::inject::push_environment_secrets_to_container;
@@ -55,16 +59,27 @@ fn build_allowlist_refresh_for_env(env: &Environment) -> String {
     )
 }
 
+fn desktop_plan_for(env: &Environment) -> DisplayPlan {
+    let mode = if crate::provision::is_vm_env_type(&env.env_type) {
+        DesktopMode::Off
+    } else {
+        DesktopMode::from_enabled(env.desktop_enabled)
+    };
+    build_desktop_plan(mode, &detect_host_session())
+}
+
 fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    build_prepare_script(&env.name, &auto_snap, &allow_refresh)
+    let desktop = apply_devices_script(&env.name, &desktop_plan_for(env));
+    build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &desktop)
 }
 
 fn start_environment_script_for(engine: &Engine, env: &Environment) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    start_environment_script(&env.name, &auto_snap, &allow_refresh)
+    let desktop = apply_devices_script(&env.name, &desktop_plan_for(env));
+    start_environment_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &desktop)
 }
 
 fn stop_environment_script_for(
@@ -204,15 +219,18 @@ pub fn run_enter(
         }
     };
 
-    let display = std::env::var("DISPLAY").unwrap_or_default();
     let term = std::env::var("TERM").unwrap_or_default();
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
-    let exec_args = enter_incus_exec_args(
+    let desktop = desktop_plan_for(&env);
+    // The plan owns DISPLAY when desktop integration is on; passing an empty
+    // display keeps Off purely headless instead of falling back to `:0`.
+    let exec_args = enter_incus_exec_args_with_env(
         &parsed.env_name,
         &remote_env_path,
         &c_ws_path,
-        &display,
+        "",
         &term,
+        &desktop.env,
     );
 
     if env.record_enabled && find_executable("script") {
@@ -280,11 +298,13 @@ pub fn run_exec(
     };
 
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
-    let args = exec_incus_command_args(
+    let desktop = desktop_plan_for(&env);
+    let args = exec_incus_command_args_with_env(
         &parsed.env_name,
         &parsed.exec_command,
         &remote_env_path,
         &c_ws_path,
+        &desktop.env,
     );
     io.run_forwarded("incus", &args)
 }

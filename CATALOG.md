@@ -34,7 +34,7 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 | File / Path | Category | Description |
 | :--- | :--- | :--- |
 | [rust/Cargo.toml](rust/Cargo.toml) | Workspace | Cargo workspace (`aibox-core`, `aibox-app`), version `0.3.0`. |
-| [rust/crates/aibox-core/src/](rust/crates/aibox-core/src) | Source (Rust) | Pure Rust application core: `util`, `config`, `theme`, `i18n`, `secrets`, `session`, `history`, `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `incus`, `task`, `engine`, and headless `cli`. |
+| [rust/crates/aibox-core/src/](rust/crates/aibox-core/src) | Source (Rust) | Pure Rust application core: `util`, `config`, `theme`, `i18n`, `secrets`, `session`, `history`, `snapshot`, `workspace`, `network`, `display`, `backup`, `health`, `provision`, `incus`, `task`, `engine`, and headless `cli`. |
 | [rust/crates/aibox-core/tests/golden/](rust/crates/aibox-core/tests/golden) | Golden Fixtures | Committed `.jsonl` parity fixtures replayed by `aibox-core` `golden.rs`. |
 | [rust/crates/aibox-app/src/main.rs](rust/crates/aibox-app/src/main.rs) & [lib.rs](rust/crates/aibox-app/src/lib.rs) | Source (Rust) | Process entry point dispatching `--redact-session` and headless CLI in Rust, and calling `aibox_gui_main` for the QML GUI. |
 | [rust/crates/aibox-app/src/qt_backend*.rs](rust/crates/aibox-app/src/qt_backend.rs) | Source (Rust) | `cxx-qt` `Backend` QObject wrapping `Engine` and GUI state, split by feature module (`config`, `secrets`, `snapshot`, `workspace`, `network`, `backup`, `health`, `provision`, `sessions`, `task`). |
@@ -46,7 +46,7 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 | [src/qml/Main.qml](src/qml/Main.qml) | Source (QML) | Application window shell: state properties, dialog visibility, keyboard shortcuts, first-run overlay, and composition of the extracted panels and dialogs. |
 | [src/qml/components/](src/qml/components) | Source (QML) | Reusable controls and design tokens. `Style.qml` (registered by `qmldir`) is the single source for surfaces, spacing, type scale, radii, control sizes and modal metrics. `ModalDialog` is the shared modal shell; `ActionButton`, `FlatInput`, `ChipInput`, `SizeUnitChips`, `ModalHeader`, `MenuRow`, `TagBadge`, `MeterBar`, `SegmentedTabs`, `SelectChip`, `SelectCard`, `CheckRow`, `ResourceMeterCard`, `BrandMark` and `SlidersIcon` are shared building blocks. |
 | [src/qml/dialogs/](src/qml/dialogs) | Source (QML) | Modal overlays: Create, Clone, Environment Actions, First Run, Wipe, Restore, Change Review, Help, History, Egress, Ports, Mounts, Edit Quotas, Backups, Secrets, Stale Report, Tools. |
-| [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
+| [src/qml/panels/](src/qml/panels) | Source (QML) | Main layout: `AppHeader`, `StatusBanner`, `MainContent` composition, `EnvironmentList`, `EnvironmentInspector`, `NetworkModeCard`, `DesktopIntegrationCard`, `SnapshotsCard`, `OsCatalogPanel`, and `SettingsPanel` with its `settings/` sections (locations, storage pool, OS catalog, create options, safety). |
 | [src/resources.qrc](src/resources.qrc) | Resource | Bundles QML and translation catalogs directly into the `aibox` binary. |
 | [src/i18n/en.json](src/i18n/en.json) & [da.json](src/i18n/da.json) | Localization | English plural rules and localization catalogs. |
 | [pkgbuild/PKGBUILD](pkgbuild/PKGBUILD) | Packaging | Arch Linux package definition (`0.3.0`) installing `/usr/bin/aibox`, license, SVG icon, and `.desktop` entry. |
@@ -62,6 +62,14 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 ---
 
 ## 3. Changelog
+
+### Desktop Session Bridge: Safe X11 Proxy, `aibox exec` GUI Support & Per-Environment Toggle (`rust/crates/aibox-core/src/display/`, `rust/crates/aibox-core/src/provision/`, `rust/crates/aibox-core/src/incus/list/`, `rust/crates/aibox-core/src/cli/commands/env.rs`, `rust/crates/aibox-app/`, `src/qml/panels/DesktopIntegrationCard.qml`, `src/i18n/`)
+
+- Added the `aibox-core::display` module (`host.rs`, `plan.rs`): one host-session detector and one `DisplayPlan` builder shared by GUI Enter, `aibox enter`, and `aibox exec`, so every entry path gets the same desktop devices and environment variables.
+- Replaced the container X11 disk mount and `xhost +local:` grant with an Incus `proxy` device (`connect=unix:<host socket>`, `listen=unix:<host socket>`, `bind=container`) plus `xhost +si:localuser:root`, which authorizes only the host-side Incus proxy instead of every local X process. Desktop devices are removed and re-added on Start/Enter so a changed host socket (after logout/login) is picked up automatically.
+- `aibox exec` now receives `DISPLAY` when desktop integration is on, so `aibox exec firefox` (and other GUI commands) works like Enter instead of running headless.
+- Added per-environment `user.aibox.desktop` (`on`/`off`) with a **Desktop Integration** card in the inspector. Off is a pure headless/server mode. Legacy instances without the key infer their state from an existing `x11`/`wayland` device, and `desktopEnabled` is exposed to QML.
+- Added `build_prepare_script_with_desktop`, `start_environment_script_with_desktop`, `create_environment_script_with_desktop`, and the `*_with_env` exec/enter builders while keeping the existing golden-tested wrappers byte-compatible.
 
 ### Security, Reliability, UI Responsiveness & QML Optimization Pass (`aibox-core`, `aibox-app`, `src/qml/`, `src/i18n/`)
 

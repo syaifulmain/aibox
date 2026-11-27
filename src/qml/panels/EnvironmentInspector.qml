@@ -364,6 +364,8 @@ Item {
                 app: root.app
             }
 
+            DesktopIntegrationCard {}
+
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app

@@ -16,15 +16,57 @@ pub struct TemplateTaskPlan {
     pub script: String,
 }
 
+/// Legacy grant kept only for the old `build_prepare_script` wrapper.
+const LEGACY_XHOST_LOCAL: &str = "if command -v xhost >/dev/null 2>&1 && [[ -n \"${DISPLAY:-}\" ]]; then\n    xhost +local: >/dev/null 2>&1 || true\nfi\n";
+
 pub fn build_prepare_script(name: &str, auto_snap: &str, allow_refresh: &str) -> String {
+    build_prepare_script_inner(name, auto_snap, allow_refresh, None)
+}
+
+/// Production prepare script: applies the desktop bridge after the container is
+/// running, so a changed host socket is refreshed on every Enter.
+pub fn build_prepare_script_with_desktop(
+    name: &str,
+    auto_snap: &str,
+    allow_refresh: &str,
+    desktop_script: &str,
+) -> String {
+    build_prepare_script_inner(name, auto_snap, allow_refresh, Some(desktop_script))
+}
+
+fn build_prepare_script_inner(
+    name: &str,
+    auto_snap: &str,
+    allow_refresh: &str,
+    desktop_script: Option<&str>,
+) -> String {
     let q_name = shell_quote(name);
     let migrate = workspace_mount_migration_script(name);
+    let (legacy_xhost, desktop) = match desktop_script {
+        Some(script) => ("", script),
+        None => (LEGACY_XHOST_LOCAL, ""),
+    };
+    let desktop_line = if desktop.is_empty() {
+        String::new()
+    } else {
+        format!("{desktop}\n")
+    };
     format!(
-        "\nif command -v xhost >/dev/null 2>&1 && [[ -n \"${{DISPLAY:-}}\" ]]; then\n    xhost +local: >/dev/null 2>&1 || true\nfi\n{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n    incus start {q_name}\n    sleep 1\nfi\nincus config set {q_name} user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n"
+        "\n{legacy_xhost}{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n    incus start {q_name}\n    sleep 1\nfi\n{desktop_line}incus config set {q_name} user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n"
     )
 }
 
 pub fn start_environment_script(name: &str, auto_snap: &str, allow_refresh: &str) -> String {
+    start_environment_script_with_desktop(name, auto_snap, allow_refresh, "")
+}
+
+/// Production start script that applies the desktop bridge after `incus start`.
+pub fn start_environment_script_with_desktop(
+    name: &str,
+    auto_snap: &str,
+    allow_refresh: &str,
+    desktop_script: &str,
+) -> String {
     let q_name = shell_quote(name);
     let migrate = workspace_mount_migration_script(name);
     let mut script =
@@ -37,8 +79,13 @@ pub fn start_environment_script(name: &str, auto_snap: &str, allow_refresh: &str
         script.push_str(allow_refresh);
         script.push('\n');
     }
+    let desktop_line = if desktop_script.is_empty() {
+        String::new()
+    } else {
+        format!("{desktop_script}\n")
+    };
     script.push_str(&format!(
-        "echo '@@STAGE:55:Starting container...'\n{migrate}\nincus start {q_name} && sleep 1\n\
+        "echo '@@STAGE:55:Starting container...'\n{migrate}\nincus start {q_name} && sleep 1\n{desktop_line}\
          incus config set {q_name} user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n\
          echo '@@STAGE:100:Started.'"
     ));
@@ -70,6 +117,43 @@ pub fn enter_incus_exec_args(
     } else {
         display
     };
+    enter_incus_exec_args_inner(
+        name,
+        remote_env_path,
+        container_workspace_path,
+        display_val,
+        term,
+        &[],
+    )
+}
+
+/// Same as `enter_incus_exec_args`, plus explicit desktop environment pairs.
+pub fn enter_incus_exec_args_with_env(
+    name: &str,
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    display: &str,
+    term: &str,
+    extra_env: &[(String, String)],
+) -> Vec<String> {
+    enter_incus_exec_args_inner(
+        name,
+        remote_env_path,
+        container_workspace_path,
+        display,
+        term,
+        extra_env,
+    )
+}
+
+fn enter_incus_exec_args_inner(
+    name: &str,
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    display: &str,
+    term: &str,
+    extra_env: &[(String, String)],
+) -> Vec<String> {
     let term_val = if term.trim().is_empty() {
         "xterm-256color"
     } else {
@@ -83,20 +167,30 @@ pub fn enter_incus_exec_args(
             "if [ -f {q_env} ]; then set -a; . {q_env}; set +a; rm -f {q_env}; fi; if command -v bash >/dev/null 2>&1; then exec bash -l; else exec sh; fi"
         )
     };
-    vec![
+    let mut args = vec![
         "exec".to_string(),
         name.to_string(),
         "--cwd".to_string(),
         container_workspace_path.to_string(),
-        "--env".to_string(),
-        format!("DISPLAY={display_val}"),
-        "--env".to_string(),
-        format!("TERM={term_val}"),
+    ];
+    let display_overridden = extra_env.iter().any(|(key, _)| key == "DISPLAY");
+    if !display.trim().is_empty() && !display_overridden {
+        args.push("--env".to_string());
+        args.push(format!("DISPLAY={display}"));
+    }
+    args.push("--env".to_string());
+    args.push(format!("TERM={term_val}"));
+    for (key, value) in extra_env {
+        args.push("--env".to_string());
+        args.push(format!("{key}={value}"));
+    }
+    args.extend([
         "--".to_string(),
         "sh".to_string(),
         "-c".to_string(),
         shell_cmd,
-    ]
+    ]);
+    args
 }
 
 pub fn exec_incus_command_args(
@@ -105,13 +199,28 @@ pub fn exec_incus_command_args(
     remote_env_path: &str,
     container_workspace_path: &str,
 ) -> Vec<String> {
+    exec_incus_command_args_with_env(name, cmd, remote_env_path, container_workspace_path, &[])
+}
+
+/// Same as `exec_incus_command_args`, plus explicit desktop environment pairs.
+pub fn exec_incus_command_args_with_env(
+    name: &str,
+    cmd: &[String],
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    extra_env: &[(String, String)],
+) -> Vec<String> {
     let mut args = vec![
         "exec".to_string(),
         name.to_string(),
         "--cwd".to_string(),
         container_workspace_path.to_string(),
-        "--".to_string(),
     ];
+    for (key, value) in extra_env {
+        args.push("--env".to_string());
+        args.push(format!("{key}={value}"));
+    }
+    args.push("--".to_string());
     if remote_env_path.is_empty() {
         args.extend(cmd.iter().cloned());
     } else {
@@ -128,21 +237,63 @@ pub fn exec_incus_command_args(
 }
 
 pub fn build_enter_command(name: &str, remote_env_path: &str) -> String {
+    build_enter_command_inner(name, remote_env_path, true, &[])
+}
+
+/// Production Enter command with explicit desktop environment pairs.
+pub fn build_enter_command_with_env(
+    name: &str,
+    remote_env_path: &str,
+    extra_env: &[(String, String)],
+) -> String {
+    build_enter_command_inner(name, remote_env_path, false, extra_env)
+}
+
+fn build_enter_command_inner(
+    name: &str,
+    remote_env_path: &str,
+    legacy_display: bool,
+    extra_env: &[(String, String)],
+) -> String {
     let q_name = shell_quote(name);
     let q_ws = shell_quote(CONTAINER_WORKSPACE_PATH);
     let ws_mount_arg = format!(
         "\"$(incus config device get {q_name} workspace path 2>/dev/null || echo {q_ws})\""
     );
+    let env_flags = build_enter_env_flags(legacy_display, extra_env);
+    // The legacy wrapper only passed env flags to the bash branch; the
+    // production variant must carry the desktop environment into both branches.
+    let fallback_env = if legacy_display {
+        String::new()
+    } else {
+        env_flags.clone()
+    };
     if remote_env_path.is_empty() {
         format!(
-            "incus exec {q_name} --cwd {ws_mount_arg} --env DISPLAY=\"${{DISPLAY:-:0}}\" --env TERM=\"${{TERM:-xterm-256color}}\" -- bash -l || incus exec {q_name} --cwd {ws_mount_arg} -- sh"
+            "incus exec {q_name} --cwd {ws_mount_arg}{env_flags} -- bash -l || incus exec {q_name} --cwd {ws_mount_arg}{fallback_env} -- sh"
         )
     } else {
         let q_env = shell_quote(remote_env_path);
         format!(
-            "incus exec {q_name} --cwd {ws_mount_arg} --env DISPLAY=\"${{DISPLAY:-:0}}\" --env TERM=\"${{TERM:-xterm-256color}}\" -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter {q_env} || incus exec {q_name} --cwd {ws_mount_arg} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter {q_env}"
+            "incus exec {q_name} --cwd {ws_mount_arg}{env_flags} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter {q_env} || incus exec {q_name} --cwd {ws_mount_arg}{fallback_env} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter {q_env}"
         )
     }
+}
+
+fn build_enter_env_flags(legacy_display: bool, extra_env: &[(String, String)]) -> String {
+    let mut flags = String::new();
+    let display_overridden = extra_env.iter().any(|(key, _)| key == "DISPLAY");
+    if legacy_display && !display_overridden {
+        flags.push_str(" --env DISPLAY=\"${DISPLAY:-:0}\"");
+    }
+    flags.push_str(" --env TERM=\"${TERM:-xterm-256color}\"");
+    for (key, value) in extra_env {
+        flags.push_str(&format!(
+            " --env {}",
+            shell_quote(&format!("{key}={value}"))
+        ));
+    }
+    flags
 }
 
 pub fn ai_exec_command_text(name: &str, has_secrets: bool, workspace_mount_path: &str) -> String {
@@ -228,5 +379,59 @@ mod tests {
         assert!(start.contains("workspace path='/home/workspace'"));
         let prepare = build_prepare_script("box", "", "");
         assert!(prepare.contains("workspace path='/home/workspace'"));
+    }
+
+    #[test]
+    fn desktop_script_runs_after_the_container_is_running() {
+        let prepare = build_prepare_script_with_desktop("box", "", "", "DESKTOP_APPLY");
+        let sleep_at = prepare.find("sleep 1").expect("sleep");
+        let desktop_at = prepare.find("DESKTOP_APPLY").expect("desktop");
+        let lastused_at = prepare.find("user.aibox.lastused").expect("lastused");
+        assert!(sleep_at < desktop_at);
+        assert!(desktop_at < lastused_at);
+        assert!(!prepare.contains("xhost +local:"));
+
+        let start = start_environment_script_with_desktop("box", "", "", "DESKTOP_APPLY");
+        let start_at = start.find("incus start 'box'").expect("start");
+        let desktop_at = start.find("DESKTOP_APPLY").expect("desktop");
+        let lastused_at = start.find("user.aibox.lastused").expect("lastused");
+        assert!(start_at < desktop_at);
+        assert!(desktop_at < lastused_at);
+    }
+
+    #[test]
+    fn env_pairs_are_inserted_after_cwd_and_before_the_command() {
+        let env = vec![("DISPLAY".to_string(), ":0".to_string())];
+        let args = enter_incus_exec_args_with_env(
+            "box",
+            "",
+            "/home/workspace",
+            "",
+            "xterm-256color",
+            &env,
+        );
+        let cwd_at = args.iter().position(|arg| arg == "--cwd").expect("cwd");
+        let display_at = args
+            .iter()
+            .position(|arg| arg == "DISPLAY=:0")
+            .expect("display");
+        let dash_at = args.iter().position(|arg| arg == "--").expect("dash");
+        assert!(cwd_at < display_at);
+        assert!(display_at < dash_at);
+
+        let cmd = vec!["firefox".to_string()];
+        let exec = exec_incus_command_args_with_env("box", &cmd, "", "/home/workspace", &env);
+        let cwd_at = exec.iter().position(|arg| arg == "--cwd").expect("cwd");
+        let display_at = exec
+            .iter()
+            .position(|arg| arg == "DISPLAY=:0")
+            .expect("display");
+        let dash_at = exec.iter().position(|arg| arg == "--").expect("dash");
+        assert!(cwd_at < display_at);
+        assert!(display_at < dash_at);
+
+        let enter = build_enter_command_with_env("box", "/run/env", &env);
+        assert_eq!(enter.matches("DISPLAY=:0").count(), 2);
+        assert!(!build_enter_command_with_env("box", "/run/env", &[]).contains("DISPLAY="));
     }
 }

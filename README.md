@@ -7,6 +7,7 @@ AIBox is a native Qt Quick desktop app for managing isolated Linux environments 
 ## Features
 
 - Create and manage Linux containers and virtual machines with configurable CPU, memory, swap, and disk limits. New containers default to swap **Off**; choose **Host** to follow the Incus default or set a size such as `4GiB`.
+- Run GUI programs from any entry path: the **Desktop Integration** card (per-environment `user.aibox.desktop`) exposes the host X11 session through a safe Incus proxy device with `xhost +si:localuser:root`, so `firefox`, `code`, `gimp`, and similar apps work from GUI Enter, `aibox enter`, and `aibox exec`. Turn it **Off** for a pure headless server environment; legacy environments infer their state from an existing `x11`/`wayland` device.
 - Monitor disk usage, memory usage, and CPU usage in compact task-manager style cards. Click the CPU card to expand or collapse two-column per-core usage bars for the selected environment.
 - A single **Tools** menu groups global Secrets, Backups, History, and the Stale & Orphans report, while secondary environment actions (clone, quotas, template, copy AI command, paste image, environment secrets, and the destructive **Wipe OS**) live in **More Actions**, with **Wipe OS** last and in danger styling. The environment inspector keeps only start/stop and enter.
 - Share a project workspace with environments at `/home/workspace` and open it directly on the host. The Create dialog can place a new workspace in a custom folder; an empty field keeps the configured default (`<system>/workspaces/<name>`).
@@ -59,7 +60,7 @@ To browse an environment's root filesystem in your file manager, use the **Root 
 
 For headless scripting and terminal workflows, use `aibox [--project <dir>] <command>`:
 
-- `aibox enter <env>` / `aibox exec <env> -- <cmd...>` — run pre-steps (auto-snapshot, allowlist refresh, auto-start) and attach or run a command in `/home/workspace`
+- `aibox enter <env>` / `aibox exec <env> -- <cmd...>` — run pre-steps (auto-snapshot, allowlist refresh, auto-start), apply the environment's **Desktop Integration** state (X11 and `DISPLAY` when on; headless when off), and attach or run a command in `/home/workspace`
 - `aibox start <env>` / `aibox stop <env>` — start (with auto-snapshot & allowlist refresh) or stop an environment
 - `aibox snapshot <env> [name]` / `aibox snapshots <env> [--json]` — create or list paired OS + `/home/workspace` snapshots
 - `aibox restore <env> <snap> [--system-only|--workspace-only] [--yes]` — restore snapshot with safety backup

@@ -9,6 +9,9 @@ use std::time::Duration;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
+use aibox_core::display::{
+    apply_devices_script, build_desktop_plan, detect_host_session, DesktopMode, DisplayPlan,
+};
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
     parse_idle_stop_override, IdleCpuSample, IdleDecisionInput,
@@ -21,7 +24,7 @@ use aibox_core::network::allowlist::{
     SystemResolver,
 };
 use aibox_core::provision::lifecycle::{
-    build_enter_command, build_prepare_script, stop_environment_script,
+    build_enter_command_with_env, build_prepare_script_with_desktop, stop_environment_script,
 };
 use aibox_core::secrets::inject::{build_secret_env_file_content, create_host_temp_secret_file};
 use aibox_core::session::{
@@ -500,13 +503,35 @@ impl qobject::Backend {
             .unwrap_or_default()
     }
 
+    fn desktop_plan_for_env(&self, env_name: &str) -> DisplayPlan {
+        let env = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name);
+        let mode = match env {
+            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
+                DesktopMode::from_enabled(env.desktop_enabled)
+            }
+            _ => DesktopMode::Off,
+        };
+        build_desktop_plan(mode, &detect_host_session())
+    }
+
     fn start_enter_prepare_worker(self: Pin<&mut Self>) {
         let env_name = self.enter_env_name.clone();
         if env_name.is_empty() {
             return;
         }
         let auto_snap = self.auto_snapshot_snippet_for(&env_name);
-        let script = build_prepare_script(&env_name, &auto_snap, &self.enter_allowlist_snippet);
+        let desktop_plan = self.desktop_plan_for_env(&env_name);
+        let desktop_script = apply_devices_script(&env_name, &desktop_plan);
+        let script = build_prepare_script_with_desktop(
+            &env_name,
+            &auto_snap,
+            &self.enter_allowlist_snippet,
+            &desktop_script,
+        );
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let output = Command::new("/bin/bash").arg("-c").arg(&script).output();
@@ -638,7 +663,11 @@ impl qobject::Backend {
         if name.is_empty() {
             return;
         }
-        let mut enter_cmd = build_enter_command(&name, remote_env_path);
+        let mut enter_cmd = build_enter_command_with_env(
+            &name,
+            remote_env_path,
+            &self.desktop_plan_for_env(&name).env,
+        );
         let record_enabled = self
             .engine
             .environments

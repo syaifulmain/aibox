@@ -55,6 +55,7 @@
         <file alias="panels/EnvironmentList.qml">qml/panels/EnvironmentList.qml</file>
         <file alias="panels/EnvironmentInspector.qml">qml/panels/EnvironmentInspector.qml</file>
         <file alias="panels/NetworkModeCard.qml">qml/panels/NetworkModeCard.qml</file>
+        <file alias="panels/DesktopIntegrationCard.qml">qml/panels/DesktopIntegrationCard.qml</file>
         <file alias="panels/SnapshotsCard.qml">qml/panels/SnapshotsCard.qml</file>
         <file alias="panels/OsCatalogPanel.qml">qml/panels/OsCatalogPanel.qml</file>
         <file alias="panels/settings/LocationsSection.qml">qml/panels/settings/LocationsSection.qml</file>

@@ -477,5 +477,9 @@
   "Usage": "Brug",
   "Host": "Vært",
   "Guest-managed": "Styret af gæsten",
-  "Container swap is provided by the host.": "Container-swap leveres af værten."
+  "Container swap is provided by the host.": "Container-swap leveres af værten.",
+  "Desktop": "Skrivebord",
+  "Desktop Integration": "Skrivebordsintegration",
+  "Wayland/X11 apps, clipboard and file pickers use your host desktop.": "Wayland/X11-apps, udklipsholder og filvælgere bruger dit skrivebord på værten.",
+  "Off — headless server mode. Enable before running GUI programs.": "Fra — headless servertilstand. Aktivér før du kører GUI-programmer."
 }

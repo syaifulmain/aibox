@@ -114,5 +114,9 @@
   "This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.": "This shuts down '%1' and ends all running processes. Unsaved work inside the OS may be lost. The environment and its workspace are kept.",
   "Stop Environment": "Stop Environment",
   "Backup archives (*.tar.zst *.tar.gz)": "Backup archives (*.tar.zst *.tar.gz)",
-  "WARN": "WARN"
+  "WARN": "WARN",
+  "Desktop": "Desktop",
+  "Desktop Integration": "Desktop Integration",
+  "Wayland/X11 apps, clipboard and file pickers use your host desktop.": "Wayland/X11 apps, clipboard and file pickers use your host desktop.",
+  "Off — headless server mode. Enable before running GUI programs.": "Off — headless server mode. Enable before running GUI programs."
 }

@@ -4,6 +4,7 @@ use std::pin::Pin;
 use cxx_qt_lib::QString;
 
 use aibox_core::backup::available_disk_bytes;
+use aibox_core::display::{detect_host_session, set_desktop_mode_script, DesktopMode};
 use aibox_core::health::idle::{
     set_environment_auto_stop_script, set_environment_idle_stop_script,
 };
@@ -25,6 +26,33 @@ impl qobject::Backend {
         let script = set_environment_auto_stop_script(&name_s, enabled);
         self.as_mut().run_shell_task(
             &format!("Updating auto-stop for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn set_environment_desktop(mut self: Pin<&mut Self>, name: &QString, enabled: bool) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let is_vm = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+            .is_some_and(|env| aibox_core::provision::is_vm_env_type(&env.env_type));
+        if is_vm {
+            return;
+        }
+        let script = set_desktop_mode_script(
+            &name_s,
+            DesktopMode::from_enabled(enabled),
+            &detect_host_session(),
+        );
+        self.as_mut().run_shell_task(
+            &format!("Updating desktop integration for '{name_s}'"),
             &script,
             "",
             &name_s,

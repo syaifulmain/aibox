@@ -123,6 +123,9 @@ pub struct Environment {
     pub idle_stop_ignore_ports: bool,
     pub record_override: String,
     pub record_enabled: bool,
+    /// `user.aibox.desktop` is on; legacy instances infer this from an X11 or
+    /// Wayland device so existing GUI environments keep working.
+    pub desktop_enabled: bool,
     pub last_used_epoch: i64,
     pub disk_alert_level: i32,
     pub is_template: bool,

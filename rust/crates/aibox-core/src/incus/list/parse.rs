@@ -394,6 +394,26 @@ fn btree_str<'a>(map: &'a BTreeMap<String, String>, key: &str) -> &'a str {
     map.get(key).map(String::as_str).unwrap_or("")
 }
 
+fn has_desktop_device(devices: &BTreeMap<String, BTreeMap<String, String>>) -> bool {
+    devices
+        .keys()
+        .any(|name| name == "x11" || name == "wayland")
+}
+
+fn parse_desktop_enabled(config: &HashMap<String, String>, item: &RawIncusInstance) -> bool {
+    match map_str(config, "user.aibox.desktop")
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "on" | "true" | "1" => true,
+        "off" | "false" | "0" => false,
+        // Legacy instances have no key: infer from the bridge devices that the
+        // old create flow installed.
+        _ => has_desktop_device(&item.devices) || has_desktop_device(&item.expanded_devices),
+    }
+}
+
 /// Computes a fast 64-bit FNV-1a hash of raw `incus list` bytes and parse inputs
 /// so identical polls can skip rebuilding the environment model.
 pub fn hash_list_inputs(json: &[u8], workspace_base: &str, defaults: ParseDefaults) -> u64 {
@@ -764,6 +784,7 @@ pub fn parse_with_now_checked(
         let record_override = map_str(config, "user.aibox.record").trim().to_lowercase();
         let env_record_enabled =
             effective_record_sessions(defaults.record_sessions, &record_override);
+        let desktop_enabled = parse_desktop_enabled(config, item);
         let last_used_epoch = map_str(config, "user.aibox.lastused")
             .trim()
             .parse::<i64>()
@@ -942,6 +963,7 @@ pub fn parse_with_now_checked(
             idle_stop_ignore_ports,
             record_override,
             record_enabled: env_record_enabled,
+            desktop_enabled,
             last_used_epoch,
             disk_alert_level: 0,
             is_template,
@@ -979,4 +1001,98 @@ pub fn parse_json(
         track_cpu_and_net,
     );
     serde_json::to_string(&envs).unwrap_or_else(|_| "[]".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_envs(json: &str) -> Vec<Environment> {
+        let mut state = CounterState::new();
+        parse(
+            json.as_bytes(),
+            "/tmp/aibox-parse-test",
+            &mut state,
+            0,
+            ParseDefaults::default(),
+            false,
+        )
+    }
+
+    #[test]
+    fn explicit_desktop_mode_wins_over_devices() {
+        let json = r#"[
+            {
+                "name": "on-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.desktop": "on"},
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "off-box",
+                "status": "Stopped",
+                "type": "container",
+                "config": {"user.aibox.desktop": "off"},
+                "devices": {"x11": {"type": "proxy"}},
+                "expanded_devices": {"x11": {"type": "proxy"}}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(envs[0].desktop_enabled);
+        assert!(!envs[1].desktop_enabled);
+    }
+
+    #[test]
+    fn legacy_instances_infer_desktop_from_bridge_devices() {
+        let json = r#"[
+            {
+                "name": "x11-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {"x11": {"type": "proxy"}},
+                "expanded_devices": {}
+            },
+            {
+                "name": "wayland-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {},
+                "expanded_devices": {"wayland": {"type": "proxy"}}
+            },
+            {
+                "name": "headless-box",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {"workspace": {"type": "disk"}},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(envs[0].desktop_enabled);
+        assert!(envs[1].desktop_enabled);
+        assert!(!envs[2].desktop_enabled);
+    }
+
+    #[test]
+    fn desktop_field_is_serialized_as_camel_case() {
+        let json = r#"[
+            {
+                "name": "on-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.desktop": "true"},
+                "devices": {},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(envs[0].desktop_enabled);
+        let value = serde_json::to_value(&envs[0]).expect("serialize");
+        assert_eq!(value["desktopEnabled"], serde_json::json!(true));
+    }
 }

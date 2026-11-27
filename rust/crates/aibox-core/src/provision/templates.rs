@@ -98,13 +98,8 @@ if ! incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$W
     incus config device add "$NAME" workspace disk source="$WORKSPACE" path="$WS_PATH" >/dev/null
 fi
 
-if [[ "$X11" == "1" ]] && [[ -d /tmp/.X11-unix ]]; then
-    if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-        xhost +local: >/dev/null 2>&1 || true
-    fi
-    incus config device add "$NAME" x11 disk source=/tmp/.X11-unix path=/tmp/.X11-unix >/dev/null 2>&1 || true
-fi
-
+{{X11_BLOCK}}
+{{DESKTOP_SETUP}}
 incus exec "$NAME" -- sh -c '
     mkdir -p "$1" && chmod 777 "$1" || true
     if [ -f /etc/dhcpcd.conf ] && ! grep -q "^noarp" /etc/dhcpcd.conf; then

@@ -1,4 +1,7 @@
 use crate::config::defaults::{OsEntry, Preset};
+use crate::display::{
+    build_desktop_plan, detect_host_session, set_desktop_mode_script, DesktopMode,
+};
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
     is_valid_size_spec, swap_config_value, validate_limits, validate_new_env_name,
@@ -32,6 +35,84 @@ pub fn create_environment_script(
     swap_limit: &str,
     is_vm: bool,
 ) -> String {
+    create_environment_script_inner(
+        name,
+        local_alias,
+        remote_image,
+        workspace,
+        cache_base,
+        profile_flags,
+        ram_gib,
+        disk_gib,
+        cpu_cores,
+        x11,
+        process_limit,
+        io_limit,
+        swap_limit,
+        is_vm,
+        None,
+    )
+}
+
+/// Production create script that applies the desktop bridge snippet after the
+/// workspace device instead of mounting the X socket and calling `xhost +local:`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_environment_script_with_desktop(
+    name: &str,
+    local_alias: &str,
+    remote_image: &str,
+    workspace: &str,
+    cache_base: &str,
+    profile_flags: &str,
+    ram_gib: &str,
+    disk_gib: &str,
+    cpu_cores: i32,
+    x11: bool,
+    process_limit: &str,
+    io_limit: &str,
+    swap_limit: &str,
+    is_vm: bool,
+    desktop_script: &str,
+) -> String {
+    create_environment_script_inner(
+        name,
+        local_alias,
+        remote_image,
+        workspace,
+        cache_base,
+        profile_flags,
+        ram_gib,
+        disk_gib,
+        cpu_cores,
+        x11,
+        process_limit,
+        io_limit,
+        swap_limit,
+        is_vm,
+        Some(desktop_script),
+    )
+}
+
+const LEGACY_X11_BLOCK: &str = "if [[ \"$X11\" == \"1\" ]] && [[ -d /tmp/.X11-unix ]]; then\n    if command -v xhost >/dev/null 2>&1 && [[ -n \"${DISPLAY:-}\" ]]; then\n        xhost +local: >/dev/null 2>&1 || true\n    fi\n    incus config device add \"$NAME\" x11 disk source=/tmp/.X11-unix path=/tmp/.X11-unix >/dev/null 2>&1 || true\nfi";
+
+#[allow(clippy::too_many_arguments)]
+fn create_environment_script_inner(
+    name: &str,
+    local_alias: &str,
+    remote_image: &str,
+    workspace: &str,
+    cache_base: &str,
+    profile_flags: &str,
+    ram_gib: &str,
+    disk_gib: &str,
+    cpu_cores: i32,
+    x11: bool,
+    process_limit: &str,
+    io_limit: &str,
+    swap_limit: &str,
+    is_vm: bool,
+    desktop_script: Option<&str>,
+) -> String {
     let mut root_opts = format!("size={}", disk_gib.trim());
     let clean_io = io_limit.trim();
     if !clean_io.is_empty() && !clean_io.eq_ignore_ascii_case("unlimited") {
@@ -56,6 +137,10 @@ pub fn create_environment_script(
     let ws_snippet = workspace_create_snippet(workspace);
     let cache_root = format!("{cache_base}.root");
     let rollback_trap = rollback_trap_snippet("NAME");
+    let (x11_block, desktop_setup) = match desktop_script {
+        Some(script) => ("", script),
+        None => (LEGACY_X11_BLOCK, ""),
+    };
 
     render_template(
         CREATE_SCRIPT_TEMPLATE,
@@ -72,6 +157,8 @@ pub fn create_environment_script(
             ("X11", if x11 { "1" } else { "0" }),
             ("ROLLBACK_TRAP", &rollback_trap),
             ("WORKSPACE_CREATE", &ws_snippet),
+            ("X11_BLOCK", x11_block),
+            ("DESKTOP_SETUP", desktop_setup),
         ],
     )
 }
@@ -134,7 +221,20 @@ pub fn prepare_create_environment(
     let cache_base = cache_base_path(os_storage_path, &os_entry.id);
     let is_vm = preset.flags.contains("--vm");
 
-    let script = create_environment_script(
+    // VMs stay headless for now; SPICE/VNC is out of scope for this bridge.
+    let desktop_mode = if preset.x11 && !is_vm {
+        DesktopMode::On
+    } else {
+        DesktopMode::Off
+    };
+    let host = detect_host_session();
+    let desktop_plan = build_desktop_plan(desktop_mode, &host);
+    let mut desktop_script = set_desktop_mode_script(&name, desktop_mode, &host);
+    for warning in &desktop_plan.warnings {
+        desktop_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
+    }
+
+    let script = create_environment_script_with_desktop(
         &name,
         &local_alias,
         &format!("images:{}", os_entry.alias),
@@ -149,6 +249,7 @@ pub fn prepare_create_environment(
         &clean_io,
         swap_limit,
         is_vm,
+        &desktop_script,
     );
 
     Ok(CreateEnvironmentPlan {
@@ -414,6 +515,37 @@ mod tests {
             .unwrap_err(),
             ProvisionError::EmptyPresetCatalog
         );
+    }
+
+    #[test]
+    fn desktop_create_script_uses_the_proxy_bridge_not_legacy_xhost() {
+        let desktop = "incus config set 'box' user.aibox.desktop 'on'\nincus config device add 'box' 'x11' 'proxy' connect='unix:/tmp/.X11-unix/X0' listen='unix:/tmp/.X11-unix/X0' bind='container'";
+        let script = create_environment_script_with_desktop(
+            "box",
+            "aibox-archlinux",
+            "images:archlinux",
+            "/tmp/ws",
+            "/tmp/cache",
+            "-p default",
+            "6GiB",
+            "35GiB",
+            4,
+            true,
+            "",
+            "",
+            "",
+            false,
+            desktop,
+        );
+        assert!(script.contains("user.aibox.desktop 'on'"));
+        assert!(script.contains("'x11' 'proxy'"));
+        assert!(script.contains("connect='unix:/tmp/.X11-unix/X0'"));
+        assert!(!script.contains("xhost +local:"));
+        let workspace_at = script
+            .find("config device add \"$NAME\" workspace")
+            .unwrap();
+        let desktop_at = script.find("user.aibox.desktop").unwrap();
+        assert!(workspace_at < desktop_at);
     }
 
     #[test]
