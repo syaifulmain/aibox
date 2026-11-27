@@ -10,11 +10,12 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use aibox_core::display::{
-    apply_appearance_devices_script, apply_audio_devices_script, apply_devices_script,
-    build_appearance_plan, build_audio_plan, build_desktop_plan, combine_scripts,
-    detect_host_appearance, detect_host_audio, detect_host_session, download_dir_script,
-    download_env, gpu_env, merge_env_pairs, AppearancePlan, AudioMode, AudioPlan, DesktopMode,
-    DisplayPlan,
+    apply_appearance_devices_script, apply_audio_devices_script, apply_dbus_devices_script,
+    apply_devices_script, build_appearance_plan, build_audio_plan, build_dbus_plan,
+    build_desktop_plan, combine_scripts, detect_host_appearance, detect_host_audio,
+    detect_host_dbus, detect_host_session, download_dir_script, download_env, gpu_env,
+    merge_env_pairs, stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode,
+    DbusPlan, DesktopMode, DisplayPlan,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -28,7 +29,8 @@ use aibox_core::network::allowlist::{
     SystemResolver,
 };
 use aibox_core::provision::lifecycle::{
-    build_enter_command_with_env, build_prepare_script_with_desktop, stop_environment_script,
+    build_enter_command_with_env, build_prepare_script_with_desktop,
+    stop_environment_script_with_session,
 };
 use aibox_core::secrets::inject::{build_secret_env_file_content, create_host_temp_secret_file};
 use aibox_core::session::{
@@ -556,25 +558,68 @@ impl qobject::Backend {
         build_appearance_plan(&detect_host_appearance())
     }
 
+    fn dbus_plan_for_env(&self, env_name: &str) -> DbusPlan {
+        let env = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name);
+        let mode = match env {
+            Some(env)
+                if !aibox_core::provision::is_vm_env_type(&env.env_type) && env.dbus_enabled =>
+            {
+                DbusMode::On
+            }
+            _ => DbusMode::Off,
+        };
+        build_dbus_plan(mode, &detect_host_dbus(), env_name)
+    }
+
+    pub(crate) fn dbus_stop_script_for_env(&self, env_name: &str) -> String {
+        let enabled = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name)
+            .is_some_and(|env| {
+                env.dbus_enabled && !aibox_core::provision::is_vm_env_type(&env.env_type)
+            });
+        if enabled {
+            stop_dbus_bridge_script_with(env_name, &detect_host_dbus())
+        } else {
+            String::new()
+        }
+    }
+
     fn session_env_for_env(&self, env_name: &str) -> Vec<(String, String)> {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
         let appearance = self.appearance_plan_for_env(env_name);
+        let dbus = self.dbus_plan_for_env(env_name);
         let downloads = download_env();
         let gpu = gpu_env();
-        merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu, &appearance.env])
+        merge_env_pairs(&[
+            &desktop.env,
+            &audio.env,
+            &dbus.env,
+            &downloads,
+            &gpu,
+            &appearance.env,
+        ])
     }
 
-    /// Applies display, audio, appearance, and download integration for GUI
-    /// Start, not only Enter.
+    /// Applies display, audio, appearance, download, and filtered-bus
+    /// integration for GUI Start, not only Enter.
     pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
         let appearance = self.appearance_plan_for_env(env_name);
+        let dbus = self.dbus_plan_for_env(env_name);
         combine_scripts(&[
             apply_devices_script(env_name, &desktop),
             apply_audio_devices_script(env_name, &audio),
             apply_appearance_devices_script(env_name, &appearance),
+            apply_dbus_devices_script(env_name, &dbus),
             download_dir_script(env_name),
         ])
     }
@@ -1051,7 +1096,13 @@ impl qobject::Backend {
         if !idle_stop_target.is_empty() {
             let desc = format!("Idle auto-stopping '{idle_stop_target}' (reason: idle)");
             let auto_snap = self.auto_snapshot_snippet_for(&idle_stop_target);
-            let script = stop_environment_script(&idle_stop_target, true, &auto_snap);
+            let dbus_stop = self.dbus_stop_script_for_env(&idle_stop_target);
+            let script = stop_environment_script_with_session(
+                &idle_stop_target,
+                true,
+                &auto_snap,
+                &dbus_stop,
+            );
             self.as_mut()
                 .run_shell_task_with_reason(&desc, &script, "", &idle_stop_target, "idle");
         }

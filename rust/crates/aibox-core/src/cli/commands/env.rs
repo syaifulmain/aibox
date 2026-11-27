@@ -7,11 +7,12 @@ use serde_json::Value;
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
-    apply_appearance_devices_script, apply_audio_devices_script, apply_devices_script,
-    build_appearance_plan, build_audio_plan, build_desktop_plan, combine_scripts,
-    detect_host_appearance, detect_host_audio, detect_host_session, download_dir_script,
-    download_env, gpu_env, merge_env_pairs, AppearancePlan, AudioMode, AudioPlan, DesktopMode,
-    DisplayPlan,
+    apply_appearance_devices_script, apply_audio_devices_script, apply_dbus_devices_script,
+    apply_devices_script, build_appearance_plan, build_audio_plan, build_dbus_plan,
+    build_desktop_plan, combine_scripts, detect_host_appearance, detect_host_audio,
+    detect_host_dbus, detect_host_session, download_dir_script, download_env, gpu_env,
+    merge_env_pairs, stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode,
+    DbusPlan, DesktopMode, DisplayPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -22,7 +23,7 @@ use crate::process::CommandRunner;
 use crate::provision::lifecycle::{
     build_prepare_script_with_desktop, enter_incus_exec_args_with_env,
     exec_incus_command_args_with_env, start_environment_script_with_desktop,
-    stop_environment_script,
+    stop_environment_script_with_session,
 };
 use crate::secrets::inject::push_environment_secrets_to_container;
 use crate::session::{
@@ -82,6 +83,15 @@ fn audio_plan_for(env: &Environment) -> AudioPlan {
     build_audio_plan(mode, &host, host.uid)
 }
 
+fn dbus_plan_for(env: &Environment) -> DbusPlan {
+    let mode = if crate::provision::is_vm_env_type(&env.env_type) || !env.dbus_enabled {
+        DbusMode::Off
+    } else {
+        DbusMode::On
+    };
+    build_dbus_plan(mode, &detect_host_dbus(), &env.name)
+}
+
 fn appearance_plan_for_mode(desktop_mode: DesktopMode) -> AppearancePlan {
     if desktop_mode == DesktopMode::Off {
         return AppearancePlan::default();
@@ -103,11 +113,13 @@ fn session_bridge_script(
     desktop: &DisplayPlan,
     audio: &AudioPlan,
     appearance: &AppearancePlan,
+    dbus: &DbusPlan,
 ) -> String {
     combine_scripts(&[
         apply_devices_script(name, desktop),
         apply_audio_devices_script(name, audio),
         apply_appearance_devices_script(name, appearance),
+        apply_dbus_devices_script(name, dbus),
         download_dir_script(name),
     ])
 }
@@ -116,10 +128,18 @@ fn session_environment(
     desktop: &DisplayPlan,
     audio: &AudioPlan,
     appearance: &AppearancePlan,
+    dbus: &DbusPlan,
 ) -> Vec<(String, String)> {
     let downloads = download_env();
     let gpu = gpu_env();
-    merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu, &appearance.env])
+    merge_env_pairs(&[
+        &desktop.env,
+        &audio.env,
+        &dbus.env,
+        &downloads,
+        &gpu,
+        &appearance.env,
+    ])
 }
 
 fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
@@ -128,7 +148,8 @@ fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
     let desktop = desktop_plan_for(env);
     let audio = audio_plan_for(env);
     let appearance = appearance_plan_for(env);
-    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance);
+    let dbus = dbus_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance, &dbus);
     build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -138,7 +159,8 @@ fn start_environment_script_for(engine: &Engine, env: &Environment) -> String {
     let desktop = desktop_plan_for(env);
     let audio = audio_plan_for(env);
     let appearance = appearance_plan_for(env);
-    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance);
+    let dbus = dbus_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance, &dbus);
     start_environment_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -152,7 +174,12 @@ fn stop_environment_script_for(
     } else {
         String::new()
     };
-    stop_environment_script(&env.name, include_auto_snapshot, &auto_snap)
+    let dbus_stop = if env.dbus_enabled && !crate::provision::is_vm_env_type(&env.env_type) {
+        stop_dbus_bridge_script_with(&env.name, &detect_host_dbus())
+    } else {
+        String::new()
+    };
+    stop_environment_script_with_session(&env.name, include_auto_snapshot, &auto_snap, &dbus_stop)
 }
 
 fn find_executable(name: &str) -> bool {
@@ -284,7 +311,8 @@ pub fn run_enter(
     let desktop = desktop_plan_for(&env);
     let audio = audio_plan_for(&env);
     let appearance = appearance_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio, &appearance);
+    let dbus = dbus_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio, &appearance, &dbus);
     // The plan owns DISPLAY when desktop integration is on; passing an empty
     // display keeps Off purely headless instead of falling back to `:0`.
     let exec_args = enter_incus_exec_args_with_env(
@@ -364,7 +392,8 @@ pub fn run_exec(
     let desktop = desktop_plan_for(&env);
     let audio = audio_plan_for(&env);
     let appearance = appearance_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio, &appearance);
+    let dbus = dbus_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio, &appearance, &dbus);
     let args = exec_incus_command_args_with_env(
         &parsed.env_name,
         &parsed.exec_command,
@@ -485,6 +514,18 @@ mod tests {
         }
     }
 
+    fn empty_dbus_plan() -> DbusPlan {
+        let host = crate::display::HostDbus {
+            uid: 1000,
+            gid: 1000,
+            runtime_dir: "/run/user/1000".to_string(),
+            bus_address: "unix:path=/run/user/1000/bus".to_string(),
+            aibox_bin: "aibox".to_string(),
+            xdg_dbus_proxy_bin: "/usr/bin/xdg-dbus-proxy".to_string(),
+        };
+        build_dbus_plan(DbusMode::Off, &host, "box")
+    }
+
     #[test]
     fn session_environment_adds_appearance_env_after_the_other_bridges() {
         let desktop = desktop_plan();
@@ -495,7 +536,8 @@ mod tests {
             warnings: Vec::new(),
         };
         let appearance = appearance_plan();
-        let env = session_environment(&desktop, &audio, &appearance);
+        let dbus = empty_dbus_plan();
+        let env = session_environment(&desktop, &audio, &appearance, &dbus);
 
         assert_eq!(
             env.iter()
@@ -521,7 +563,12 @@ mod tests {
 
     #[test]
     fn enter_and_exec_args_carry_appearance_environment_when_desktop_is_on() {
-        let env = session_environment(&desktop_plan(), &empty_audio_plan(), &appearance_plan());
+        let env = session_environment(
+            &desktop_plan(),
+            &empty_audio_plan(),
+            &appearance_plan(),
+            &empty_dbus_plan(),
+        );
         for args in [
             enter_incus_exec_args_with_env("box", "", "/home/workspace", "", "", &env),
             exec_incus_command_args_with_env(
@@ -552,6 +599,7 @@ mod tests {
             &desktop_plan(),
             &empty_audio_plan(),
             &appearance_plan(),
+            &empty_dbus_plan(),
         );
         assert!(script.contains("incus config device add 'box' 'fonts-system' 'disk'"));
         assert!(script.contains("readonly='true'"));

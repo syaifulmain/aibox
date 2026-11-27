@@ -5,9 +5,10 @@ use cxx_qt_lib::QString;
 
 use aibox_core::backup::available_disk_bytes;
 use aibox_core::display::{
-    build_audio_plan, build_desktop_plan, detect_host_audio, detect_host_session, gpu_env,
-    gpu_test_script, merge_env_pairs, set_audio_mode_script, set_desktop_mode_script,
-    test_audio_script, AudioMode, DesktopMode,
+    build_audio_plan, build_dbus_plan, build_desktop_plan, dbus_test_script, detect_host_audio,
+    detect_host_dbus, detect_host_session, gpu_env, gpu_test_script, merge_env_pairs,
+    set_audio_mode_script, set_dbus_mode_script, set_desktop_mode_script, test_audio_script,
+    AudioMode, DbusMode, DesktopMode,
 };
 use aibox_core::health::idle::{
     set_environment_auto_stop_script, set_environment_idle_stop_script,
@@ -116,6 +117,66 @@ impl qobject::Backend {
         let script = test_audio_script(&name_s, &plan);
         self.as_mut().run_shell_task(
             &format!("Testing audio in '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn set_environment_dbus(mut self: Pin<&mut Self>, name: &QString, enabled: bool) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(env) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
+            return;
+        }
+        let script = set_dbus_mode_script(
+            &name_s,
+            DbusMode::from_enabled(enabled),
+            &detect_host_dbus(),
+        );
+        self.as_mut().run_shell_task(
+            &format!("Updating host services for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn test_environment_dbus(mut self: Pin<&mut Self>, name: &QString) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(env) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
+            return;
+        }
+        let mode = if env.dbus_enabled {
+            DbusMode::On
+        } else {
+            DbusMode::Off
+        };
+        let plan = build_dbus_plan(mode, &detect_host_dbus(), &name_s);
+        let script = dbus_test_script(&name_s, &plan);
+        self.as_mut().run_shell_task(
+            &format!("Testing host services in '{name_s}'"),
             &script,
             "",
             &name_s,

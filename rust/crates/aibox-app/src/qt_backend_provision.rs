@@ -12,7 +12,8 @@ use aibox_core::network::allowlist::{
 use aibox_core::provision::clone::prepare_clone_environment;
 use aibox_core::provision::create::prepare_create_environment;
 use aibox_core::provision::lifecycle::{
-    ai_exec_command_text, prepare_toggle_start_stop_with_session, set_environment_template_script,
+    ai_exec_command_text, prepare_toggle_start_stop_with_session_and_stop,
+    set_environment_template_script,
 };
 use aibox_core::provision::resources::{
     download_os_image_script, prepare_prefetch_os_image, remove_os_image_script,
@@ -264,6 +265,7 @@ impl qobject::Backend {
             .unwrap_or_default()
         };
         let session_script = self.session_bridge_script_for_env(&name_s);
+        let dbus_stop = self.dbus_stop_script_for_env(&name_s);
 
         let needs_dns = !self.demo_mode
             && !env.is_template
@@ -285,13 +287,14 @@ impl qobject::Backend {
                 String::new()
             };
 
-            let plan = match prepare_toggle_start_stop_with_session(
+            let plan = match prepare_toggle_start_stop_with_session_and_stop(
                 &name_s,
                 env.is_template,
                 env.running,
                 &auto_snap,
                 &allow_refresh,
                 &session_script,
+                &dbus_stop,
             ) {
                 Ok(p) => p,
                 Err(err) => {
@@ -321,13 +324,14 @@ impl qobject::Backend {
                 egress_recording,
                 &resolver,
             );
-            let res = prepare_toggle_start_stop_with_session(
+            let res = prepare_toggle_start_stop_with_session_and_stop(
                 &name_s,
                 is_template,
                 running,
                 &auto_snap,
                 &allow_refresh,
                 &session_script,
+                &dbus_stop,
             );
             let _ = qt_thread.queue(move |mut backend| {
                 backend.as_mut().set_busy(false, "");

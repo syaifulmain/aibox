@@ -93,10 +93,28 @@ pub fn start_environment_script_with_desktop(
 }
 
 pub fn stop_environment_script(name: &str, include_auto_snapshot: bool, auto_snap: &str) -> String {
+    stop_environment_script_with_session(name, include_auto_snapshot, auto_snap, "")
+}
+
+/// Production stop script with an optional bridge teardown snippet.
+///
+/// The teardown runs before `incus stop` so host proxy processes are gone even
+/// if the instance stops slowly. An empty snippet keeps the legacy golden
+/// output byte-for-byte identical.
+pub fn stop_environment_script_with_session(
+    name: &str,
+    include_auto_snapshot: bool,
+    auto_snap: &str,
+    stop_script: &str,
+) -> String {
     let q_name = shell_quote(name);
     let mut script = String::from("set -euo pipefail\n");
     if include_auto_snapshot && !auto_snap.is_empty() {
         script.push_str(auto_snap);
+        script.push('\n');
+    }
+    if !stop_script.is_empty() {
+        script.push_str(stop_script);
         script.push('\n');
     }
     script.push_str(&format!(
@@ -338,6 +356,27 @@ pub fn prepare_toggle_start_stop_with_session(
     allow_refresh: &str,
     session_script: &str,
 ) -> Result<ToggleStartStopPlan, ProvisionError> {
+    prepare_toggle_start_stop_with_session_and_stop(
+        name,
+        is_template,
+        is_running,
+        auto_snap,
+        allow_refresh,
+        session_script,
+        "",
+    )
+}
+
+/// Toggle plan that also tears down host bridge processes before a Stop.
+pub fn prepare_toggle_start_stop_with_session_and_stop(
+    name: &str,
+    is_template: bool,
+    is_running: bool,
+    auto_snap: &str,
+    allow_refresh: &str,
+    session_script: &str,
+    stop_script: &str,
+) -> Result<ToggleStartStopPlan, ProvisionError> {
     if is_template {
         return Err(ProvisionError::TemplateStartNotAllowed);
     }
@@ -345,7 +384,7 @@ pub fn prepare_toggle_start_stop_with_session(
         Ok(ToggleStartStopPlan {
             is_stopping: true,
             title: format!("Stopping '{name}'"),
-            script: stop_environment_script(name, false, auto_snap),
+            script: stop_environment_script_with_session(name, false, auto_snap, stop_script),
         })
     } else {
         Ok(ToggleStartStopPlan {

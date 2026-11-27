@@ -376,6 +376,8 @@ Item {
 
             GpuVideoCard {}
 
+            HostServicesCard {}
+
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app

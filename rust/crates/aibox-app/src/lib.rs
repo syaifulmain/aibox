@@ -47,6 +47,12 @@ pub fn run_main() -> ! {
         std::process::exit(code);
     }
 
+    // Hidden internal mode used by the per-environment D-Bus bridge.
+    if raw_args.len() >= 4 && raw_args[1] == "--dbus-auth-proxy" {
+        let code = aibox_core::display::dbus_auth_proxy::run(&raw_args[2], &raw_args[3]);
+        std::process::exit(code);
+    }
+
     if raw_args.len() > 1 {
         let args_without_program = &raw_args[1..];
         if aibox_core::cli::is_cli_invocation(args_without_program) {

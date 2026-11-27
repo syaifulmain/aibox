@@ -132,5 +132,10 @@
   "GPU & Video": "GPU & Video",
   "Test GPU": "Test GPU",
   "GPU, WebGL and VA-API video decode use the host /dev/dri. Install mesa, intel-media-driver, libva-utils and mesa-utils inside the environment for the full stack.": "GPU, WebGL and VA-API video decode use the host /dev/dri. Install mesa, intel-media-driver, libva-utils and mesa-utils inside the environment for the full stack.",
-  "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host.": "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host."
+  "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host.": "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host.",
+  "Host Services (D-Bus)": "Host Services (D-Bus)",
+  "Filtered bus": "Filtered bus",
+  "Test Host Services": "Test Host Services",
+  "Notifications, file pickers, screen sharing and links use a filtered host session bus. The bus is filtered to notifications, portals and the tray watcher; secrets are not exposed.": "Notifications, file pickers, screen sharing and links use a filtered host session bus. The bus is filtered to notifications, portals and the tray watcher; secrets are not exposed.",
+  "Tray item names are best-effort because the proxy cannot allow dynamic StatusNotifierItem names.": "Tray item names are best-effort because the proxy cannot allow dynamic StatusNotifierItem names."
 }

@@ -58,6 +58,7 @@
         <file alias="panels/DesktopIntegrationCard.qml">qml/panels/DesktopIntegrationCard.qml</file>
         <file alias="panels/AudioCard.qml">qml/panels/AudioCard.qml</file>
         <file alias="panels/GpuVideoCard.qml">qml/panels/GpuVideoCard.qml</file>
+        <file alias="panels/HostServicesCard.qml">qml/panels/HostServicesCard.qml</file>
         <file alias="panels/SnapshotsCard.qml">qml/panels/SnapshotsCard.qml</file>
         <file alias="panels/OsCatalogPanel.qml">qml/panels/OsCatalogPanel.qml</file>
         <file alias="panels/settings/LocationsSection.qml">qml/panels/settings/LocationsSection.qml</file>

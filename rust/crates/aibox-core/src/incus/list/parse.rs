@@ -440,6 +440,33 @@ fn parse_audio_mode(config: &HashMap<String, String>, item: &RawIncusInstance) -
     .to_string()
 }
 
+fn has_dbus_device(devices: &BTreeMap<String, BTreeMap<String, String>>) -> bool {
+    devices.contains_key("dbus")
+}
+
+fn parse_dbus_enabled(
+    config: &HashMap<String, String>,
+    item: &RawIncusInstance,
+    desktop_enabled: bool,
+) -> bool {
+    match map_str(config, "user.aibox.dbus")
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "on" | "true" | "1" => true,
+        "off" | "false" | "0" => false,
+        // Legacy instances have no key: an existing bridge device means the
+        // bus was shared, otherwise GUI environments inherit the desktop
+        // switch and headless ones stay off.
+        _ => {
+            has_dbus_device(&item.devices)
+                || has_dbus_device(&item.expanded_devices)
+                || desktop_enabled
+        }
+    }
+}
+
 /// Computes a fast 64-bit FNV-1a hash of raw `incus list` bytes and parse inputs
 /// so identical polls can skip rebuilding the environment model.
 pub fn hash_list_inputs(json: &[u8], workspace_base: &str, defaults: ParseDefaults) -> u64 {
@@ -812,6 +839,7 @@ pub fn parse_with_now_checked(
             effective_record_sessions(defaults.record_sessions, &record_override);
         let desktop_enabled = parse_desktop_enabled(config, item);
         let audio_mode = parse_audio_mode(config, item);
+        let dbus_enabled = parse_dbus_enabled(config, item, desktop_enabled);
         let last_used_epoch = map_str(config, "user.aibox.lastused")
             .trim()
             .parse::<i64>()
@@ -992,6 +1020,7 @@ pub fn parse_with_now_checked(
             record_enabled: env_record_enabled,
             desktop_enabled,
             audio_mode,
+            dbus_enabled,
             last_used_epoch,
             disk_alert_level: 0,
             is_template,
@@ -1122,6 +1151,61 @@ mod tests {
         assert!(envs[0].desktop_enabled);
         let value = serde_json::to_value(&envs[0]).expect("serialize");
         assert_eq!(value["desktopEnabled"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn explicit_dbus_mode_wins_and_legacy_infers_from_desktop_or_device() {
+        let json = r#"[
+            {
+                "name": "off-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.desktop": "on", "user.aibox.dbus": "off"},
+                "devices": {"dbus": {"type": "proxy"}},
+                "expanded_devices": {}
+            },
+            {
+                "name": "on-box",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.dbus": "on"},
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "legacy-gui",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.desktop": "on"},
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "legacy-device",
+                "status": "Running",
+                "type": "container",
+                "config": {"user.aibox.desktop": "off"},
+                "devices": {"dbus": {"type": "proxy"}},
+                "expanded_devices": {}
+            },
+            {
+                "name": "legacy-headless",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {},
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(!envs[0].dbus_enabled, "explicit off wins");
+        assert!(envs[1].dbus_enabled);
+        assert!(envs[2].dbus_enabled, "GUI legacy follows desktop");
+        assert!(envs[3].dbus_enabled, "legacy device is detected");
+        assert!(!envs[4].dbus_enabled);
+
+        let value = serde_json::to_value(&envs[1]).expect("serialize");
+        assert_eq!(value["dbusEnabled"], serde_json::json!(true));
     }
 
     #[test]

@@ -9,6 +9,8 @@
 
 pub mod appearance;
 pub mod audio;
+pub mod dbus;
+pub mod dbus_auth_proxy;
 pub mod downloads;
 pub mod gpu;
 pub mod host;
@@ -23,6 +25,12 @@ pub use audio::{
     apply_audio_devices_script, build_audio_plan, detect_host_audio, detect_host_audio_with,
     remove_audio_devices_script, set_audio_mode_script, test_audio_script, AudioMode, AudioPlan,
     HostAudio,
+};
+pub use dbus::{
+    apply_dbus_devices_script, build_dbus_plan, dbus_env, dbus_test_script, detect_host_dbus,
+    detect_host_dbus_with, remove_dbus_bridge_script, sanitize_env_name, set_dbus_mode_script,
+    stop_dbus_bridge_script, stop_dbus_bridge_script_with, DbusMode, DbusPlan, HostDbus,
+    DBUS_TALK_FILTERS,
 };
 pub use downloads::{
     download_dir_script, download_env, upsert_download_dir, CONTAINER_DOWNLOAD_DIR,

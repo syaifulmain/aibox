@@ -129,6 +129,9 @@ pub struct Environment {
     /// `user.aibox.audio` (`off`, `output`, `full`); legacy instances infer
     /// this from an existing `pulse`/`pipewire` device.
     pub audio_mode: String,
+    /// `user.aibox.dbus` is on; legacy instances without the key follow
+    /// `desktop_enabled` or an existing `dbus` device.
+    pub dbus_enabled: bool,
     pub last_used_epoch: i64,
     pub disk_alert_level: i32,
     pub is_template: bool,

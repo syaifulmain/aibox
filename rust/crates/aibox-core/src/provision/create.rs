@@ -1,8 +1,9 @@
 use crate::config::defaults::{OsEntry, Preset};
 use crate::display::{
-    apply_appearance_devices_script, build_appearance_plan, build_audio_plan, build_desktop_plan,
-    combine_scripts, detect_host_appearance, detect_host_audio, detect_host_session,
-    download_dir_script, set_audio_mode_script, set_desktop_mode_script, AudioMode, DesktopMode,
+    apply_appearance_devices_script, build_appearance_plan, build_audio_plan, build_dbus_plan,
+    build_desktop_plan, combine_scripts, detect_host_appearance, detect_host_audio,
+    detect_host_dbus, detect_host_session, download_dir_script, set_audio_mode_script,
+    set_dbus_mode_script, set_desktop_mode_script, AudioMode, DbusMode, DesktopMode,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
@@ -299,7 +300,24 @@ pub fn prepare_create_environment(
     } else {
         String::new()
     };
-    let session_script = combine_scripts(&[desktop_script, audio_script, appearance_script]);
+
+    // GUI containers get a filtered host session bus for notifications,
+    // portals, file pickers, screen sharing, and the tray watcher. Headless
+    // presets and VMs stay without host bus access.
+    let dbus_mode = if has_desktop {
+        DbusMode::On
+    } else {
+        DbusMode::Off
+    };
+    let host_dbus = detect_host_dbus();
+    let dbus_plan = build_dbus_plan(dbus_mode, &host_dbus, &name);
+    let mut dbus_script = set_dbus_mode_script(&name, dbus_mode, &host_dbus);
+    for warning in &dbus_plan.warnings {
+        dbus_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
+    }
+
+    let session_script =
+        combine_scripts(&[desktop_script, audio_script, appearance_script, dbus_script]);
 
     let script = create_environment_script_with_session(
         &name,
