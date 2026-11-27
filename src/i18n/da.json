@@ -500,5 +500,11 @@
   "Filtered bus": "Filtreret bus",
   "Test Host Services": "Test værtsfunktioner",
   "Notifications, file pickers, screen sharing and links use a filtered host session bus. The bus is filtered to notifications, portals and the tray watcher; secrets are not exposed.": "Notifikationer, filvælgere, skærmdeling og links bruger en filtreret værts-sessionsbus. Bussen er filtreret til notifikationer, portaler og tray-watcher; hemmeligheder eksponeres ikke.",
-  "Tray item names are best-effort because the proxy cannot allow dynamic StatusNotifierItem names.": "Tray-elementnavne er bedst muligt, fordi proxyen ikke kan tillade dynamiske StatusNotifierItem-navne."
+  "Tray item names are best-effort because the proxy cannot allow dynamic StatusNotifierItem names.": "Tray-elementnavne er bedst muligt, fordi proxyen ikke kan tillade dynamiske StatusNotifierItem-navne.",
+  "Extra Devices": "Ekstra enheder",
+  "Camera": "Kamera",
+  "USB / Gamepad": "USB / Gamepad",
+  "Printer (CUPS)": "Printer (CUPS)",
+  "Camera and input devices grant real host hardware access; enable only for trusted environments. Printer exposes the host CUPS socket.": "Kamera og inputenheder giver adgang til ægte værtshardware; aktivér kun for betroede miljøer. Printeren eksponerer værts-CUPS-socketten.",
+  "USB/input exposes keyboard, mouse and gamepad event devices to the environment.": "USB/input eksponerer tastatur-, mus- og gamepad-eventenheder til miljøet."
 }

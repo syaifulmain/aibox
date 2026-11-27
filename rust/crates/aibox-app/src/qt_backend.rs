@@ -520,6 +520,15 @@ pub mod qobject {
         fn test_environment_dbus(self: Pin<&mut Backend>, name: &QString);
 
         #[qinvokable]
+        #[cxx_name = "setEnvironmentExtraDevice"]
+        fn set_environment_extra_device(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            kind: &QString,
+            enabled: bool,
+        );
+
+        #[qinvokable]
         #[cxx_name = "setEnvironmentIdleStop"]
         fn set_environment_idle_stop(
             self: Pin<&mut Backend>,

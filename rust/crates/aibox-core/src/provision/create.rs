@@ -3,7 +3,8 @@ use crate::display::{
     apply_appearance_devices_script, build_appearance_plan, build_audio_plan, build_dbus_plan,
     build_desktop_plan, combine_scripts, detect_host_appearance, detect_host_audio,
     detect_host_dbus, detect_host_session, download_dir_script, set_audio_mode_script,
-    set_dbus_mode_script, set_desktop_mode_script, AudioMode, DbusMode, DesktopMode,
+    set_dbus_mode_script, set_desktop_mode_script, set_extra_devices_script, AudioMode, DbusMode,
+    DesktopMode, ExtraDeviceToggles, HostDevices,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
 use crate::provision::{
@@ -316,8 +317,19 @@ pub fn prepare_create_environment(
         dbus_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
     }
 
-    let session_script =
-        combine_scripts(&[desktop_script, audio_script, appearance_script, dbus_script]);
+    let session_script = combine_scripts(&[
+        desktop_script,
+        audio_script,
+        appearance_script,
+        dbus_script,
+        // Extra hardware is opt-in: new environments always start with every
+        // category explicitly off and no camera, input, or CUPS devices.
+        set_extra_devices_script(
+            &name,
+            &ExtraDeviceToggles::from_envs(false, false, false),
+            &HostDevices::default(),
+        ),
+    ]);
 
     let script = create_environment_script_with_session(
         &name,

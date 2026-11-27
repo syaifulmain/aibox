@@ -11,6 +11,7 @@ pub mod appearance;
 pub mod audio;
 pub mod dbus;
 pub mod dbus_auth_proxy;
+pub mod devices;
 pub mod downloads;
 pub mod gpu;
 pub mod host;
@@ -31,6 +32,12 @@ pub use dbus::{
     detect_host_dbus_with, remove_dbus_bridge_script, sanitize_env_name, set_dbus_mode_script,
     stop_dbus_bridge_script, stop_dbus_bridge_script_with, DbusMode, DbusPlan, HostDbus,
     DBUS_TALK_FILTERS,
+};
+pub use devices::{
+    apply_extra_devices_script, build_extra_devices_plan, detect_host_devices,
+    detect_host_devices_with, parse_toggle_flag, remove_extra_devices_script,
+    set_extra_devices_script, ExtraDeviceToggles, ExtraDevicesPlan, HostDevices, CAMERA_PREFIX,
+    CUPS_SOCKET, INPUT_PREFIX, PRINTER_DEVICE,
 };
 pub use downloads::{
     download_dir_script, download_env, upsert_download_dir, CONTAINER_DOWNLOAD_DIR,

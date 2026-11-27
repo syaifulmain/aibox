@@ -378,6 +378,8 @@ Item {
 
             HostServicesCard {}
 
+            ExtraDevicesCard {}
+
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app

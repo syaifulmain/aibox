@@ -11,11 +11,12 @@ use cxx_qt_lib::QString;
 
 use aibox_core::display::{
     apply_appearance_devices_script, apply_audio_devices_script, apply_dbus_devices_script,
-    apply_devices_script, build_appearance_plan, build_audio_plan, build_dbus_plan,
-    build_desktop_plan, combine_scripts, detect_host_appearance, detect_host_audio,
-    detect_host_dbus, detect_host_session, download_dir_script, download_env, gpu_env,
-    merge_env_pairs, stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode,
-    DbusPlan, DesktopMode, DisplayPlan,
+    apply_devices_script, apply_extra_devices_script, build_appearance_plan, build_audio_plan,
+    build_dbus_plan, build_desktop_plan, build_extra_devices_plan, combine_scripts,
+    detect_host_appearance, detect_host_audio, detect_host_dbus, detect_host_devices,
+    detect_host_session, download_dir_script, download_env, gpu_env, merge_env_pairs,
+    stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode, DbusPlan,
+    DesktopMode, DisplayPlan, ExtraDeviceToggles, ExtraDevicesPlan,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -575,6 +576,25 @@ impl qobject::Backend {
         build_dbus_plan(mode, &detect_host_dbus(), env_name)
     }
 
+    fn extra_devices_plan_for_env(&self, env_name: &str) -> ExtraDevicesPlan {
+        let env = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name);
+        let toggles = match env {
+            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
+                ExtraDeviceToggles::from_envs(
+                    env.camera_enabled,
+                    env.usb_enabled,
+                    env.printer_enabled,
+                )
+            }
+            _ => ExtraDeviceToggles::from_envs(false, false, false),
+        };
+        build_extra_devices_plan(toggles, &detect_host_devices())
+    }
+
     pub(crate) fn dbus_stop_script_for_env(&self, env_name: &str) -> String {
         let enabled = self
             .engine
@@ -596,30 +616,34 @@ impl qobject::Backend {
         let audio = self.audio_plan_for_env(env_name);
         let appearance = self.appearance_plan_for_env(env_name);
         let dbus = self.dbus_plan_for_env(env_name);
+        let extra = self.extra_devices_plan_for_env(env_name);
         let downloads = download_env();
         let gpu = gpu_env();
         merge_env_pairs(&[
             &desktop.env,
             &audio.env,
             &dbus.env,
+            &extra.env,
             &downloads,
             &gpu,
             &appearance.env,
         ])
     }
 
-    /// Applies display, audio, appearance, download, and filtered-bus
-    /// integration for GUI Start, not only Enter.
+    /// Applies display, audio, appearance, download, filtered-bus, and opt-in
+    /// extra devices for GUI Start, not only Enter.
     pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
         let appearance = self.appearance_plan_for_env(env_name);
         let dbus = self.dbus_plan_for_env(env_name);
+        let extra = self.extra_devices_plan_for_env(env_name);
         combine_scripts(&[
             apply_devices_script(env_name, &desktop),
             apply_audio_devices_script(env_name, &audio),
             apply_appearance_devices_script(env_name, &appearance),
             apply_dbus_devices_script(env_name, &dbus),
+            apply_extra_devices_script(env_name, &extra),
             download_dir_script(env_name),
         ])
     }

@@ -6,9 +6,10 @@ use cxx_qt_lib::QString;
 use aibox_core::backup::available_disk_bytes;
 use aibox_core::display::{
     build_audio_plan, build_dbus_plan, build_desktop_plan, dbus_test_script, detect_host_audio,
-    detect_host_dbus, detect_host_session, gpu_env, gpu_test_script, merge_env_pairs,
-    set_audio_mode_script, set_dbus_mode_script, set_desktop_mode_script, test_audio_script,
-    AudioMode, DbusMode, DesktopMode,
+    detect_host_dbus, detect_host_devices, detect_host_session, gpu_env, gpu_test_script,
+    merge_env_pairs, set_audio_mode_script, set_dbus_mode_script, set_desktop_mode_script,
+    set_extra_devices_script, test_audio_script, AudioMode, DbusMode, DesktopMode,
+    ExtraDeviceToggles,
 };
 use aibox_core::health::idle::{
     set_environment_auto_stop_script, set_environment_idle_stop_script,
@@ -146,6 +147,44 @@ impl qobject::Backend {
         );
         self.as_mut().run_shell_task(
             &format!("Updating host services for '{name_s}'"),
+            &script,
+            "",
+            &name_s,
+        );
+    }
+
+    pub fn set_environment_extra_device(
+        mut self: Pin<&mut Self>,
+        name: &QString,
+        kind: &QString,
+        enabled: bool,
+    ) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(env) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
+            return;
+        }
+        let mut toggles =
+            ExtraDeviceToggles::from_envs(env.camera_enabled, env.usb_enabled, env.printer_enabled);
+        match kind.to_string().as_str() {
+            "camera" => toggles.camera = enabled,
+            "usb" => toggles.usb = enabled,
+            "printer" => toggles.printer = enabled,
+            _ => return,
+        }
+        let script = set_extra_devices_script(&name_s, &toggles, &detect_host_devices());
+        self.as_mut().run_shell_task(
+            &format!("Updating extra devices for '{name_s}'"),
             &script,
             "",
             &name_s,

@@ -8,7 +8,7 @@ use chrono::Utc;
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
-use crate::display::AudioMode;
+use crate::display::{parse_toggle_flag, AudioMode};
 use crate::health::swap::host_swap_info;
 use crate::secrets::store::parse_env_secret_names;
 use crate::session::effective_record_sessions;
@@ -840,6 +840,9 @@ pub fn parse_with_now_checked(
         let desktop_enabled = parse_desktop_enabled(config, item);
         let audio_mode = parse_audio_mode(config, item);
         let dbus_enabled = parse_dbus_enabled(config, item, desktop_enabled);
+        let camera_enabled = parse_toggle_flag(map_str(config, "user.aibox.camera"));
+        let usb_enabled = parse_toggle_flag(map_str(config, "user.aibox.usb"));
+        let printer_enabled = parse_toggle_flag(map_str(config, "user.aibox.printer"));
         let last_used_epoch = map_str(config, "user.aibox.lastused")
             .trim()
             .parse::<i64>()
@@ -1021,6 +1024,9 @@ pub fn parse_with_now_checked(
             desktop_enabled,
             audio_mode,
             dbus_enabled,
+            camera_enabled,
+            usb_enabled,
+            printer_enabled,
             last_used_epoch,
             disk_alert_level: 0,
             is_template,
@@ -1291,5 +1297,62 @@ mod tests {
         let envs = parse_envs(json);
         let value = serde_json::to_value(&envs[0]).expect("serialize");
         assert_eq!(value["audioMode"], serde_json::json!("full"));
+    }
+
+    #[test]
+    fn extra_device_toggles_parse_only_explicit_on_values() {
+        let json = r#"[
+            {
+                "name": "all-on",
+                "status": "Running",
+                "type": "container",
+                "config": {
+                    "user.aibox.camera": "on",
+                    "user.aibox.usb": "true",
+                    "user.aibox.printer": "1"
+                },
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "all-off",
+                "status": "Running",
+                "type": "container",
+                "config": {
+                    "user.aibox.camera": "off",
+                    "user.aibox.usb": "false",
+                    "user.aibox.printer": "0"
+                },
+                "devices": {},
+                "expanded_devices": {}
+            },
+            {
+                "name": "legacy",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {
+                    "camera-video0": {"type": "unix-char"},
+                    "printer": {"type": "proxy"}
+                },
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert!(envs[0].camera_enabled);
+        assert!(envs[0].usb_enabled);
+        assert!(envs[0].printer_enabled);
+        assert!(!envs[1].camera_enabled);
+        assert!(!envs[1].usb_enabled);
+        assert!(!envs[1].printer_enabled);
+        assert!(
+            !envs[2].camera_enabled && !envs[2].usb_enabled && !envs[2].printer_enabled,
+            "legacy devices must not enable host hardware implicitly"
+        );
+
+        let value = serde_json::to_value(&envs[0]).expect("serialize");
+        assert_eq!(value["cameraEnabled"], serde_json::json!(true));
+        assert_eq!(value["usbEnabled"], serde_json::json!(true));
+        assert_eq!(value["printerEnabled"], serde_json::json!(true));
     }
 }

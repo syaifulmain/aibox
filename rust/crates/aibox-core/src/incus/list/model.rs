@@ -132,6 +132,11 @@ pub struct Environment {
     /// `user.aibox.dbus` is on; legacy instances without the key follow
     /// `desktop_enabled` or an existing `dbus` device.
     pub dbus_enabled: bool,
+    /// Opt-in host hardware access (`user.aibox.camera|usb|printer`). All three
+    /// default to off because they expose real host devices.
+    pub camera_enabled: bool,
+    pub usb_enabled: bool,
+    pub printer_enabled: bool,
     pub last_used_epoch: i64,
     pub disk_alert_level: i32,
     pub is_template: bool,
