@@ -40,7 +40,7 @@ const BASH_COMPLETIONS: &str = r#"_aibox_completions() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    local commands="list check enter exec start stop snapshot snapshots restore diff export-config healthcheck run ssh-config svc up theme completions help"
+    local commands="list check enter exec start stop snapshot snapshots restore diff backup-schedule export-config healthcheck run ssh-config svc up theme completions help"
     local global_opts="--project -h --help"
 
     if [[ "$prev" == "--project" || "$prev" == "--output" || "$prev" == "--theme-dir" ]]; then
@@ -108,6 +108,7 @@ _aibox() {
     local -a commands
     commands=(
         'list:List environments'
+        'backup-schedule:Schedule systemd user backups'
         'check:Check/repair host setup'
         'enter:Open interactive shell in /home/workspace'
         'exec:Run command in /home/workspace'
@@ -174,12 +175,13 @@ _aibox "$@"
 
 const FISH_COMPLETIONS: &str = r#"complete -c aibox -f
 
-set -l __aibox_cmds list check enter exec start stop snapshot snapshots restore diff export-config healthcheck run ssh-config svc up theme completions help
+set -l __aibox_cmds list check enter exec start stop snapshot snapshots restore diff backup-schedule export-config healthcheck run ssh-config svc up theme completions help
 
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -l project -r -d "Select project directory"
 complete -c aibox -s h -l help -d "Show help"
 
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a list -d "List environments"
+complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a backup-schedule -d "Schedule systemd user backups"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a check -d "Check/repair host setup"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a enter -d "Open interactive shell in /home/workspace"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a exec -d "Run command in /home/workspace"

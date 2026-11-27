@@ -84,6 +84,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 - `aibox run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>` — run a command inside a disposable clone and delete it afterward (unless `--keep-on-fail` is set on error)
 - `aibox export-config <env> [--output <path>]` / `aibox up [path]` — export an environment to `aibox.toml` or provision/reconcile an environment from `aibox.toml`
 - `aibox healthcheck <env> [--url <url|port> | --set <url|port> | --off] [--auto-restart] [--json]` — probe an HTTP(S) URL or TCP port for `<env>`, send a desktop notification on failure, and optionally restart it
+- `aibox backup-schedule <env> <daily|weekly|off> [--keep <n>]` — install or remove a daily/weekly systemd user timer for scheduled snapshots with retention (default `7`)
 - `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
 - `aibox completions <bash|zsh|fish>` — generate shell completion scripts for `bash`, `zsh`, or `fish`
 

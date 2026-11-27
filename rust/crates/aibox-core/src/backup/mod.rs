@@ -4,6 +4,7 @@ pub mod archive_scan;
 pub mod export;
 pub mod import;
 pub mod orphans;
+pub mod schedule;
 pub mod scripts;
 pub mod space;
 pub mod stale;

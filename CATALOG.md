@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Scheduled Backups (`aibox backup-schedule` & `aibox-core::backup::schedule`) (`rust/crates/aibox-core/src/backup/schedule.rs`, `backup/mod.rs`, `cli/commands/backup_schedule.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
+
+- Added `aibox-core::backup::schedule` with `BackupCadence` (`Daily`, `Weekly`, `Off`), `unit_base_name`, `render_backup_service_unit`, `render_backup_timer_unit`, and `install_schedule_script` generating systemd user `.service` and `.timer` units (`~/.config/systemd/user/aibox-backup-<env>.{service,timer}`) with retention pruning.
+- Added `aibox backup-schedule <env> <daily|weekly|off> [--keep <n>]` (default `--keep 7`, range `1..=365`) and updated `aibox help` and bash/zsh/fish completions.
+
 ### Health Check Probes (`aibox healthcheck` & `aibox-core::health::probe`) (`rust/crates/aibox-core/src/health/probe.rs`, `health/mod.rs`, `cli/commands/healthcheck.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
 
 - Added `aibox-core::health::probe` with `HealthProbeResult`, `validate_probe_target` (supporting `http(s)://...`, `host:port`, and plain port normalization to `127.0.0.1:<port>`), `probe_target_script`, `set_healthcheck_script` (`user.aibox.healthcheck` / `user.aibox.healthcheck_restart`), and `notify_healthcheck_down_script` (`notify-send`).

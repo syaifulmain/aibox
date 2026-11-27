@@ -1,3 +1,4 @@
+pub mod backup_schedule;
 pub mod completions;
 pub mod env;
 pub mod healthcheck;
@@ -391,6 +392,9 @@ pub fn execute_with(
         Command::ExportConfig => manifest::run_export_config(&mut engine, parsed, io, runner),
         Command::Up => manifest::run_up(&mut engine, parsed, io, runner, cwd),
         Command::Healthcheck => healthcheck::run_healthcheck(&mut engine, parsed, io, runner),
+        Command::BackupSchedule => {
+            backup_schedule::run_backup_schedule(&mut engine, parsed, io, runner)
+        }
         Command::Check | Command::Help | Command::None | Command::Theme | Command::Completions => {
             ExitCode::Usage.as_i32()
         }

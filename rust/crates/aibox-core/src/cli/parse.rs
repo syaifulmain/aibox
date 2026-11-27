@@ -5,6 +5,7 @@ use crate::util::names::sanitize_name;
 pub fn parse_command_name(token: &str) -> Command {
     match token {
         "help" => Command::Help,
+        "backup-schedule" => Command::BackupSchedule,
         "list" => Command::List,
         "check" => Command::Check,
         "enter" => Command::Enter,
@@ -258,6 +259,39 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 i += 1;
                 continue;
             }
+            if arg == "--keep" {
+                if i + 1 >= args.len() {
+                    return make_usage_error(
+                        "--keep requires an integer between 1 and 365.",
+                        Command::BackupSchedule,
+                    );
+                }
+                i += 1;
+                match args[i].trim().parse::<usize>() {
+                    Ok(n) if (1..=365).contains(&n) => parsed.backup_keep = n,
+                    _ => {
+                        return make_usage_error(
+                            "--keep requires an integer between 1 and 365.",
+                            Command::BackupSchedule,
+                        );
+                    }
+                }
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--keep=") {
+                match val.trim().parse::<usize>() {
+                    Ok(n) if (1..=365).contains(&n) => parsed.backup_keep = n,
+                    _ => {
+                        return make_usage_error(
+                            "--keep requires an integer between 1 and 365.",
+                            Command::BackupSchedule,
+                        );
+                    }
+                }
+                i += 1;
+                continue;
+            }
             if arg == "--lines" {
                 if i + 1 >= args.len() {
                     return make_usage_error("--lines requires a positive integer.", Command::Svc);
@@ -471,6 +505,16 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     }
     if args
         .iter()
+        .any(|a| a == "--keep" || a.starts_with("--keep="))
+        && parsed.command != Command::BackupSchedule
+    {
+        return make_usage_error(
+            "--keep is only supported for 'backup-schedule'.",
+            parsed.command,
+        );
+    }
+    if args
+        .iter()
         .any(|a| a == "--lines" || a.starts_with("--lines="))
         && parsed.command != Command::Svc
     {
@@ -582,6 +626,23 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 return make_usage_error("Expected <env>.", Command::Healthcheck);
             }
             parsed.env_name = positionals[0].clone();
+        }
+        Command::BackupSchedule => {
+            if positionals.len() != 2 {
+                return make_usage_error(
+                    "Expected <env> <daily|weekly|off>.",
+                    Command::BackupSchedule,
+                );
+            }
+            let cadence = positionals[1].trim().to_ascii_lowercase();
+            if !matches!(cadence.as_str(), "daily" | "weekly" | "off") {
+                return make_usage_error(
+                    "Cadence must be 'daily', 'weekly', or 'off'.",
+                    Command::BackupSchedule,
+                );
+            }
+            parsed.env_name = positionals[0].clone();
+            parsed.schedule_cadence = cadence;
         }
         Command::SshConfig => {
             if positionals.len() > 1 {

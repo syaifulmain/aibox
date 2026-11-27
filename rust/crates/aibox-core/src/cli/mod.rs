@@ -40,6 +40,7 @@ pub enum Command {
     #[default]
     None,
     Help,
+    BackupSchedule,
     List,
     Check,
     Enter,
@@ -65,6 +66,7 @@ impl Command {
         match self {
             Command::None => "none",
             Command::Help => "help",
+            Command::BackupSchedule => "backup-schedule",
             Command::List => "list",
             Command::Check => "check",
             Command::Enter => "enter",
@@ -111,6 +113,8 @@ pub struct ParsedArgs {
     pub health_set: bool,
     pub health_off: bool,
     pub auto_restart: bool,
+    pub schedule_cadence: String,
+    pub backup_keep: usize,
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
@@ -147,6 +151,8 @@ impl Default for ParsedArgs {
             health_set: false,
             health_off: false,
             auto_restart: false,
+            schedule_cadence: String::new(),
+            backup_keep: 7,
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
@@ -574,6 +580,14 @@ mod tests {
             assert!(p.auto_restart);
             assert_eq!(p.health_url, "http://127.0.0.1:8080/health");
         }
+        {
+            let p = parse_args(&svec(&["backup-schedule", "db", "weekly", "--keep", "14"]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::BackupSchedule);
+            assert_eq!(p.env_name, "db");
+            assert_eq!(p.schedule_cadence, "weekly");
+            assert_eq!(p.backup_keep, 14);
+        }
 
         let bad_cases = [
             svec(&["unknowncmd"]),
@@ -589,6 +603,9 @@ mod tests {
             svec(&["healthcheck"]),
             svec(&["healthcheck", "web", "--set", "3000", "--off"]),
             svec(&["start", "web", "--auto-restart"]),
+            svec(&["backup-schedule", "db", "hourly"]),
+            svec(&["backup-schedule", "db", "daily", "--keep", "0"]),
+            svec(&["start", "db", "--keep", "5"]),
             svec(&["exec", "--timeout", "0s", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "25h", "dev-box", "--", "true"]),
             svec(&["exec", "--timeout", "abc", "dev-box", "--", "true"]),
