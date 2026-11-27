@@ -5,8 +5,9 @@ use cxx_qt_lib::QString;
 
 use aibox_core::backup::available_disk_bytes;
 use aibox_core::display::{
-    build_audio_plan, detect_host_audio, detect_host_session, set_audio_mode_script,
-    set_desktop_mode_script, test_audio_script, AudioMode, DesktopMode,
+    build_audio_plan, build_desktop_plan, detect_host_audio, detect_host_session, gpu_env,
+    gpu_test_script, merge_env_pairs, set_audio_mode_script, set_desktop_mode_script,
+    test_audio_script, AudioMode, DesktopMode,
 };
 use aibox_core::health::idle::{
     set_environment_auto_stop_script, set_environment_idle_stop_script,
@@ -119,6 +120,37 @@ impl qobject::Backend {
             "",
             &name_s,
         );
+    }
+
+    /// Runs `vainfo`/`glxinfo -B` inside a container with the same desktop
+    /// session environment that Enter/exec use.
+    ///
+    /// VMs use guest drivers and do not see the host card, so the test is
+    /// rejected for them (and for templates, which are not meant to run).
+    pub fn test_environment_gpu(mut self: Pin<&mut Self>, name: &QString) {
+        let name_s = name.to_string();
+        if name_s.is_empty() || *self.busy() {
+            return;
+        }
+        let Some(env) = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == name_s)
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
+            return;
+        }
+        let plan = build_desktop_plan(
+            DesktopMode::from_enabled(env.desktop_enabled),
+            &detect_host_session(),
+        );
+        let env_pairs = merge_env_pairs(&[&plan.env, &gpu_env()]);
+        let script = gpu_test_script(&name_s, &env_pairs);
+        self.as_mut()
+            .run_shell_task(&format!("Testing GPU in '{name_s}'"), &script, "", &name_s);
     }
 
     pub fn set_environment_idle_stop(

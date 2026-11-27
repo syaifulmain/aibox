@@ -9,6 +9,7 @@
 
 pub mod audio;
 pub mod downloads;
+pub mod gpu;
 pub mod host;
 pub mod plan;
 
@@ -19,6 +20,9 @@ pub use audio::{
 };
 pub use downloads::{
     download_dir_script, download_env, upsert_download_dir, CONTAINER_DOWNLOAD_DIR,
+};
+pub use gpu::{
+    detect_gpu, detect_gpu_at, detect_gpu_with, gpu_env, gpu_env_with, gpu_test_script, GpuInfo,
 };
 pub use host::{detect_host_session, detect_host_session_with, HostSession};
 pub use plan::{

@@ -6,8 +6,9 @@ pub mod incus;
 
 pub use incus::evaluate_pool_capacity_health;
 
+use crate::display::gpu::{detect_gpu, GpuInfo};
 use crate::process::CommandRunner;
-use devices::check_ai_gui_profile;
+use devices::{check_ai_gui_profile, check_gpu_devices};
 use host::{check_ufw_rules, check_user_groups, check_workspace_subvol_rm, resolve_target_user};
 use incus::{check_bridge_incusbr0, check_incus_daemon, check_pool_capacity, check_socket_acl};
 use std::collections::BTreeMap;
@@ -58,12 +59,13 @@ pub fn check_cadence(id: &str) -> CheckCadence {
     }
 }
 
-const CANONICAL_CHECK_ORDER: [&str; 8] = [
+const CANONICAL_CHECK_ORDER: [&str; 9] = [
     "groups",
     "socket_acl",
     "incus_daemon",
     "bridge_incusbr0",
     "ai_gui_profile",
+    "gpu_devices",
     "ufw_rules",
     "workspace_subvol_rm",
     "pool_capacity",
@@ -133,6 +135,7 @@ impl HealthCheckCache {
                 check_socket_acl(runner, &user),
                 check_bridge_incusbr0(fix, daemon_reachable, runner),
                 check_ai_gui_profile(fix, daemon_reachable, runner),
+                check_gpu_devices(),
                 check_ufw_rules(runner, ufw_rules_content),
                 check_workspace_subvol_rm(runner, workspace_base),
             ];
@@ -166,7 +169,7 @@ impl HealthCheckCache {
     }
 }
 
-/// Runs all 8 host health checks, optionally repairing bridge and `ai-gui` profile when `fix` is true.
+/// Runs all 9 host health checks, optionally repairing bridge and `ai-gui` profile when `fix` is true.
 pub fn run_health_checks(
     fix: bool,
     runner: &dyn CommandRunner,
@@ -174,8 +177,30 @@ pub fn run_health_checks(
     ufw_rules_content: &str,
     workspace_base: &str,
 ) -> Vec<HealthCheckResult> {
+    run_health_checks_with_gpu(
+        fix,
+        runner,
+        target_user,
+        ufw_rules_content,
+        workspace_base,
+        &detect_gpu(),
+    )
+}
+
+/// Variant of [`run_health_checks`] with an injected GPU snapshot.
+///
+/// Golden fixtures use this to keep the `gpu_devices` detail deterministic on
+/// hosts without `/dev/dri`; the CLI and GUI always use the live detector.
+pub fn run_health_checks_with_gpu(
+    fix: bool,
+    runner: &dyn CommandRunner,
+    target_user: &str,
+    ufw_rules_content: &str,
+    workspace_base: &str,
+    gpu: &GpuInfo,
+) -> Vec<HealthCheckResult> {
     let user = resolve_target_user(target_user);
-    let mut results = Vec::with_capacity(8);
+    let mut results = Vec::with_capacity(9);
 
     results.push(check_user_groups(runner, &user));
     results.push(check_socket_acl(runner, &user));
@@ -185,6 +210,7 @@ pub fn run_health_checks(
 
     results.push(check_bridge_incusbr0(fix, daemon_reachable, runner));
     results.push(check_ai_gui_profile(fix, daemon_reachable, runner));
+    results.push(devices::check_gpu_devices_with(gpu));
     results.push(check_ufw_rules(runner, ufw_rules_content));
     results.push(check_workspace_subvol_rm(runner, workspace_base));
     results.push(check_pool_capacity(
@@ -295,8 +321,13 @@ mod tests {
         );
 
         let checks = run_health_checks(false, &runner, "testuser", healthy_rules, "/tmp");
-        assert_eq!(checks.len(), 8);
+        assert_eq!(checks.len(), 9);
+        assert_eq!(checks[5].id, "gpu_devices");
         for c in checks {
+            if c.id == "gpu_devices" {
+                // Reads the live host device tree; covered by devices::tests.
+                continue;
+            }
             assert!(c.ok, "{}: {}", c.id, c.detail);
             assert!(!c.warning);
             assert!(!c.repaired);
@@ -409,6 +440,9 @@ mod tests {
         assert!(fixed[3].ok && fixed[3].repaired);
         assert!(fixed[4].ok && fixed[4].repaired);
         for c in fixed {
+            if c.id == "gpu_devices" {
+                continue;
+            }
             assert!(c.ok);
         }
     }
@@ -442,7 +476,7 @@ mod tests {
         );
 
         let checks = run_health_checks(true, &runner, "testuser", "# empty rules", "/tmp");
-        assert_eq!(checks.len(), 8);
+        assert_eq!(checks.len(), 9);
         assert!(
             !checks[0].ok
                 && checks[0].needs_root
@@ -462,17 +496,17 @@ mod tests {
                     .contains("sudo systemctl enable --now")
         );
         assert!(
-            !checks[5].ok
-                && checks[5].needs_root
-                && checks[5]
+            !checks[6].ok
+                && checks[6].needs_root
+                && checks[6]
                     .fix_command
                     .contains("sudo ufw allow in on incusbr0")
         );
-        assert_eq!(checks[6].id, "workspace_subvol_rm");
+        assert_eq!(checks[7].id, "workspace_subvol_rm");
         assert!(
-            !checks[6].ok
-                && checks[6].needs_root
-                && checks[6].fix_command.contains("user_subvol_rm_allowed")
+            !checks[7].ok
+                && checks[7].needs_root
+                && checks[7].fix_command.contains("user_subvol_rm_allowed")
         );
     }
 
@@ -608,13 +642,13 @@ mod tests {
             |_| true,
         );
         let res_down = run_health_checks(false, &daemon_down, "testuser", "", "/tmp");
-        assert_eq!(res_down.len(), 8);
+        assert_eq!(res_down.len(), 9);
         assert!(res_down[0].ok); // groups
         assert!(res_down[1].ok); // socket_acl
         assert!(!res_down[2].ok && res_down[2].needs_root); // incus_daemon
         assert!(!res_down[3].ok && res_down[3].needs_root); // bridge_incusbr0
         assert!(!res_down[4].ok && res_down[4].needs_root); // ai_gui_profile
-        assert!(res_down[7].ok); // pool_capacity degrades to "Could not query"
+        assert!(res_down[8].ok); // pool_capacity degrades to "Could not query"
 
         // 2. Socket permission denied while daemon check also fails -> socket_acl fails with setfacl fix.
         let no_socket = FnRunner::new(
@@ -702,7 +736,7 @@ mod tests {
             |_| true,
         );
         let res_no_kvm = run_health_checks(true, &no_kvm_gpu, "testuser", "", "/tmp");
-        assert_eq!(res_no_kvm.len(), 8);
+        assert_eq!(res_no_kvm.len(), 9);
         assert!(!res_no_kvm[0].ok && res_no_kvm[0].detail.contains("kvm"));
         assert!(!res_no_kvm[4].ok);
         assert!(res_no_kvm[4].detail.contains("gpu"));
@@ -780,7 +814,7 @@ mod tests {
             "",
             "/tmp",
         );
-        assert_eq!(initial.len(), 8);
+        assert_eq!(initial.len(), 9);
         assert_eq!(cache.last_static_run_ms, Some(1_000));
         assert_eq!(cache.last_dynamic_run_ms, Some(1_000));
         assert_eq!(cache.get("groups").unwrap().checked_at_ms, 1_000);
@@ -800,8 +834,8 @@ mod tests {
             "",
             "/tmp",
         );
-        assert_eq!(polled.len(), 8);
-        assert!(polled[7].warning);
+        assert_eq!(polled.len(), 9);
+        assert!(polled[8].warning);
         assert_eq!(cache.last_static_run_ms, Some(1_000));
         assert_eq!(cache.last_dynamic_run_ms, Some(5_000));
         assert_eq!(cache.get("groups").unwrap().checked_at_ms, 1_000);

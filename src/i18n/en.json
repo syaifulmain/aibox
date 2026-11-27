@@ -127,5 +127,9 @@
   "Output and microphone — apps can record audio.": "Output and microphone — apps can record audio.",
   "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.": "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.",
   "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.": "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.",
-  "Off — headless server mode. Enable before running GUI programs.": "Off — headless server mode. Enable before running GUI programs."
+  "Off — headless server mode. Enable before running GUI programs.": "Off — headless server mode. Enable before running GUI programs.",
+  "GPU & Video": "GPU & Video",
+  "Test GPU": "Test GPU",
+  "GPU, WebGL and VA-API video decode use the host /dev/dri. Install mesa, intel-media-driver, libva-utils and mesa-utils inside the environment for the full stack.": "GPU, WebGL and VA-API video decode use the host /dev/dri. Install mesa, intel-media-driver, libva-utils and mesa-utils inside the environment for the full stack.",
+  "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host.": "The ai-gui profile exposes /dev/dri with mode=0666, so container root can use it; non-root container users need render and video GIDs that match the host."
 }

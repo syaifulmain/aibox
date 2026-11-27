@@ -42,6 +42,15 @@ fn health_result_to_json_val(r: &health::checks::HealthCheckResult) -> Value {
     })
 }
 
+fn golden_gpu() -> aibox_core::display::GpuInfo {
+    aibox_core::display::GpuInfo {
+        dri_dir: "/dev/dri".to_string(),
+        render_nodes: vec!["renderD128".to_string()],
+        card_nodes: vec!["card1".to_string()],
+        intel: true,
+    }
+}
+
 struct GoldenRunner<F>(F, bool);
 impl<F: Fn(&str, &[&str]) -> process::CommandOutput> process::CommandRunner for GoldenRunner<F> {
     fn run(&self, program: &str, args: &[&str]) -> process::CommandOutput {
@@ -119,7 +128,14 @@ fn dispatch_health_checks(
                 },
                 true,
             );
-            health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
+            health::checks::run_health_checks_with_gpu(
+                fix,
+                &runner,
+                user,
+                ufw,
+                ws_base,
+                &golden_gpu(),
+            )
         }
         "fix_dry_run" | "fix_repaired" => {
             let cell = std::cell::RefCell::new(*fix_state);
@@ -217,7 +233,14 @@ fn dispatch_health_checks(
                 },
                 true,
             );
-            let res = health::checks::run_health_checks(fix, &runner, user, ufw, ws_base);
+            let res = health::checks::run_health_checks_with_gpu(
+                fix,
+                &runner,
+                user,
+                ufw,
+                ws_base,
+                &golden_gpu(),
+            );
             *fix_state = *cell.borrow();
             res
         }
@@ -247,7 +270,14 @@ fn dispatch_health_checks(
                 },
                 false,
             );
-            health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
+            health::checks::run_health_checks_with_gpu(
+                fix,
+                &runner,
+                user,
+                ufw,
+                ws_base,
+                &golden_gpu(),
+            )
         }
         "pool_warn_90" | "pool_fail_97" => {
             let pct = if case == "pool_warn_90" { "90" } else { "97" };
@@ -303,7 +333,14 @@ fn dispatch_health_checks(
                 },
                 true,
             );
-            health::checks::run_health_checks(fix, &runner, user, ufw, ws_base)
+            health::checks::run_health_checks_with_gpu(
+                fix,
+                &runner,
+                user,
+                ufw,
+                ws_base,
+                &golden_gpu(),
+            )
         }
         other => panic!("unknown health check case: {other}"),
     };

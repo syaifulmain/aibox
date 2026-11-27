@@ -9,7 +9,7 @@ use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
     apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
     combine_scripts, detect_host_audio, detect_host_session, download_dir_script, download_env,
-    merge_env_pairs, AudioMode, AudioPlan, DesktopMode, DisplayPlan,
+    gpu_env, merge_env_pairs, AudioMode, AudioPlan, DesktopMode, DisplayPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -90,7 +90,8 @@ fn session_bridge_script(name: &str, desktop: &DisplayPlan, audio: &AudioPlan) -
 
 fn session_environment(desktop: &DisplayPlan, audio: &AudioPlan) -> Vec<(String, String)> {
     let downloads = download_env();
-    merge_env_pairs(&[&desktop.env, &audio.env, &downloads])
+    let gpu = gpu_env();
+    merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu])
 }
 
 fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {

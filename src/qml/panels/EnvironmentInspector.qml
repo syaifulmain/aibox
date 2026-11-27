@@ -374,6 +374,8 @@ Item {
 
             AudioCard {}
 
+            GpuVideoCard {}
+
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app

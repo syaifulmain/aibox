@@ -508,6 +508,10 @@ pub mod qobject {
         fn test_environment_audio(self: Pin<&mut Backend>, name: &QString);
 
         #[qinvokable]
+        #[cxx_name = "testEnvironmentGpu"]
+        fn test_environment_gpu(self: Pin<&mut Backend>, name: &QString);
+
+        #[qinvokable]
         #[cxx_name = "setEnvironmentIdleStop"]
         fn set_environment_idle_stop(
             self: Pin<&mut Backend>,
