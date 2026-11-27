@@ -117,6 +117,6 @@
   "WARN": "WARN",
   "Desktop": "Desktop",
   "Desktop Integration": "Desktop Integration",
-  "Wayland/X11 apps, clipboard and file pickers use your host desktop.": "Wayland/X11 apps, clipboard and file pickers use your host desktop.",
+  "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.": "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.",
   "Off — headless server mode. Enable before running GUI programs.": "Off — headless server mode. Enable before running GUI programs."
 }

@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Native Wayland Display with Safe X11 Fallback (`rust/crates/aibox-core/src/display/`, `src/qml/panels/DesktopIntegrationCard.qml`, `src/i18n/`)
+
+- Desktop integration now prefers native Wayland. When `WAYLAND_DISPLAY` resolves (relative to `XDG_RUNTIME_DIR` or absolute), a `wayland` proxy device exposes `$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY` as `/run/user/<uid>/wayland-0` inside the instance with `bind=container` and `mode=0666`, and the environment carries `WAYLAND_DISPLAY=wayland-0`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE=wayland`, `MOZ_ENABLE_WAYLAND=1`, `QT_QPA_PLATFORM=wayland;xcb`, `GDK_BACKEND=wayland,x11`, `SDL_VIDEODRIVER=wayland`, `ELECTRON_OZONE_PLATFORM_HINT=auto`, `CLUTTER_BACKEND=wayland`, and the host `XDG_CURRENT_DESKTOP` when set.
+- The safe X11 proxy (`xhost +si:localuser:root`, no `xhost +local:`) stays as a fallback for legacy toolkits, Wine, and Java. Both devices are applied when both sockets exist; Wayland-only hosts warn that the X11 fallback is unavailable, and no-socket hosts warn once.
+- Apply scripts now prepare the container-side parent directories before adding devices (`/run/user/<uid>` for Wayland, `/tmp/.X11-unix` for X11) and remove/re-add devices on every Start/Enter so a host socket changed by logout/login is refreshed. `remove_devices_script` and the Off branch of `set_desktop_mode_script` remove both `wayland` and `x11`; the On branch only applies devices while the instance is `RUNNING`, leaving the config key set for the next Start/Enter when stopped.
+- The **Desktop Integration** card and README now describe native Wayland with X11 fallback, and clipboard/drag-and-drop/HiDPI following the Wayland session.
+
 ### Desktop Session Bridge: Safe X11 Proxy, `aibox exec` GUI Support & Per-Environment Toggle (`rust/crates/aibox-core/src/display/`, `rust/crates/aibox-core/src/provision/`, `rust/crates/aibox-core/src/incus/list/`, `rust/crates/aibox-core/src/cli/commands/env.rs`, `rust/crates/aibox-app/`, `src/qml/panels/DesktopIntegrationCard.qml`, `src/i18n/`)
 
 - Added the `aibox-core::display` module (`host.rs`, `plan.rs`): one host-session detector and one `DisplayPlan` builder shared by GUI Enter, `aibox enter`, and `aibox exec`, so every entry path gets the same desktop devices and environment variables.

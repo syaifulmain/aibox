@@ -15,6 +15,8 @@ pub struct HostSession {
     pub x11_socket: String,
     pub wayland_display: String,
     pub wayland_socket: String,
+    /// Host desktop name (`Hyprland` on Omarchy), empty when unset.
+    pub xdg_current_desktop: String,
 }
 
 /// Reads the current process environment and OS user IDs.
@@ -59,6 +61,10 @@ pub fn detect_host_session_with(
         format!("{runtime_dir}/{wayland_display}")
     };
 
+    let xdg_current_desktop = get("XDG_CURRENT_DESKTOP")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default();
+
     HostSession {
         uid,
         gid,
@@ -67,6 +73,7 @@ pub fn detect_host_session_with(
         x11_socket,
         wayland_display,
         wayland_socket,
+        xdg_current_desktop,
     }
 }
 
@@ -151,10 +158,36 @@ mod tests {
     #[test]
     fn keeps_an_absolute_wayland_socket() {
         let session = detect_host_session_with(
-            getter(&[("WAYLAND_DISPLAY", "/tmp/custom-wayland-0")]),
+            getter(&[("WAYLAND_DISPLAY", "/run/user/1000/wayland-1")]),
             1000,
             1000,
         );
-        assert_eq!(session.wayland_socket, "/tmp/custom-wayland-0");
+        assert_eq!(session.wayland_display, "/run/user/1000/wayland-1");
+        assert_eq!(session.wayland_socket, "/run/user/1000/wayland-1");
+    }
+
+    #[test]
+    fn missing_wayland_display_leaves_both_fields_empty() {
+        let session =
+            detect_host_session_with(getter(&[("XDG_RUNTIME_DIR", "/run/user/1000")]), 1000, 1000);
+        assert!(session.wayland_display.is_empty());
+        assert!(session.wayland_socket.is_empty());
+    }
+
+    #[test]
+    fn missing_runtime_dir_still_builds_a_relative_wayland_socket() {
+        let session =
+            detect_host_session_with(getter(&[("WAYLAND_DISPLAY", "wayland-1")]), 1000, 1000);
+        assert_eq!(session.wayland_socket, "/run/user/1000/wayland-1");
+    }
+
+    #[test]
+    fn passes_through_the_host_desktop_name_only_when_set() {
+        let set =
+            detect_host_session_with(getter(&[("XDG_CURRENT_DESKTOP", "Hyprland")]), 1000, 1000);
+        assert_eq!(set.xdg_current_desktop, "Hyprland");
+
+        let unset = detect_host_session_with(getter(&[]), 1000, 1000);
+        assert!(unset.xdg_current_desktop.is_empty());
     }
 }

@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import "../components"
 
-// Per-environment desktop bridge toggle (X11 today, Wayland in a later module).
+// Per-environment desktop bridge toggle: native Wayland with an X11 fallback.
 Card {
     id: root
 
@@ -31,7 +31,7 @@ Card {
     Text {
         Layout.fillWidth: true
         text: root.desktopOn
-              ? qsTr("Wayland/X11 apps, clipboard and file pickers use your host desktop.")
+              ? qsTr("Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.")
               : qsTr("Off — headless server mode. Enable before running GUI programs.")
         color: root.desktopOn ? theme.textSecondary : theme.textMuted
         font.family: Style.fontSans

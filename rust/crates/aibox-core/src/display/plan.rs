@@ -55,14 +55,26 @@ pub struct DisplayPlan {
 
 impl DisplayPlan {
     pub fn has_x11(&self) -> bool {
-        self.devices.iter().any(|device| device.name == "x11")
+        self.devices.iter().any(|device| device.name == X11_DEVICE)
+    }
+
+    pub fn has_wayland(&self) -> bool {
+        self.devices
+            .iter()
+            .any(|device| device.name == WAYLAND_DEVICE)
     }
 }
 
+/// Display name exposed inside the container, regardless of the host name.
+const CONTAINER_WAYLAND_DISPLAY: &str = "wayland-0";
+const WAYLAND_DEVICE: &str = "wayland";
+const X11_DEVICE: &str = "x11";
+
 /// Builds the display plan for one environment.
 ///
-/// Module 1.1 only implements the safe X11 proxy. Wayland is added by a later
-/// module, so the Wayland fields on `HostSession` are carried but unused.
+/// Wayland is preferred because it provides clipboard, drag-and-drop, and HiDPI
+/// scaling from the host session. X11 stays as a proxy fallback for legacy
+/// toolkits, Wine, and Java applications.
 pub fn build_desktop_plan(mode: DesktopMode, host: &HostSession) -> DisplayPlan {
     let mut plan = DisplayPlan {
         mode,
@@ -75,27 +87,87 @@ pub fn build_desktop_plan(mode: DesktopMode, host: &HostSession) -> DisplayPlan 
         return plan;
     }
 
-    if host.x11_socket.is_empty() {
+    let has_wayland = !host.wayland_socket.is_empty();
+    let has_x11 = !host.x11_socket.is_empty();
+
+    if !has_wayland && !has_x11 {
         plan.warnings.push(
-            "Desktop integration is on, but no X11 socket is available on the host.".to_string(),
+            "Desktop integration is on, but no Wayland or X11 socket is available on the host."
+                .to_string(),
         );
         return plan;
     }
 
-    // A proxy device is required: the host-side Incus proxy connects as root,
-    // so `xhost +si:localuser:root` authorizes the container without opening
-    // the X server to every local process the way `xhost +local:` does.
-    plan.devices.push(DeviceSpec {
-        name: "x11".to_string(),
-        kind: "proxy".to_string(),
-        options: vec![
-            ("connect".to_string(), format!("unix:{}", host.x11_socket)),
-            ("listen".to_string(), format!("unix:{}", host.x11_socket)),
-            ("bind".to_string(), "container".to_string()),
-        ],
-    });
-    plan.env
-        .push(("DISPLAY".to_string(), host.x11_display.clone()));
+    if has_wayland {
+        let container_runtime_dir = format!("/run/user/{}", host.uid);
+        // The host proxy runs as root, so the container-side socket needs to be
+        // world-accessible; `mode=0666` matches how the compositor socket is
+        // exposed on the host while keeping it inside the instance runtime dir.
+        plan.devices.push(DeviceSpec {
+            name: WAYLAND_DEVICE.to_string(),
+            kind: "proxy".to_string(),
+            options: vec![
+                (
+                    "connect".to_string(),
+                    format!("unix:{}", host.wayland_socket),
+                ),
+                (
+                    "listen".to_string(),
+                    format!("unix:{container_runtime_dir}/{CONTAINER_WAYLAND_DISPLAY}"),
+                ),
+                ("bind".to_string(), "container".to_string()),
+                ("mode".to_string(), "0666".to_string()),
+            ],
+        });
+        plan.env.extend([
+            (
+                "WAYLAND_DISPLAY".to_string(),
+                CONTAINER_WAYLAND_DISPLAY.to_string(),
+            ),
+            ("XDG_RUNTIME_DIR".to_string(), container_runtime_dir),
+            ("XDG_SESSION_TYPE".to_string(), "wayland".to_string()),
+            ("MOZ_ENABLE_WAYLAND".to_string(), "1".to_string()),
+            ("QT_QPA_PLATFORM".to_string(), "wayland;xcb".to_string()),
+            ("GDK_BACKEND".to_string(), "wayland,x11".to_string()),
+            ("SDL_VIDEODRIVER".to_string(), "wayland".to_string()),
+            (
+                "ELECTRON_OZONE_PLATFORM_HINT".to_string(),
+                "auto".to_string(),
+            ),
+            ("CLUTTER_BACKEND".to_string(), "wayland".to_string()),
+        ]);
+        if !host.xdg_current_desktop.is_empty() {
+            plan.env.push((
+                "XDG_CURRENT_DESKTOP".to_string(),
+                host.xdg_current_desktop.clone(),
+            ));
+        }
+    }
+
+    if has_x11 {
+        // A proxy device is required: the host-side Incus proxy connects as
+        // root, so `xhost +si:localuser:root` authorizes the container without
+        // opening the X server to every local process.
+        plan.devices.push(DeviceSpec {
+            name: X11_DEVICE.to_string(),
+            kind: "proxy".to_string(),
+            options: vec![
+                ("connect".to_string(), format!("unix:{}", host.x11_socket)),
+                ("listen".to_string(), format!("unix:{}", host.x11_socket)),
+                ("bind".to_string(), "container".to_string()),
+            ],
+        });
+        plan.env
+            .push(("DISPLAY".to_string(), host.x11_display.clone()));
+    }
+
+    if has_wayland && !has_x11 {
+        plan.warnings.push(
+            "Wayland is available, but no X11 socket is available on the host; the X11 fallback is unavailable."
+                .to_string(),
+        );
+    }
+
     plan
 }
 
@@ -125,15 +197,34 @@ const XHOST_ROOT_SNIPPET: &str = "if command -v xhost >/dev/null 2>&1; then\n   
 
 /// Returns an idempotent snippet that installs the plan's devices.
 ///
-/// The container must already be running. Existing devices are removed first so
-/// a changed host socket (for example after a logout/login) is refreshed.
+/// The container must already be running. Parent directories are created first
+/// because Incus proxy devices fail to connect when the listen path's parent is
+/// missing. Existing devices are removed first so a changed host socket (for
+/// example after a logout/login) is refreshed.
 pub fn apply_devices_script(name: &str, plan: &DisplayPlan) -> String {
     if plan.devices.is_empty() {
         return String::new();
     }
     let q_name = shell_quote(name);
     let mut lines = Vec::new();
+    if plan.has_wayland() {
+        if let Some(runtime_dir) = plan
+            .env
+            .iter()
+            .find(|(key, _)| key == "XDG_RUNTIME_DIR")
+            .map(|(_, value)| value.as_str())
+        {
+            lines.push(format!(
+                "incus exec {q_name} -- sh -c {} aibox {} >/dev/null 2>&1 || true",
+                shell_quote("mkdir -p \"$1\" && chmod 700 \"$1\""),
+                shell_quote(runtime_dir)
+            ));
+        }
+    }
     if plan.has_x11() {
+        lines.push(format!(
+            "incus exec {q_name} -- mkdir -p /tmp/.X11-unix >/dev/null 2>&1 || true"
+        ));
         lines.push(XHOST_ROOT_SNIPPET.to_string());
     }
     for device in &plan.devices {
@@ -160,18 +251,10 @@ pub fn apply_devices_script(name: &str, plan: &DisplayPlan) -> String {
     lines.join("\n")
 }
 
-/// Removes the plan's devices; shared `xhost` grants are intentionally kept
+/// Removes both bridge devices. Shared `xhost` grants are intentionally kept
 /// because other environments may still rely on them.
-pub fn remove_devices_script(name: &str, plan: &DisplayPlan) -> String {
-    if plan.devices.is_empty() {
-        return String::new();
-    }
-    let names: Vec<&str> = plan
-        .devices
-        .iter()
-        .map(|device| device.name.as_str())
-        .collect();
-    remove_device_lines(name, &names)
+pub fn remove_devices_script(name: &str, _plan: &DisplayPlan) -> String {
+    remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE])
 }
 
 /// Writes the mode and applies or removes the matching desktop devices.
@@ -188,12 +271,20 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
         DesktopMode::On => {
             let apply = apply_devices_script(name, &build_desktop_plan(mode, host));
             if !apply.is_empty() {
+                // A stopped instance cannot accept a proxy device that listens
+                // on a container path, so only configure it once it is running.
+                // The next Start/Enter applies the devices again.
+                lines.push(format!(
+                    "STATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')"
+                ));
+                lines.push("if [[ \"$STATUS\" == \"RUNNING\" ]]; then".to_string());
                 lines.push(apply);
+                lines.push("fi".to_string());
             }
         }
         // Off means headless: remove every bridge device even though an Off
         // plan has no devices of its own.
-        DesktopMode::Off => lines.push(remove_device_lines(name, &["x11", "wayland"])),
+        DesktopMode::Off => lines.push(remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE])),
     }
     lines.join("\n")
 }
@@ -201,25 +292,53 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
-    fn host_with_x11() -> HostSession {
+    fn host_with_both() -> HostSession {
         HostSession {
             uid: 1000,
             gid: 1000,
             runtime_dir: "/run/user/1000".to_string(),
             x11_display: ":0".to_string(),
             x11_socket: "/tmp/.X11-unix/X0".to_string(),
-            wayland_display: "wayland-0".to_string(),
-            wayland_socket: "/run/user/1000/wayland-0".to_string(),
+            wayland_display: "wayland-1".to_string(),
+            wayland_socket: "/run/user/1000/wayland-1".to_string(),
+            xdg_current_desktop: "Hyprland".to_string(),
         }
     }
 
-    fn host_without_x11() -> HostSession {
+    fn host_with_x11_only() -> HostSession {
+        HostSession {
+            wayland_display: String::new(),
+            wayland_socket: String::new(),
+            ..host_with_both()
+        }
+    }
+
+    fn host_with_wayland_only() -> HostSession {
         HostSession {
             x11_display: String::new(),
             x11_socket: String::new(),
-            ..host_with_x11()
+            ..host_with_both()
         }
+    }
+
+    fn host_without_display() -> HostSession {
+        HostSession {
+            x11_display: String::new(),
+            x11_socket: String::new(),
+            wayland_display: String::new(),
+            wayland_socket: String::new(),
+            xdg_current_desktop: String::new(),
+            ..host_with_both()
+        }
+    }
+
+    fn env_value<'a>(plan: &'a DisplayPlan, key: &str) -> Option<&'a str> {
+        plan.env
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
     }
 
     #[test]
@@ -236,83 +355,197 @@ mod tests {
     }
 
     #[test]
-    fn on_with_x11_produces_a_proxy_device_and_display_env() {
-        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11());
-        assert_eq!(plan.devices.len(), 1);
-        let device = &plan.devices[0];
-        assert_eq!(device.name, "x11");
-        assert_eq!(device.kind, "proxy");
+    fn on_with_wayland_and_x11_exposes_both_devices() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_both());
+        assert!(plan.has_wayland());
+        assert!(plan.has_x11());
+        assert_eq!(plan.devices.len(), 2);
+        assert_eq!(plan.devices[0].name, "wayland");
+        assert_eq!(plan.devices[1].name, "x11");
+
+        let wayland = &plan.devices[0];
+        assert_eq!(wayland.kind, "proxy");
         assert_eq!(
-            device.options,
+            wayland.options,
+            vec![
+                (
+                    "connect".to_string(),
+                    "unix:/run/user/1000/wayland-1".to_string()
+                ),
+                (
+                    "listen".to_string(),
+                    "unix:/run/user/1000/wayland-0".to_string()
+                ),
+                ("bind".to_string(), "container".to_string()),
+                ("mode".to_string(), "0666".to_string()),
+            ]
+        );
+
+        let x11 = &plan.devices[1];
+        assert_eq!(
+            x11.options,
             vec![
                 ("connect".to_string(), "unix:/tmp/.X11-unix/X0".to_string()),
                 ("listen".to_string(), "unix:/tmp/.X11-unix/X0".to_string()),
                 ("bind".to_string(), "container".to_string()),
             ]
         );
-        assert_eq!(plan.env, vec![("DISPLAY".to_string(), ":0".to_string())]);
         assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn on_with_wayland_adds_wayland_environment() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_both());
+        for (key, value) in [
+            ("WAYLAND_DISPLAY", "wayland-0"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ("XDG_SESSION_TYPE", "wayland"),
+            ("MOZ_ENABLE_WAYLAND", "1"),
+            ("QT_QPA_PLATFORM", "wayland;xcb"),
+            ("GDK_BACKEND", "wayland,x11"),
+            ("SDL_VIDEODRIVER", "wayland"),
+            ("ELECTRON_OZONE_PLATFORM_HINT", "auto"),
+            ("CLUTTER_BACKEND", "wayland"),
+            ("XDG_CURRENT_DESKTOP", "Hyprland"),
+            ("DISPLAY", ":0"),
+        ] {
+            assert_eq!(env_value(&plan, key), Some(value), "env {key}");
+        }
+    }
+
+    #[test]
+    fn xdg_current_desktop_is_omitted_when_the_host_has_none() {
+        let host = HostSession {
+            xdg_current_desktop: String::new(),
+            ..host_with_both()
+        };
+        let plan = build_desktop_plan(DesktopMode::On, &host);
+        assert_eq!(env_value(&plan, "XDG_CURRENT_DESKTOP"), None);
+    }
+
+    #[test]
+    fn on_with_x11_only_keeps_the_fallback_working() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11_only());
+        assert!(!plan.has_wayland());
+        assert!(plan.has_x11());
+        assert_eq!(plan.devices.len(), 1);
+        assert_eq!(env_value(&plan, "DISPLAY"), Some(":0"));
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn on_with_wayland_only_warns_that_x11_fallback_is_unavailable() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_wayland_only());
+        assert!(plan.has_wayland());
+        assert!(!plan.has_x11());
+        assert_eq!(plan.devices.len(), 1);
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].contains("X11 fallback is unavailable"));
     }
 
     #[test]
     fn off_is_pure_headless() {
-        let plan = build_desktop_plan(DesktopMode::Off, &host_with_x11());
+        let plan = build_desktop_plan(DesktopMode::Off, &host_with_both());
         assert!(plan.devices.is_empty());
         assert!(plan.env.is_empty());
         assert!(plan.warnings.is_empty());
         assert_eq!(apply_devices_script("box", &plan), "");
-        assert_eq!(remove_devices_script("box", &plan), "");
+        assert!(!remove_devices_script("box", &plan).is_empty());
     }
 
     #[test]
-    fn on_without_x11_warns_and_adds_nothing() {
-        let plan = build_desktop_plan(DesktopMode::On, &host_without_x11());
+    fn on_without_any_socket_warns_and_adds_nothing() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_without_display());
         assert!(plan.devices.is_empty());
         assert!(plan.env.is_empty());
         assert_eq!(plan.warnings.len(), 1);
-        assert!(plan.warnings[0].contains("X11"));
+        assert!(plan.warnings[0].contains("Wayland or X11"));
     }
 
     #[test]
-    fn apply_script_removes_then_adds_and_authorizes_only_root() {
-        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11());
+    fn apply_script_prepares_parent_dirs_before_adding_devices() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_both());
         let script = apply_devices_script("box", &plan);
+        let wayland_prep_at = script
+            .find("incus exec 'box' -- sh -c 'mkdir -p \"$1\" && chmod 700 \"$1\"' aibox '/run/user/1000'")
+            .expect("wayland prep");
+        let x11_prep_at = script
+            .find("incus exec 'box' -- mkdir -p /tmp/.X11-unix >/dev/null 2>&1 || true")
+            .expect("x11 prep");
         let remove_at = script.find("incus config device remove").expect("remove");
         let add_at = script.find("incus config device add").expect("add");
+        assert!(wayland_prep_at < remove_at);
+        assert!(x11_prep_at < remove_at);
         assert!(remove_at < add_at);
+    }
+
+    #[test]
+    fn apply_script_uses_the_container_mode_and_authorizes_only_root() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_both());
+        let script = apply_devices_script("box", &plan);
+        assert!(script.contains("mode='0666'"));
         assert!(script.contains("xhost +si:localuser:root"));
         assert!(!script.contains("xhost +local:"));
+        assert!(script.contains("connect='unix:/run/user/1000/wayland-1'"));
+        assert!(script.contains("listen='unix:/run/user/1000/wayland-0'"));
         assert!(script.contains("connect='unix:/tmp/.X11-unix/X0'"));
-        assert!(script.contains("listen='unix:/tmp/.X11-unix/X0'"));
-        assert!(script.contains("bind='container'"));
     }
 
     #[test]
     fn scripts_quote_names_and_paths() {
-        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11());
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_both());
         let script = apply_devices_script("it's a box; rm -rf /", &plan);
         assert!(script.contains("'it'\\''s a box; rm -rf /'"));
         assert!(!script.contains("; rm -rf /\n"));
     }
 
     #[test]
-    fn remove_script_does_not_revoke_xhost() {
-        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11());
+    fn remove_script_removes_both_devices_and_keeps_xhost() {
+        let plan = build_desktop_plan(DesktopMode::On, &host_with_x11_only());
         let script = remove_devices_script("box", &plan);
+        assert!(script.contains("incus config device remove 'box' 'wayland'"));
         assert!(script.contains("incus config device remove 'box' 'x11'"));
         assert!(!script.contains("xhost"));
     }
 
     #[test]
-    fn set_mode_script_writes_config_then_applies_or_removes() {
-        let on = set_desktop_mode_script("box", DesktopMode::On, &host_with_x11());
+    fn set_mode_script_applies_devices_only_while_running() {
+        let on = set_desktop_mode_script("box", DesktopMode::On, &host_with_both());
         assert!(on.contains("incus config set 'box' user.aibox.desktop 'on'"));
+        assert!(on.contains("STATUS=$(incus info 'box' | awk '/^Status:/ {print $2}')"));
+        let guard_at = on
+            .find("if [[ \"$STATUS\" == \"RUNNING\" ]]; then")
+            .expect("running guard");
+        let add_at = on
+            .find("incus config device add 'box' 'wayland' 'proxy'")
+            .expect("wayland add");
+        assert!(guard_at < add_at);
         assert!(on.contains("incus config device add 'box' 'x11' 'proxy'"));
 
-        let off = set_desktop_mode_script("box", DesktopMode::Off, &host_with_x11());
+        let off = set_desktop_mode_script("box", DesktopMode::Off, &host_with_both());
         assert!(off.contains("incus config set 'box' user.aibox.desktop 'off'"));
-        assert!(off.contains("incus config device remove 'box' 'x11'"));
         assert!(off.contains("incus config device remove 'box' 'wayland'"));
-        assert!(!off.contains("xhost +local:"));
+        assert!(off.contains("incus config device remove 'box' 'x11'"));
+        assert!(!off.contains("xhost"));
+    }
+
+    #[test]
+    fn generated_scripts_pass_bash_syntax_check() {
+        let both = build_desktop_plan(DesktopMode::On, &host_with_both());
+        let scripts = [
+            apply_devices_script("box", &both),
+            remove_devices_script("box", &both),
+            set_desktop_mode_script("box", DesktopMode::On, &host_with_both()),
+            set_desktop_mode_script("box", DesktopMode::Off, &host_with_both()),
+        ];
+        for script in scripts {
+            let status = Command::new("bash")
+                .arg("-n")
+                .arg("-c")
+                .arg(&script)
+                .status()
+                .expect("run bash -n");
+            assert!(status.success(), "bash -n failed:\n{script}");
+        }
     }
 }
