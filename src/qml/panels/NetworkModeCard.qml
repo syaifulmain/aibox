@@ -8,7 +8,7 @@ Card {
     id: root
     property QtObject app: null
 
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property string ipAddress: root.env.ipv4 || ""
     readonly property bool offline: root.env.networkMode === "offline"
     readonly property bool template: root.env.isTemplate || false

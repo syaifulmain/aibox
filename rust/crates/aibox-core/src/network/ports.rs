@@ -77,12 +77,19 @@ pub fn validate_add_port_forward(
             "Host port {host_port} is already forwarded on '{name}'."
         ));
     }
-    if !is_host_port_available(host_port) {
+    if !is_host_port_available_on("127.0.0.1", host_port) {
         return Err(format!(
             "Host port 127.0.0.1:{host_port} is already in use on this machine."
         ));
     }
     Ok(())
+}
+
+fn is_host_port_available_on(bind_addr: &str, port: i32) -> bool {
+    if !(1024..=65535).contains(&port) {
+        return false;
+    }
+    std::net::TcpListener::bind((bind_addr, port as u16)).is_ok()
 }
 
 /// Validates parameters, LAN confirmation, and host port availability for adding a port forward.
@@ -97,16 +104,37 @@ pub fn validate_add_port_forward_with_bind(
     env_found: bool,
     existing_host_ports: &[i32],
 ) -> Result<(), String> {
-    validate_add_port_forward(
-        name,
-        busy,
-        host_port,
-        guest_port,
-        env_found,
-        existing_host_ports,
-    )?;
+    if name.is_empty() {
+        return Err("Select an environment first.".to_string());
+    }
+    if busy {
+        return Err("Another operation is currently in progress.".to_string());
+    }
+    if !(1024..=65535).contains(&host_port) {
+        let scope = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
+        return Err(format!(
+            "Host port must be between 1024 and 65535 ({scope} bind)."
+        ));
+    }
+    if !(1..=65535).contains(&guest_port) {
+        return Err("Container port must be between 1 and 65535.".to_string());
+    }
+    if !env_found {
+        return Err(format!("Environment '{name}' was not found."));
+    }
+    if existing_host_ports.contains(&host_port) {
+        return Err(format!(
+            "Host port {host_port} is already forwarded on '{name}'."
+        ));
+    }
     if bind_lan && !confirm_lan {
         return Err("Confirm LAN exposure (0.0.0.0) before forwarding this port.".to_string());
+    }
+    let bind_addr = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
+    if !is_host_port_available_on(bind_addr, host_port) {
+        return Err(format!(
+            "Host port {bind_addr}:{host_port} is already in use on this machine."
+        ));
     }
     Ok(())
 }

@@ -105,6 +105,8 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     let mut saw_system_only = false;
     let mut saw_workspace_only = false;
     let mut saw_yes = false;
+    let mut saw_keep = false;
+    let mut saw_lines = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -260,6 +262,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 continue;
             }
             if arg == "--keep" {
+                saw_keep = true;
                 if i + 1 >= args.len() {
                     return make_usage_error(
                         "--keep requires an integer between 1 and 365.",
@@ -280,6 +283,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 continue;
             }
             if let Some(val) = arg.strip_prefix("--keep=") {
+                saw_keep = true;
                 match val.trim().parse::<usize>() {
                     Ok(n) if (1..=365).contains(&n) => parsed.backup_keep = n,
                     _ => {
@@ -293,6 +297,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 continue;
             }
             if arg == "--lines" {
+                saw_lines = true;
                 if i + 1 >= args.len() {
                     return make_usage_error("--lines requires a positive integer.", Command::Svc);
                 }
@@ -310,6 +315,7 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                 continue;
             }
             if let Some(val) = arg.strip_prefix("--lines=") {
+                saw_lines = true;
                 match val.trim().parse::<usize>() {
                     Ok(n) if n > 0 => parsed.log_lines = n,
                     _ => {
@@ -422,21 +428,34 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
         return parsed;
     }
 
+    let has_subcommand_flags = saw_json
+        || saw_fix
+        || saw_system_only
+        || saw_workspace_only
+        || saw_yes
+        || saw_keep
+        || saw_lines
+        || parsed.timeout_secs.is_some()
+        || parsed.summary
+        || !parsed.health_url.is_empty()
+        || parsed.health_set
+        || parsed.health_off
+        || parsed.auto_restart
+        || parsed.ephemeral
+        || !parsed.from_template.is_empty()
+        || parsed.keep_on_fail
+        || !parsed.output_path.is_empty()
+        || !parsed.theme_path.is_empty();
+
     if parsed.command == Command::Help {
-        if saw_json || saw_fix || saw_system_only || saw_workspace_only || saw_yes {
+        if has_subcommand_flags {
             return make_usage_error("Invalid option for help.", Command::Help);
         }
         return parsed;
     }
 
     if parsed.command == Command::None {
-        if saw_json
-            || saw_fix
-            || saw_system_only
-            || saw_workspace_only
-            || saw_yes
-            || saw_double_dash
-        {
+        if has_subcommand_flags || saw_double_dash {
             return make_usage_error("Missing subcommand.", Command::None);
         }
         return parsed;
@@ -503,21 +522,13 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
     if parsed.health_set && parsed.health_off {
         return make_usage_error("Cannot combine --set and --off.", Command::Healthcheck);
     }
-    if args
-        .iter()
-        .any(|a| a == "--keep" || a.starts_with("--keep="))
-        && parsed.command != Command::BackupSchedule
-    {
+    if saw_keep && parsed.command != Command::BackupSchedule {
         return make_usage_error(
             "--keep is only supported for 'backup-schedule'.",
             parsed.command,
         );
     }
-    if args
-        .iter()
-        .any(|a| a == "--lines" || a.starts_with("--lines="))
-        && parsed.command != Command::Svc
-    {
+    if saw_lines && parsed.command != Command::Svc {
         return make_usage_error("--lines is only supported for 'svc'.", parsed.command);
     }
     if (parsed.ephemeral || !parsed.from_template.is_empty() || parsed.keep_on_fail)
@@ -738,4 +749,54 @@ pub fn is_cli_invocation(args_without_program: &[String]) -> bool {
         return true;
     }
     parsed.command != Command::None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn svec(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn exec_and_run_forward_keep_and_lines_after_double_dash() {
+        let p1 = parse_args(&svec(&[
+            "exec",
+            "dev",
+            "--",
+            "tail",
+            "--lines=20",
+            "/var/log/syslog",
+        ]));
+        assert!(p1.valid);
+        assert_eq!(p1.command, Command::Exec);
+        assert_eq!(
+            p1.exec_command,
+            svec(&["tail", "--lines=20", "/var/log/syslog"])
+        );
+
+        let p2 = parse_args(&svec(&[
+            "run",
+            "--ephemeral",
+            "--from",
+            "tpl",
+            "--",
+            "git",
+            "gc",
+            "--keep",
+        ]));
+        assert!(p2.valid);
+        assert_eq!(p2.command, Command::Run);
+        assert_eq!(p2.exec_command, svec(&["git", "gc", "--keep"]));
+    }
+
+    #[test]
+    fn subcommandless_new_flags_return_usage_error() {
+        for flag in ["--ephemeral", "--summary", "--off", "--auto-restart"] {
+            let p = parse_args(&svec(&[flag]));
+            assert!(!p.valid, "expected usage error for {flag}");
+            assert_eq!(p.exit_code, ExitCode::Usage.as_i32());
+        }
+    }
 }

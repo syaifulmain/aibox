@@ -13,7 +13,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use crate::display::plan::{device_options, remove_device_lines, DeviceSpec};
+use crate::display::plan::{remove_device_lines, DeviceSpec};
 use crate::util::paths::home_dir;
 use crate::util::shell::shell_quote;
 
@@ -297,7 +297,7 @@ pub fn build_appearance_plan(host: &HostAppearance) -> AppearancePlan {
     // arrives with the D-Bus module, so no colour values are invented here.
     let gtk_theme = host.host_gtk_theme.clone().or_else(|| {
         host.gtk.theme_name.as_ref().map(|name| {
-            if host.gtk.prefer_dark {
+            if host.gtk.prefer_dark && !name.contains(':') {
                 format!("{name}:dark")
             } else {
                 name.clone()
@@ -316,23 +316,6 @@ pub fn build_appearance_plan(host: &HostAppearance) -> AppearancePlan {
     }
 
     plan
-}
-
-fn add_device_line(q_name: &str, device: &DeviceSpec) -> String {
-    let options = device_options(&device.options);
-    if options.is_empty() {
-        format!(
-            "incus config device add {q_name} {} {}",
-            shell_quote(&device.name),
-            shell_quote(&device.kind)
-        )
-    } else {
-        format!(
-            "incus config device add {q_name} {} {} {options}",
-            shell_quote(&device.name),
-            shell_quote(&device.kind)
-        )
-    }
 }
 
 /// Returns an idempotent snippet that installs the plan's read-only mounts.
@@ -369,7 +352,7 @@ pub fn apply_appearance_devices_script(name: &str, plan: &AppearancePlan) -> Str
     }
     lines.push(remove_appearance_devices_script(name));
     for device in &plan.devices {
-        lines.push(add_device_line(&q_name, device));
+        lines.push(crate::display::plan::add_device_line(&q_name, device));
     }
     lines.join("\n")
 }

@@ -10,13 +10,12 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use aibox_core::display::{
-    apply_appearance_devices_script, apply_audio_devices_script, apply_dbus_devices_script,
-    apply_devices_script, apply_extra_devices_script, build_appearance_plan, build_audio_plan,
-    build_dbus_plan, build_desktop_plan, build_extra_devices_plan, combine_scripts,
-    detect_host_appearance, detect_host_audio, detect_host_dbus, detect_host_devices,
-    detect_host_session, download_dir_script, download_env, gpu_env, merge_env_pairs,
-    stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode, DbusPlan,
-    DesktopMode, DisplayPlan, ExtraDeviceToggles, ExtraDevicesPlan,
+    build_appearance_plan, build_audio_plan, build_dbus_plan, build_desktop_plan,
+    build_extra_devices_plan, combine_scripts, detect_host_appearance, detect_host_audio,
+    detect_host_dbus, detect_host_devices, detect_host_session, download_env, gpu_env,
+    merge_env_pairs, session_bridge_script, stop_dbus_bridge_script_with, AppearancePlan,
+    AudioMode, DbusMode, DesktopMode, ExtraDeviceToggles, HostAudio, HostDbus, HostDevices,
+    HostSession,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -52,6 +51,117 @@ use crate::qt_backend::{find_executable, launch_command_in_terminal, qobject, sp
 use crate::qt_convert::json_array_to_qvariant_list;
 
 static REMOTE_ENV_SEQ: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone)]
+struct EnvBridgeFlags {
+    name: String,
+    is_vm: bool,
+    desktop_enabled: bool,
+    audio_mode: String,
+    dbus_enabled: bool,
+    camera_enabled: bool,
+    usb_enabled: bool,
+    printer_enabled: bool,
+}
+
+impl EnvBridgeFlags {
+    fn from_backend(backend: &qobject::Backend, env_name: &str) -> Self {
+        match backend
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name)
+        {
+            Some(env) => Self {
+                name: env_name.to_string(),
+                is_vm: aibox_core::provision::is_vm_env_type(&env.env_type),
+                desktop_enabled: env.desktop_enabled,
+                audio_mode: env.audio_mode.clone(),
+                dbus_enabled: env.dbus_enabled,
+                camera_enabled: env.camera_enabled,
+                usb_enabled: env.usb_enabled,
+                printer_enabled: env.printer_enabled,
+            },
+            None => Self {
+                name: env_name.to_string(),
+                is_vm: false,
+                desktop_enabled: false,
+                audio_mode: "off".to_string(),
+                dbus_enabled: false,
+                camera_enabled: false,
+                usb_enabled: false,
+                printer_enabled: false,
+            },
+        }
+    }
+
+    fn build_bridge_and_env(&self) -> (String, Vec<(String, String)>) {
+        let desktop_mode = if !self.is_vm {
+            DesktopMode::from_enabled(self.desktop_enabled)
+        } else {
+            DesktopMode::Off
+        };
+        let desktop = if desktop_mode == DesktopMode::On {
+            build_desktop_plan(desktop_mode, &detect_host_session())
+        } else {
+            build_desktop_plan(DesktopMode::Off, &HostSession::default())
+        };
+
+        let audio_mode = if !self.is_vm {
+            AudioMode::parse(&self.audio_mode)
+        } else {
+            AudioMode::Off
+        };
+        let audio = if audio_mode != AudioMode::Off {
+            let host = detect_host_audio();
+            build_audio_plan(audio_mode, &host, host.uid)
+        } else {
+            build_audio_plan(AudioMode::Off, &HostAudio::default(), 0)
+        };
+
+        let appearance = if desktop_mode == DesktopMode::On {
+            build_appearance_plan(&detect_host_appearance())
+        } else {
+            AppearancePlan::default()
+        };
+
+        let dbus = if !self.is_vm && self.dbus_enabled {
+            build_dbus_plan(DbusMode::On, &detect_host_dbus(), &self.name)
+        } else {
+            build_dbus_plan(DbusMode::Off, &HostDbus::default(), &self.name)
+        };
+
+        let toggles = if !self.is_vm {
+            ExtraDeviceToggles::from_envs(
+                self.camera_enabled,
+                self.usb_enabled,
+                self.printer_enabled,
+            )
+        } else {
+            ExtraDeviceToggles::from_envs(false, false, false)
+        };
+        let extra = if toggles.any() {
+            build_extra_devices_plan(toggles, &detect_host_devices())
+        } else {
+            build_extra_devices_plan(toggles, &HostDevices::default())
+        };
+
+        let script =
+            session_bridge_script(&self.name, &desktop, &audio, &appearance, &dbus, &extra);
+        let downloads = download_env();
+        let gpu = gpu_env();
+        let env = merge_env_pairs(&[
+            &desktop.env,
+            &audio.env,
+            &dbus.env,
+            &extra.env,
+            &downloads,
+            &gpu,
+            &appearance.env,
+        ]);
+        (script, env)
+    }
+}
 
 pub(crate) struct NoopResolver;
 
@@ -167,7 +277,26 @@ impl qobject::Backend {
         };
 
         if !launch_cmd.is_empty() {
-            let _ = Command::new("/bin/sh").arg("-c").arg(&launch_cmd).status();
+            let launch_ok = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&launch_cmd)
+                .status()
+                .is_ok_and(|s| s.success());
+            if !launch_ok {
+                let had_dl = !self.downloading_os_id.is_empty();
+                {
+                    let mut rust = self.as_mut().rust_mut();
+                    rust.pending_env_name = QString::default();
+                    rust.downloading_os_id = QString::default();
+                }
+                if had_dl {
+                    self.as_mut().rebuild_os_catalog();
+                }
+                self.as_mut().set_busy(false, "");
+                self.as_mut()
+                    .set_error_message("Could not launch background task.");
+                return;
+            }
         }
         self.set_task_watch_active(true);
     }
@@ -510,91 +639,6 @@ impl qobject::Backend {
             .unwrap_or_default()
     }
 
-    fn desktop_plan_for_env(&self, env_name: &str) -> DisplayPlan {
-        let env = self
-            .engine
-            .environments
-            .iter()
-            .find(|env| env.name == env_name);
-        let mode = match env {
-            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
-                DesktopMode::from_enabled(env.desktop_enabled)
-            }
-            _ => DesktopMode::Off,
-        };
-        build_desktop_plan(mode, &detect_host_session())
-    }
-
-    fn audio_plan_for_env(&self, env_name: &str) -> AudioPlan {
-        let env = self
-            .engine
-            .environments
-            .iter()
-            .find(|env| env.name == env_name);
-        let mode = match env {
-            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
-                AudioMode::parse(&env.audio_mode)
-            }
-            _ => AudioMode::Off,
-        };
-        let host = detect_host_audio();
-        build_audio_plan(mode, &host, host.uid)
-    }
-
-    fn appearance_plan_for_env(&self, env_name: &str) -> AppearancePlan {
-        let env = self
-            .engine
-            .environments
-            .iter()
-            .find(|env| env.name == env_name);
-        let desktop_mode = match env {
-            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
-                DesktopMode::from_enabled(env.desktop_enabled)
-            }
-            _ => DesktopMode::Off,
-        };
-        if desktop_mode == DesktopMode::Off {
-            return AppearancePlan::default();
-        }
-        build_appearance_plan(&detect_host_appearance())
-    }
-
-    fn dbus_plan_for_env(&self, env_name: &str) -> DbusPlan {
-        let env = self
-            .engine
-            .environments
-            .iter()
-            .find(|env| env.name == env_name);
-        let mode = match env {
-            Some(env)
-                if !aibox_core::provision::is_vm_env_type(&env.env_type) && env.dbus_enabled =>
-            {
-                DbusMode::On
-            }
-            _ => DbusMode::Off,
-        };
-        build_dbus_plan(mode, &detect_host_dbus(), env_name)
-    }
-
-    fn extra_devices_plan_for_env(&self, env_name: &str) -> ExtraDevicesPlan {
-        let env = self
-            .engine
-            .environments
-            .iter()
-            .find(|env| env.name == env_name);
-        let toggles = match env {
-            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
-                ExtraDeviceToggles::from_envs(
-                    env.camera_enabled,
-                    env.usb_enabled,
-                    env.printer_enabled,
-                )
-            }
-            _ => ExtraDeviceToggles::from_envs(false, false, false),
-        };
-        build_extra_devices_plan(toggles, &detect_host_devices())
-    }
-
     pub(crate) fn dbus_stop_script_for_env(&self, env_name: &str) -> String {
         let enabled = self
             .engine
@@ -611,41 +655,12 @@ impl qobject::Backend {
         }
     }
 
-    fn session_env_for_env(&self, env_name: &str) -> Vec<(String, String)> {
-        let desktop = self.desktop_plan_for_env(env_name);
-        let audio = self.audio_plan_for_env(env_name);
-        let appearance = self.appearance_plan_for_env(env_name);
-        let dbus = self.dbus_plan_for_env(env_name);
-        let extra = self.extra_devices_plan_for_env(env_name);
-        let downloads = download_env();
-        let gpu = gpu_env();
-        merge_env_pairs(&[
-            &desktop.env,
-            &audio.env,
-            &dbus.env,
-            &extra.env,
-            &downloads,
-            &gpu,
-            &appearance.env,
-        ])
-    }
-
     /// Applies display, audio, appearance, download, filtered-bus, and opt-in
     /// extra devices for GUI Start, not only Enter.
     pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
-        let desktop = self.desktop_plan_for_env(env_name);
-        let audio = self.audio_plan_for_env(env_name);
-        let appearance = self.appearance_plan_for_env(env_name);
-        let dbus = self.dbus_plan_for_env(env_name);
-        let extra = self.extra_devices_plan_for_env(env_name);
-        combine_scripts(&[
-            apply_devices_script(env_name, &desktop),
-            apply_audio_devices_script(env_name, &audio),
-            apply_appearance_devices_script(env_name, &appearance),
-            apply_dbus_devices_script(env_name, &dbus),
-            apply_extra_devices_script(env_name, &extra),
-            download_dir_script(env_name),
-        ])
+        EnvBridgeFlags::from_backend(self, env_name)
+            .build_bridge_and_env()
+            .0
     }
 
     fn start_enter_prepare_worker(self: Pin<&mut Self>) {
@@ -654,20 +669,23 @@ impl qobject::Backend {
             return;
         }
         let auto_snap = self.auto_snapshot_snippet_for(&env_name);
-        let session_script = self.session_bridge_script_for_env(&env_name);
-        let script = build_prepare_script_with_desktop(
-            &env_name,
-            &auto_snap,
-            &self.enter_allowlist_snippet,
-            &session_script,
-        );
+        let allowlist_snippet = self.enter_allowlist_snippet.clone();
+        let bridge_flags = EnvBridgeFlags::from_backend(&self, &env_name);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
+            let (session_script, session_env) = bridge_flags.build_bridge_and_env();
+            let script = build_prepare_script_with_desktop(
+                &env_name,
+                &auto_snap,
+                &allowlist_snippet,
+                &session_script,
+            );
             let output = Command::new("/bin/bash").arg("-c").arg(&script).output();
             let _ = qt_thread.queue(move |mut backend| {
                 if backend.enter_env_name != env_name {
                     return;
                 }
+                backend.as_mut().rust_mut().enter_session_env = session_env;
                 let Ok(out) = output else {
                     backend
                         .as_mut()
@@ -792,8 +810,8 @@ impl qobject::Backend {
         if name.is_empty() {
             return;
         }
-        let mut enter_cmd =
-            build_enter_command_with_env(&name, remote_env_path, &self.session_env_for_env(&name));
+        let session_env = std::mem::take(&mut self.as_mut().rust_mut().enter_session_env);
+        let mut enter_cmd = build_enter_command_with_env(&name, remote_env_path, &session_env);
         let record_enabled = self
             .engine
             .environments
@@ -953,12 +971,10 @@ impl qobject::Backend {
                 "Watchdog auto-stopping '{}' (disk >= {}%)",
                 batch.auto_stop_target, disk_critical
             );
-            self.as_mut().run_shell_task(
-                &desc,
-                &batch.auto_stop_script,
-                "",
-                &batch.auto_stop_target,
-            );
+            let dbus_stop = self.dbus_stop_script_for_env(&batch.auto_stop_target);
+            let stop_script = combine_scripts(&[dbus_stop, batch.auto_stop_script]);
+            self.as_mut()
+                .run_shell_task(&desc, &stop_script, "", &batch.auto_stop_target);
         }
     }
 

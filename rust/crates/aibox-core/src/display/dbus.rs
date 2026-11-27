@@ -55,7 +55,7 @@ impl DbusMode {
 }
 
 /// Host-side details needed to start and validate the two proxy processes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostDbus {
     pub uid: u32,
     pub gid: u32,
@@ -323,7 +323,7 @@ pub fn apply_dbus_devices_script(name: &str, plan: &DbusPlan) -> String {
         "setsid {q_xdg} {q_bus} {q_filter} --filter {filters}",
         filters = filter_arguments()
     );
-    let auth_command = format!("setsid {q_aibox} --dbus-auth-proxy {q_auth} unix:path={q_filter}");
+    let auth_command = format!("setsid {q_aibox} --dbus-auth-proxy {q_auth} {q_filter}");
 
     let mut lines = vec![
         format!("mkdir -p {q_dir} >/dev/null 2>&1 || true"),
@@ -359,7 +359,7 @@ pub fn apply_dbus_devices_script(name: &str, plan: &DbusPlan) -> String {
 
 fn start_or_reuse(socket: &str, pid_file: &str, command: &str) -> String {
     format!(
-        "if [ -S {socket} ] && [ -f {pid_file} ] && kill -0 \"$(cat {pid_file} 2>/dev/null)\" 2>/dev/null; then\n    :\nelse\n    rm -f {socket} {pid_file}\n    {command} >/dev/null 2>&1 &\n    echo $! > {pid_file}\n    DBUS_WAIT=0\n    while [ ! -S {socket} ] && [ \"$DBUS_WAIT\" -lt 50 ]; do\n        DBUS_WAIT=$((DBUS_WAIT + 1))\n        sleep 0.1\n    done\nfi"
+        "if [ -S {socket} ] && [ -f {pid_file} ] && kill -0 \"$(cat {pid_file} 2>/dev/null)\" 2>/dev/null; then\n    :\nelse\n    if [ -f {pid_file} ]; then\n        OLD_PID=$(cat {pid_file} 2>/dev/null || true)\n        if [ -n \"$OLD_PID\" ] && grep -qaE 'xdg-dbus-proxy|aibox' \"/proc/$OLD_PID/cmdline\" 2>/dev/null; then\n            kill \"$OLD_PID\" 2>/dev/null || true\n        fi\n    fi\n    rm -f {socket} {pid_file}\n    {command} >/dev/null 2>&1 &\n    PID=$!\n    echo \"$PID\" > {pid_file}\n    DBUS_WAIT=0\n    while [ ! -S {socket} ] && [ \"$DBUS_WAIT\" -lt 50 ] && kill -0 \"$PID\" 2>/dev/null; do\n        DBUS_WAIT=$((DBUS_WAIT + 1))\n        sleep 0.1\n    done\nfi"
     )
 }
 
@@ -378,7 +378,7 @@ pub fn stop_dbus_bridge_script_with(name: &str, host: &HostDbus) -> String {
     let q_filter_pid = shell_quote(&filter_pid);
 
     format!(
-        "AUTH_PID=\"\"\nFILTER_PID=\"\"\nif [ -f {q_auth_pid} ]; then AUTH_PID=$(cat {q_auth_pid} 2>/dev/null || true); fi\nif [ -f {q_filter_pid} ]; then FILTER_PID=$(cat {q_filter_pid} 2>/dev/null || true); fi\nif [ -n \"$AUTH_PID\" ]; then kill \"$AUTH_PID\" 2>/dev/null || true; fi\nif [ -n \"$FILTER_PID\" ]; then kill \"$FILTER_PID\" 2>/dev/null || true; fi\nif [ -n \"$AUTH_PID$FILTER_PID\" ]; then\n    sleep 0.2\n    if [ -n \"$AUTH_PID\" ]; then kill -9 \"$AUTH_PID\" 2>/dev/null || true; fi\n    if [ -n \"$FILTER_PID\" ]; then kill -9 \"$FILTER_PID\" 2>/dev/null || true; fi\nfi\nrm -f {q_auth} {q_filter} {q_auth_pid} {q_filter_pid}\nrmdir {q_dir} 2>/dev/null || true\nincus config device remove {q_name} {device} >/dev/null 2>&1 || true",
+        "AUTH_PID=\"\"\nFILTER_PID=\"\"\nif [ -f {q_auth_pid} ]; then\n    CAND=$(cat {q_auth_pid} 2>/dev/null || true)\n    if [ -n \"$CAND\" ] && grep -qa 'aibox' \"/proc/$CAND/cmdline\" 2>/dev/null; then AUTH_PID=\"$CAND\"; fi\nfi\nif [ -f {q_filter_pid} ]; then\n    CAND=$(cat {q_filter_pid} 2>/dev/null || true)\n    if [ -n \"$CAND\" ] && grep -qa 'xdg-dbus-proxy' \"/proc/$CAND/cmdline\" 2>/dev/null; then FILTER_PID=\"$CAND\"; fi\nfi\nif [ -n \"$AUTH_PID\" ]; then kill \"$AUTH_PID\" 2>/dev/null || true; fi\nif [ -n \"$FILTER_PID\" ]; then kill \"$FILTER_PID\" 2>/dev/null || true; fi\nif [ -n \"$AUTH_PID$FILTER_PID\" ]; then\n    sleep 0.2\n    if [ -n \"$AUTH_PID\" ]; then kill -9 \"$AUTH_PID\" 2>/dev/null || true; fi\n    if [ -n \"$FILTER_PID\" ]; then kill -9 \"$FILTER_PID\" 2>/dev/null || true; fi\nfi\nrm -f {q_auth} {q_filter} {q_auth_pid} {q_filter_pid}\nrmdir {q_dir} 2>/dev/null || true\nincus config device remove {q_name} {device} >/dev/null 2>&1 || true",
         device = shell_quote(DBUS_DEVICE)
     )
 }
@@ -429,11 +429,19 @@ pub fn set_dbus_mode_script(name: &str, mode: DbusMode, host: &HostDbus) -> Stri
 /// portal and notification services answer while `org.freedesktop.secrets`
 /// stays blocked.
 pub fn dbus_test_script(name: &str, plan: &DbusPlan) -> String {
-    if !plan.enabled || plan.env.is_empty() {
+    if !plan.enabled {
         return format!(
             "echo {} >&2\nexit 1",
             shell_quote("Host services are off for this environment. Enable Filtered bus first.")
         );
+    }
+    if plan.env.is_empty() {
+        let msg = if plan.warnings.is_empty() {
+            "Host D-Bus bridge is unavailable on this host.".to_string()
+        } else {
+            plan.warnings.join(" ")
+        };
+        return format!("echo {} >&2\nexit 1", shell_quote(&msg));
     }
 
     let mut cmd = format!("incus exec {}", shell_quote(name));
@@ -609,8 +617,9 @@ mod tests {
     #[test]
     fn stop_script_kills_both_processes_and_removes_the_device() {
         let script = stop_dbus_bridge_script_with("box", &host_ready());
-        assert!(script.contains("AUTH_PID=$(cat '/run/user/1000/aibox-dbus/box/auth.pid'"));
-        assert!(script.contains("FILTER_PID=$(cat '/run/user/1000/aibox-dbus/box/filter.pid'"));
+        assert!(script.contains("if [ -f '/run/user/1000/aibox-dbus/box/auth.pid' ]"));
+        assert!(script.contains("if [ -f '/run/user/1000/aibox-dbus/box/filter.pid' ]"));
+        assert!(script.contains("/proc/$CAND/cmdline"));
         assert!(script.contains("kill -9 \"$AUTH_PID\""));
         assert!(script.contains("kill -9 \"$FILTER_PID\""));
         assert!(script.contains("rm -f '/run/user/1000/aibox-dbus/box/auth.sock'"));

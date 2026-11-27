@@ -1,8 +1,10 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::cli::commands::{require_environment, run_script_with_task_lock};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::engine::Engine;
+use crate::network::allowlist::{parse_allowlist_entries, resolve_allowlist_cidrs, SystemResolver};
 use crate::process::CommandRunner;
 use crate::provision::clone::clone_environment_script_with_source;
 use crate::provision::is_vm_env_type;
@@ -12,18 +14,40 @@ use crate::util::names::sanitize_name;
 use crate::util::paths::workspace_path_for;
 use crate::util::shell::shell_quote;
 
-/// Builds a deterministic ephemeral environment name from `template_name` and `epoch`.
-pub fn ephemeral_env_name(template_name: &str, epoch: i64) -> String {
+static EPHEMERAL_SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn build_ephemeral_name(template_name: &str, suffix: &str) -> String {
     let base = sanitize_name(template_name);
     let prefix = if base.is_empty() { "box" } else { &base };
-    format!("eph-{prefix}-{epoch}")
+    let max_prefix = 63usize.saturating_sub(4 + suffix.len() + 1);
+    let truncated = prefix
+        .get(..prefix.len().min(max_prefix))
+        .unwrap_or(prefix)
+        .trim_end_matches('-');
+    let safe_prefix = if truncated.is_empty() {
+        "box"
+    } else {
+        truncated
+    };
+    format!("eph-{safe_prefix}-{suffix}")
+}
+
+/// Builds a deterministic ephemeral environment name from `template_name` and `epoch`.
+pub fn ephemeral_env_name(template_name: &str, epoch: i64) -> String {
+    build_ephemeral_name(template_name, &epoch.to_string())
 }
 
 /// Builds the cleanup script that deletes the ephemeral Incus instance and its workspace.
 pub fn ephemeral_cleanup_script(env_name: &str, workspace_path: &str) -> String {
     let q_env = shell_quote(env_name);
     let q_ws = shell_quote(workspace_path);
-    format!("incus delete --force {q_env} >/dev/null 2>&1 || true\nrm -rf {q_ws}")
+    let q_acl = shell_quote(&format!("aibox-{env_name}"));
+    format!(
+        "incus delete --force {q_env} >/dev/null 2>&1 || true\n\
+         incus network acl delete {q_acl} >/dev/null 2>&1 || true\n\
+         btrfs subvolume delete {q_ws} >/dev/null 2>&1 || true\n\
+         rm -rf {q_ws}"
+    )
 }
 
 pub fn run_ephemeral(
@@ -41,9 +65,22 @@ pub fn run_ephemeral(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let eph_name = ephemeral_env_name(&src.name, epoch);
+    let seq = EPHEMERAL_SEQ.fetch_add(1, Ordering::Relaxed);
+    let suffix = format!("{epoch}-{}-{seq}", std::process::id());
+    let eph_name = build_ephemeral_name(&src.name, &suffix);
     let ws_path = workspace_path_for(&engine.paths.workspace_base, &[], &eph_name);
     let is_vm = is_vm_env_type(&src.env_type);
+
+    let resolved_cidrs = if src.network_mode == "allowlist" {
+        let entries = parse_allowlist_entries(&src.network_allowlist);
+        let (cidrs, warnings) = resolve_allowlist_cidrs(&entries, &SystemResolver);
+        for w in &warnings {
+            io.write_stderr(format!("Warning: {w}\n").as_bytes());
+        }
+        cidrs
+    } else {
+        Vec::new()
+    };
 
     let clone_script = clone_environment_script_with_source(
         &src.name,
@@ -56,7 +93,7 @@ pub fn run_ephemeral(
         true,
         &src.network_mode,
         &src.network_allowlist,
-        &[],
+        &resolved_cidrs,
         "",
         "",
         "",
@@ -72,6 +109,9 @@ pub fn run_ephemeral(
         &clone_script,
         false,
     );
+    if clone_rc == ExitCode::Busy.as_i32() {
+        return ExitCode::Busy.as_i32();
+    }
     if clone_rc != 0 {
         let cleanup = ephemeral_cleanup_script(&eph_name, &ws_path);
         let _ = runner.run("/bin/bash", &["-c", &cleanup]);

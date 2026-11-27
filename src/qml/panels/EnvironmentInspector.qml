@@ -78,7 +78,7 @@ Item {
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
         ColumnLayout {
             width: inspectorScroll.availableWidth
@@ -368,23 +368,37 @@ Item {
 
             NetworkModeCard {
                 app: root.app
+                env: root.env
             }
 
-            AutostartCard {}
+            AutostartCard {
+                env: root.env
+            }
 
-            DesktopIntegrationCard {}
+            DesktopIntegrationCard {
+                env: root.env
+            }
 
-            AudioCard {}
+            AudioCard {
+                env: root.env
+            }
 
-            GpuVideoCard {}
+            GpuVideoCard {
+                env: root.env
+            }
 
-            HostServicesCard {}
+            HostServicesCard {
+                env: root.env
+            }
 
-            ExtraDevicesCard {}
+            ExtraDevicesCard {
+                env: root.env
+            }
 
             SnapshotsCard {
                 id: snapshotsCard
                 app: root.app
+                env: root.env
             }
         }
     }

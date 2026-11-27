@@ -1,13 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import "../components"
 
 // Per-environment audio bridge: Pulse playback with optional PipeWire/mic.
 Card {
     id: root
 
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property bool isVm: (root.env.type || "") === "VIRTUAL-MACHINE"
                                  || (root.env.type || "") === "VM"
     readonly property bool template: root.env.isTemplate || false
@@ -48,13 +47,14 @@ Card {
                 selectedFill: theme.surfaceSelected
                 fillColor: theme.surfaceInput
                 selectedBorderColor: theme.accentBorder
-                interactive: !backend.busy && !root.template
-                opacity: backend.busy ? Style.opacityDisabled : 1.0
-                onClicked: backend.setEnvironmentAudio(
-                    root.env.name || "",
-                    modelData.id)
+                disabled: backend.busy || root.template
+                onClicked: if (modelData.id !== root.audioMode) {
+                    backend.setEnvironmentAudio(root.env.name || "", modelData.id)
+                }
             }
         }
+
+        Item { Layout.fillWidth: true }
     }
 
     Text {

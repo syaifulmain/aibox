@@ -79,6 +79,21 @@ const BASH_COMPLETIONS: &str = r#"_aibox_completions() {
         exec)
             COMPREPLY=( $(compgen -W "--timeout --summary -h --help" -- "$cur") )
             ;;
+        backup-schedule)
+            COMPREPLY=( $(compgen -W "--keep -h --help" -- "$cur") )
+            ;;
+        export-config)
+            COMPREPLY=( $(compgen -W "--output -h --help" -- "$cur") )
+            ;;
+        healthcheck)
+            COMPREPLY=( $(compgen -W "--url --set --off --auto-restart --json -h --help" -- "$cur") )
+            ;;
+        run)
+            COMPREPLY=( $(compgen -W "--ephemeral --from --keep-on-fail -h --help" -- "$cur") )
+            ;;
+        svc)
+            COMPREPLY=( $(compgen -W "list start stop restart enable disable logs --lines --json -h --help" -- "$cur") )
+            ;;
         snapshots|diff)
             COMPREPLY=( $(compgen -W "--json -h --help" -- "$cur") )
             ;;
@@ -150,6 +165,21 @@ _aibox() {
                 exec)
                     _arguments '--timeout[Terminate command after duration]:duration:' '--summary[Print system change summary after command]' '(-h --help)'{-h,--help}'[Show help]'
                     ;;
+                backup-schedule)
+                    _arguments '--keep[Number of snapshots to retain]:count:' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
+                export-config)
+                    _arguments '--output[Output TOML path]:file:_files' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
+                healthcheck)
+                    _arguments '--url[Override probe target]:target:' '--set[Persist health check target]:target:' '--off[Disable health check]' '--auto-restart[Restart when down]' '--json[JSON output]' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
+                run)
+                    _arguments '--ephemeral[Create disposable clone]' '--from[Source template or environment]:env:' '--keep-on-fail[Keep clone on non-zero exit]' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
+                svc)
+                    _arguments '1:action:(list start stop restart enable disable logs)' '--lines[Log line count]:count:' '--json[JSON output]' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
                 snapshots|diff)
                     _arguments '--json[JSON output]' '(-h --help)'{-h,--help}'[Show help]'
                     ;;
@@ -201,10 +231,21 @@ complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a theme -d
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a completions -d "Generate shell completions"
 complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a help -d "Show help"
 
-complete -c aibox -n "__fish_seen_subcommand_from list check snapshots diff" -l json -d "JSON output"
+complete -c aibox -n "__fish_seen_subcommand_from list check snapshots diff healthcheck svc" -l json -d "JSON output"
 complete -c aibox -n "__fish_seen_subcommand_from check" -l fix -d "Attempt automatic fixes"
 complete -c aibox -n "__fish_seen_subcommand_from exec" -l timeout -r -d "Terminate command after duration"
 complete -c aibox -n "__fish_seen_subcommand_from exec" -l summary -d "Print system change summary"
+complete -c aibox -n "__fish_seen_subcommand_from backup-schedule" -l keep -r -d "Number of snapshots to retain"
+complete -c aibox -n "__fish_seen_subcommand_from export-config" -l output -r -d "Output TOML path"
+complete -c aibox -n "__fish_seen_subcommand_from healthcheck" -l url -r -d "Override probe target"
+complete -c aibox -n "__fish_seen_subcommand_from healthcheck" -l set -r -d "Persist health check target"
+complete -c aibox -n "__fish_seen_subcommand_from healthcheck" -l off -d "Disable health check"
+complete -c aibox -n "__fish_seen_subcommand_from healthcheck" -l auto-restart -d "Restart when down"
+complete -c aibox -n "__fish_seen_subcommand_from run" -l ephemeral -d "Create disposable clone"
+complete -c aibox -n "__fish_seen_subcommand_from run" -l from -r -d "Source template or environment"
+complete -c aibox -n "__fish_seen_subcommand_from run" -l keep-on-fail -d "Keep clone on non-zero exit"
+complete -c aibox -n "__fish_seen_subcommand_from svc" -a "list start stop restart enable disable logs" -d "Service action"
+complete -c aibox -n "__fish_seen_subcommand_from svc" -l lines -r -d "Log line count"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -l system-only -d "Restore OS only"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -l workspace-only -d "Restore workspace only"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -s y -l yes -d "Skip confirmation"

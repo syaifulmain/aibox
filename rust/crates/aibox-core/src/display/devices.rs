@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use crate::display::plan::{device_options, DeviceSpec};
+use crate::display::plan::DeviceSpec;
 use crate::util::shell::shell_quote;
 
 /// Per-environment extra device switches (`user.aibox.camera`, `...usb`,
@@ -236,30 +236,17 @@ pub fn apply_extra_devices_script(name: &str, plan: &ExtraDevicesPlan) -> String
         return String::new();
     }
     let q_name = shell_quote(name);
-    let mut lines = vec![
-        format!(
+    let mut lines = Vec::new();
+    if plan.devices.iter().any(|d| d.name == PRINTER_DEVICE) {
+        lines.push(format!(
             "incus exec {q_name} -- mkdir -p {} >/dev/null 2>&1 || true",
             shell_quote("/run/cups")
-        ),
-        remove_extra_devices_script(name),
-    ];
+        ));
+    }
+    lines.push(remove_extra_devices_script(name));
 
     for device in &plan.devices {
-        let options = device_options(&device.options);
-        let add = if options.is_empty() {
-            format!(
-                "incus config device add {q_name} {} {}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
-            )
-        } else {
-            format!(
-                "incus config device add {q_name} {} {} {options}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
-            )
-        };
-        lines.push(add);
+        lines.push(crate::display::plan::add_device_line(&q_name, device));
     }
     lines.join("\n")
 }
@@ -301,22 +288,20 @@ pub fn set_extra_devices_script(
         ),
     ];
 
-    lines.push(remove_extra_devices_script(name));
-    if !toggles.any() {
+    let plan = build_extra_devices_plan(*toggles, host);
+    if plan.devices.is_empty() {
+        lines.push(remove_extra_devices_script(name));
         return lines.join("\n");
     }
 
-    let apply = apply_extra_devices_script(name, &build_extra_devices_plan(*toggles, host));
-    if !apply.is_empty() {
-        // A stopped instance cannot attach char devices or a proxy that
-        // listens on a container path; the next Start/Enter applies them.
-        lines.push(format!(
-            "STATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')"
-        ));
-        lines.push("if [[ \"$STATUS\" == \"RUNNING\" ]]; then".to_string());
-        lines.push(apply);
-        lines.push("fi".to_string());
-    }
+    lines.push(format!(
+        "STATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')"
+    ));
+    lines.push("if [[ \"$STATUS\" == \"RUNNING\" ]]; then".to_string());
+    lines.push(apply_extra_devices_script(name, &plan));
+    lines.push("else".to_string());
+    lines.push(remove_extra_devices_script(name));
+    lines.push("fi".to_string());
     lines.join("\n")
 }
 
@@ -581,15 +566,19 @@ mod tests {
         assert!(on.contains("user.aibox.camera 'on'"));
         assert!(on.contains("user.aibox.usb 'off'"));
         assert!(on.contains("user.aibox.printer 'on'"));
-        let remove_at = on.find("config device show").expect("stale removal");
         let guard_at = on
             .find("if [[ \"$STATUS\" == \"RUNNING\" ]]; then")
             .expect("running guard");
+        let remove_at = on[guard_at..]
+            .find("config device show")
+            .map(|rel| guard_at + rel)
+            .expect("stale removal inside running branch");
         let camera_add_at = on
             .find("config device add 'box' 'camera-video0'")
             .expect("camera add");
-        assert!(remove_at < guard_at);
-        assert!(guard_at < camera_add_at);
+        assert!(guard_at < remove_at);
+        assert!(remove_at < camera_add_at);
+        assert!(on.contains("else\nincus config device show"));
         assert!(on.contains("config device add 'box' 'printer' 'proxy'"));
         assert!(!on.contains("'input-event0'"));
     }

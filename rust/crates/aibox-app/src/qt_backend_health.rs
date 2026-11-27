@@ -79,20 +79,23 @@ impl qobject::Backend {
         if name_s.is_empty() || *self.busy() {
             return;
         }
-        let is_vm = self
+        let Some(env) = self
             .engine
             .environments
             .iter()
             .find(|env| env.name == name_s)
-            .is_some_and(|env| aibox_core::provision::is_vm_env_type(&env.env_type));
-        if is_vm {
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
             return;
         }
-        let script = set_desktop_mode_script(
-            &name_s,
-            DesktopMode::from_enabled(enabled),
-            &detect_host_session(),
-        );
+        let host = if enabled {
+            detect_host_session()
+        } else {
+            aibox_core::display::HostSession::default()
+        };
+        let script = set_desktop_mode_script(&name_s, DesktopMode::from_enabled(enabled), &host);
         self.as_mut().run_shell_task(
             &format!("Updating desktop integration for '{name_s}'"),
             &script,
@@ -109,22 +112,23 @@ impl qobject::Backend {
         let Some(mode) = AudioMode::try_parse(&mode.to_string()) else {
             return;
         };
-        let (is_vm, is_template) = self
+        let Some(env) = self
             .engine
             .environments
             .iter()
             .find(|env| env.name == name_s)
-            .map(|env| {
-                (
-                    aibox_core::provision::is_vm_env_type(&env.env_type),
-                    env.is_template,
-                )
-            })
-            .unwrap_or((false, false));
-        if is_vm || is_template {
+        else {
+            return;
+        };
+        if aibox_core::provision::is_vm_env_type(&env.env_type) || env.is_template {
             return;
         }
-        let script = set_audio_mode_script(&name_s, mode, &detect_host_audio());
+        let host = if mode == AudioMode::Off {
+            aibox_core::display::HostAudio::default()
+        } else {
+            detect_host_audio()
+        };
+        let script = set_audio_mode_script(&name_s, mode, &host);
         self.as_mut().run_shell_task(
             &format!("Updating audio for '{name_s}'"),
             &script,
@@ -218,7 +222,12 @@ impl qobject::Backend {
             "printer" => toggles.printer = enabled,
             _ => return,
         }
-        let script = set_extra_devices_script(&name_s, &toggles, &detect_host_devices());
+        let host = if toggles.any() {
+            detect_host_devices()
+        } else {
+            aibox_core::display::HostDevices::default()
+        };
+        let script = set_extra_devices_script(&name_s, &toggles, &host);
         self.as_mut().run_shell_task(
             &format!("Updating extra devices for '{name_s}'"),
             &script,

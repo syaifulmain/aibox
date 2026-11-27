@@ -396,22 +396,19 @@ fn btree_str<'a>(map: &'a BTreeMap<String, String>, key: &str) -> &'a str {
 }
 
 fn has_desktop_device(devices: &BTreeMap<String, BTreeMap<String, String>>) -> bool {
-    devices
-        .keys()
-        .any(|name| name == "x11" || name == "wayland")
+    devices.contains_key("x11") || devices.contains_key("wayland")
 }
 
 fn parse_desktop_enabled(config: &HashMap<String, String>, item: &RawIncusInstance) -> bool {
-    match map_str(config, "user.aibox.desktop")
-        .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "on" | "true" | "1" => true,
-        "off" | "false" | "0" => false,
+    let raw = map_str(config, "user.aibox.desktop").trim();
+    if raw.eq_ignore_ascii_case("on") || raw.eq_ignore_ascii_case("true") || raw == "1" {
+        true
+    } else if raw.eq_ignore_ascii_case("off") || raw.eq_ignore_ascii_case("false") || raw == "0" {
+        false
+    } else {
         // Legacy instances have no key: infer from the bridge devices that the
         // old create flow installed.
-        _ => has_desktop_device(&item.devices) || has_desktop_device(&item.expanded_devices),
+        has_desktop_device(&item.devices) || has_desktop_device(&item.expanded_devices)
     }
 }
 
@@ -449,21 +446,16 @@ fn parse_dbus_enabled(
     item: &RawIncusInstance,
     desktop_enabled: bool,
 ) -> bool {
-    match map_str(config, "user.aibox.dbus")
-        .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "on" | "true" | "1" => true,
-        "off" | "false" | "0" => false,
+    let raw = map_str(config, "user.aibox.dbus").trim();
+    if raw.eq_ignore_ascii_case("on") || raw.eq_ignore_ascii_case("true") || raw == "1" {
+        true
+    } else if raw.eq_ignore_ascii_case("off") || raw.eq_ignore_ascii_case("false") || raw == "0" {
+        false
+    } else {
         // Legacy instances have no key: an existing bridge device means the
         // bus was shared, otherwise GUI environments inherit the desktop
         // switch and headless ones stay off.
-        _ => {
-            has_dbus_device(&item.devices)
-                || has_dbus_device(&item.expanded_devices)
-                || desktop_enabled
-        }
+        has_dbus_device(&item.devices) || has_dbus_device(&item.expanded_devices) || desktop_enabled
     }
 }
 
@@ -615,7 +607,7 @@ pub fn parse_with_now_checked(
 
     let mut next_cpu_snapshot = HashMap::new();
     let mut next_net_snapshot = HashMap::new();
-    let mut btrfs_parent_cache: HashMap<String, bool> = HashMap::new();
+    let mut btrfs_parent_cache: Vec<(String, bool)> = Vec::with_capacity(4);
     let mut cached_host_swap_total: Option<i64> = None;
     let host_core_weights = if track_cpu_and_net {
         read_host_core_weights(state)
@@ -823,18 +815,25 @@ pub fn parse_with_now_checked(
         } else {
             auto_snap_override == "true"
         };
-        let auto_stop_override = map_str(config, "user.aibox.autostop").trim().to_lowercase();
+        let trimmed_lower = |key: &str| -> String {
+            let s = map_str(config, key).trim();
+            if s.is_empty() {
+                String::new()
+            } else {
+                s.to_ascii_lowercase()
+            }
+        };
+        let auto_stop_override = trimmed_lower("user.aibox.autostop");
         let env_auto_stop = if auto_stop_override.is_empty() {
             defaults.auto_stop
         } else {
             auto_stop_override == "true"
         };
-        let idle_stop_override = map_str(config, "user.aibox.idlestop").trim().to_lowercase();
+        let idle_stop_override = trimmed_lower("user.aibox.idlestop");
         let idle_stop_ignore_ports = map_str(config, "user.aibox.idlestop_ports")
             .trim()
-            .to_lowercase()
-            == "true";
-        let record_override = map_str(config, "user.aibox.record").trim().to_lowercase();
+            .eq_ignore_ascii_case("true");
+        let record_override = trimmed_lower("user.aibox.record");
         let env_record_enabled =
             effective_record_sessions(defaults.record_sessions, &record_override);
         let desktop_enabled = parse_desktop_enabled(config, item);
@@ -862,13 +861,14 @@ pub fn parse_with_now_checked(
             .ok()
             .filter(|&v| v > 0)
             .unwrap_or(0);
-        let is_template = map_str(config, "user.aibox.template").trim().to_lowercase() == "true";
+        let is_template = map_str(config, "user.aibox.template")
+            .trim()
+            .eq_ignore_ascii_case("true");
         let egress_recording = map_str(config, "user.aibox.egresslog")
             .trim()
-            .to_lowercase()
-            == "true";
+            .eq_ignore_ascii_case("true");
 
-        let mut net_mode = map_str(config, "user.aibox.netmode").trim().to_lowercase();
+        let mut net_mode = trimmed_lower("user.aibox.netmode");
         if net_mode != "online" && net_mode != "offline" && net_mode != "allowlist" {
             if let Some(eth0_dev) = item.devices.get("eth0") {
                 let eth0_acls = btree_str(eth0_dev, "security.acls");
@@ -916,27 +916,23 @@ pub fn parse_with_now_checked(
             workspace_mount_path = CONTAINER_WORKSPACE_PATH.to_string();
         }
 
-        let ws_snap_override = map_str(config, "user.aibox.wssnap").trim().to_lowercase();
-        let ws_exists = Path::new(&workspace_path).exists();
-        let ws_on_btrfs = if ws_exists {
-            is_btrfs_filesystem(&workspace_path)
-        } else {
-            let parent_key = Path::new(&workspace_path)
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if let Some(&cached) = btrfs_parent_cache.get(&parent_key) {
+        let ws_snap_override = trimmed_lower("user.aibox.wssnap");
+        let ws_meta = fs::symlink_metadata(&workspace_path).ok();
+        let ws_on_btrfs = {
+            let parent_key = workspace_path
+                .rsplit_once('/')
+                .map(|(p, _)| p)
+                .unwrap_or("");
+            if let Some(&(_, cached)) = btrfs_parent_cache.iter().find(|(k, _)| k == parent_key) {
                 cached
             } else {
                 let res = is_btrfs_filesystem(&workspace_path);
-                btrfs_parent_cache.insert(parent_key, res);
+                btrfs_parent_cache.push((parent_key.to_string(), res));
                 res
             }
         };
-        let ws_is_subvolume = ws_exists
-            && ws_on_btrfs
-            && fs::symlink_metadata(&workspace_path)
-                .is_ok_and(|meta| meta.file_type().is_dir() && meta.ino() == 256);
+        let ws_is_subvolume = ws_on_btrfs
+            && ws_meta.is_some_and(|meta| meta.file_type().is_dir() && meta.ino() == 256);
         let ws_snap_enabled = ws_is_subvolume && ws_snap_override != "false";
         let ws_snap_dir = workspace_snapshot_dir(&workspace_path, name);
         let ws_snapshots = list_workspace_snapshots(&workspace_path, name);

@@ -72,8 +72,7 @@ impl qobject::Backend {
                 &SystemResolver,
             );
             let _ = qt_thread.queue(move |mut backend| {
-                backend.as_mut().rust_mut().busy = false;
-                backend.as_mut().busy_changed();
+                backend.as_mut().set_busy(false, "");
                 match res {
                     Ok(plan) => {
                         backend.as_mut().run_shell_task(
@@ -84,7 +83,6 @@ impl qobject::Backend {
                         );
                     }
                     Err(err) => {
-                        backend.as_mut().set_busy(false, "");
                         backend.as_mut().set_error_message(&err);
                     }
                 }
@@ -146,8 +144,7 @@ impl qobject::Backend {
                 &SystemResolver,
             );
             let _ = qt_thread.queue(move |mut backend| {
-                backend.as_mut().rust_mut().busy = false;
-                backend.as_mut().busy_changed();
+                backend.as_mut().set_busy(false, "");
                 match res {
                     Ok(plan) => {
                         backend.as_mut().run_shell_task(
@@ -158,7 +155,6 @@ impl qobject::Backend {
                         );
                     }
                     Err(err) => {
-                        backend.as_mut().set_busy(false, "");
                         backend.as_mut().set_error_message(&err);
                     }
                 }

@@ -1,13 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import "../components"
 
 // Per-environment desktop bridge toggle: native Wayland with an X11 fallback.
 Card {
     id: root
 
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property bool isVm: (root.env.type || "") === "VIRTUAL-MACHINE"
                                  || (root.env.type || "") === "VM"
     readonly property bool desktopOn: root.env.desktopEnabled || false

@@ -12,20 +12,31 @@ ModalDialog {
     zOrder: 87
     clipCard: true
     size: "md"
-    cardHeight: Math.min(parent.height - Style.modalGutter, Style.modalWidthSm)
+    cardHeight: parent ? Math.min(parent.height - Style.modalGutter, Style.modalWidthSm) : Style.modalWidthSm
     onDismissed: {
         portsOverlay.lanBind = false
         portsOverlay.lanConfirmed = false
         app.portsVisible = false
     }
 
+    function parsePortInput(raw) {
+        const trimmed = raw.trim()
+        if (!/^\d+$/.test(trimmed))
+            return 0
+        const n = Number(trimmed)
+        return Number.isInteger(n) ? n : 0
+    }
+
     function submitPort() {
-        const hp = parseInt(hostPortInput.text.trim(), 10)
-        const gp = parseInt(guestPortInput.text.trim(), 10)
+        if (backend.busy)
+            return
+        const hp = parsePortInput(hostPortInput.text)
+        const gpRaw = guestPortInput.text.trim()
+        const gp = gpRaw.length === 0 ? hp : parsePortInput(gpRaw)
         const err = backend.addPortForwardWithBind(
             portsOverlay.env.name || "",
-            isNaN(hp) ? 0 : hp,
-            isNaN(gp) ? (isNaN(hp) ? 0 : hp) : gp,
+            hp,
+            gp,
             portsOverlay.lanBind,
             portsOverlay.lanConfirmed)
         if (err.length > 0) {
@@ -42,7 +53,7 @@ ModalDialog {
     ModalHeader {
         title: qsTr("Port Forwarding · %1").arg(portsOverlay.env.name || "")
         subtitle: qsTr("Binds container ports to 127.0.0.1 by default, or optionally 0.0.0.0 for LAN access")
-        onClosed: app.portsVisible = false
+        onClosed: portsOverlay.dismissed()
     }
 
     Rectangle {
@@ -147,6 +158,8 @@ ModalDialog {
 
                     Text {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        elide: Text.ElideRight
                         text: (modelData.bindAddress || "127.0.0.1") + ":" + modelData.hostPort + "  →  " + modelData.guestPort
                         color: theme.textPrimary
                         font.family: Style.fontMono
@@ -176,7 +189,7 @@ ModalDialog {
                         variant: "danger"
                         disabled: backend.busy
                         onClicked: backend.removePortForward(
-                            backend.selectedEnvironment.name || "", modelData.deviceName || "")
+                            portsOverlay.env.name || "", modelData.deviceName || "")
                     }
                 }
             }
@@ -191,6 +204,7 @@ ModalDialog {
             id: hostPortInput
             Layout.fillWidth: true
             placeholder: qsTr("Host port (e.g. 3000)")
+            disabled: backend.busy
             onAccepted: portsOverlay.submitPort()
         }
 
@@ -205,6 +219,7 @@ ModalDialog {
             id: guestPortInput
             Layout.fillWidth: true
             placeholder: qsTr("Container port (e.g. 3000)")
+            disabled: backend.busy
             onAccepted: portsOverlay.submitPort()
         }
     }

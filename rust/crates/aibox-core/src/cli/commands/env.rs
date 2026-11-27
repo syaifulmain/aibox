@@ -7,13 +7,11 @@ use serde_json::Value;
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
-    apply_appearance_devices_script, apply_audio_devices_script, apply_dbus_devices_script,
-    apply_devices_script, apply_extra_devices_script, build_appearance_plan, build_audio_plan,
-    build_dbus_plan, build_desktop_plan, build_extra_devices_plan, combine_scripts,
-    detect_host_appearance, detect_host_audio, detect_host_dbus, detect_host_devices,
-    detect_host_session, download_dir_script, download_env, gpu_env, merge_env_pairs,
-    stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan, DbusMode, DbusPlan,
-    DesktopMode, DisplayPlan, ExtraDeviceToggles, ExtraDevicesPlan,
+    build_appearance_plan, build_audio_plan, build_dbus_plan, build_desktop_plan,
+    build_extra_devices_plan, detect_host_appearance, detect_host_audio, detect_host_dbus,
+    detect_host_devices, detect_host_session, download_env, gpu_env, merge_env_pairs,
+    session_bridge_script, stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan,
+    DbusMode, DbusPlan, DesktopMode, DisplayPlan, ExtraDeviceToggles, ExtraDevicesPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -122,24 +120,6 @@ fn appearance_plan_for(env: &Environment) -> AppearancePlan {
     appearance_plan_for_mode(desktop_mode)
 }
 
-fn session_bridge_script(
-    name: &str,
-    desktop: &DisplayPlan,
-    audio: &AudioPlan,
-    appearance: &AppearancePlan,
-    dbus: &DbusPlan,
-    extra: &ExtraDevicesPlan,
-) -> String {
-    combine_scripts(&[
-        apply_devices_script(name, desktop),
-        apply_audio_devices_script(name, audio),
-        apply_appearance_devices_script(name, appearance),
-        apply_dbus_devices_script(name, dbus),
-        apply_extra_devices_script(name, extra),
-        download_dir_script(name),
-    ])
-}
-
 fn session_environment(
     desktop: &DisplayPlan,
     audio: &AudioPlan,
@@ -160,15 +140,55 @@ fn session_environment(
     ])
 }
 
-fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
+struct SessionPlans {
+    desktop: DisplayPlan,
+    audio: AudioPlan,
+    appearance: AppearancePlan,
+    dbus: DbusPlan,
+    extra: ExtraDevicesPlan,
+}
+
+impl SessionPlans {
+    fn for_env(env: &Environment) -> Self {
+        Self {
+            desktop: desktop_plan_for(env),
+            audio: audio_plan_for(env),
+            appearance: appearance_plan_for(env),
+            dbus: dbus_plan_for(env),
+            extra: extra_devices_plan_for(env),
+        }
+    }
+
+    fn bridge_script(&self, name: &str) -> String {
+        session_bridge_script(
+            name,
+            &self.desktop,
+            &self.audio,
+            &self.appearance,
+            &self.dbus,
+            &self.extra,
+        )
+    }
+
+    fn session_env(&self) -> Vec<(String, String)> {
+        session_environment(
+            &self.desktop,
+            &self.audio,
+            &self.appearance,
+            &self.dbus,
+            &self.extra,
+        )
+    }
+}
+
+fn prepare_environment_script_with_plans(
+    engine: &Engine,
+    env: &Environment,
+    plans: &SessionPlans,
+) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    let desktop = desktop_plan_for(env);
-    let audio = audio_plan_for(env);
-    let appearance = appearance_plan_for(env);
-    let dbus = dbus_plan_for(env);
-    let extra = extra_devices_plan_for(env);
-    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance, &dbus, &extra);
+    let session = plans.bridge_script(&env.name);
     build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -219,11 +239,12 @@ fn find_executable(name: &str) -> bool {
     false
 }
 
-fn run_pre_steps_for_exec(
+fn run_pre_steps_for_exec_with_plans(
     engine: &Engine,
     io: &mut dyn CliIo,
     runner: &dyn CommandRunner,
     env: &Environment,
+    plans: &SessionPlans,
     label: &str,
 ) -> i32 {
     if !engine.acquire_cli_task_lock(label, &env.name) {
@@ -231,7 +252,7 @@ fn run_pre_steps_for_exec(
         return ExitCode::Busy.as_i32();
     }
 
-    let script = prepare_environment_script(engine, env);
+    let script = prepare_environment_script_with_plans(engine, env, plans);
     let out = runner.run("/bin/bash", &["-c", &script]);
     let mut combined = String::new();
     combined.push_str(&out.std_out);
@@ -307,11 +328,13 @@ pub fn run_enter(
         Err(rc) => return rc,
     };
 
-    let pre_rc = run_pre_steps_for_exec(
+    let plans = SessionPlans::for_env(&env);
+    let pre_rc = run_pre_steps_for_exec_with_plans(
         engine,
         io,
         runner,
         &env,
+        &plans,
         &format!("Entering '{}' (CLI)", parsed.env_name),
     );
     if pre_rc != 0 {
@@ -328,12 +351,7 @@ pub fn run_enter(
 
     let term = std::env::var("TERM").unwrap_or_default();
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
-    let desktop = desktop_plan_for(&env);
-    let audio = audio_plan_for(&env);
-    let appearance = appearance_plan_for(&env);
-    let dbus = dbus_plan_for(&env);
-    let extra = extra_devices_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio, &appearance, &dbus, &extra);
+    let session_env = plans.session_env();
     // The plan owns DISPLAY when desktop integration is on; passing an empty
     // display keeps Off purely headless instead of falling back to `:0`.
     let exec_args = enter_incus_exec_args_with_env(
@@ -390,11 +408,13 @@ pub fn run_exec(
         Err(rc) => return rc,
     };
 
-    let pre_rc = run_pre_steps_for_exec(
+    let plans = SessionPlans::for_env(&env);
+    let pre_rc = run_pre_steps_for_exec_with_plans(
         engine,
         io,
         runner,
         &env,
+        &plans,
         &format!("Executing command in '{}' (CLI)", parsed.env_name),
     );
     if pre_rc != 0 {
@@ -410,12 +430,7 @@ pub fn run_exec(
     };
 
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
-    let desktop = desktop_plan_for(&env);
-    let audio = audio_plan_for(&env);
-    let appearance = appearance_plan_for(&env);
-    let dbus = dbus_plan_for(&env);
-    let extra = extra_devices_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio, &appearance, &dbus, &extra);
+    let session_env = plans.session_env();
     let args = exec_incus_command_args_with_env(
         &parsed.env_name,
         &parsed.exec_command,
@@ -426,7 +441,14 @@ pub fn run_exec(
     let before_state = if parsed.summary {
         let probe = capture_system_state_script(&parsed.env_name);
         let out = runner.run("/bin/bash", &["-c", &probe]);
-        Some(parse_system_state(&out.std_out))
+        if out.exit_code == 0 {
+            Some(parse_system_state(&out.std_out))
+        } else {
+            io.write_stderr(
+                b"Warning: Could not capture pre-execution system state for --summary.\n",
+            );
+            None
+        }
     } else {
         None
     };
@@ -440,7 +462,7 @@ pub fn run_exec(
         ];
         timeout_args.extend(args);
         let rc = io.run_forwarded("timeout", &timeout_args);
-        if rc == 124 {
+        if rc == 124 || rc == 137 {
             io.write_stderr(format!("Warning: Command timed out after {secs}s.\n").as_bytes());
         }
         rc
@@ -451,18 +473,30 @@ pub fn run_exec(
     if let Some(before) = before_state {
         let probe = capture_system_state_script(&parsed.env_name);
         let out = runner.run("/bin/bash", &["-c", &probe]);
-        let after = parse_system_state(&out.std_out);
-        let rollback_snap = env
-            .snapshots
-            .iter()
-            .rev()
-            .find(|s| s.starts_with("auto-"))
-            .or_else(|| env.snapshots.last())
-            .map(String::as_str)
-            .unwrap_or("");
-        let summary = diff_system_state(&before, &after, rollback_snap);
-        let text = format_system_change_summary(&parsed.env_name, &summary);
-        io.write_stderr(text.as_bytes());
+        if out.exit_code != 0 {
+            io.write_stderr(
+                b"Warning: Could not capture post-execution system state for --summary.\n",
+            );
+        } else {
+            let after = parse_system_state(&out.std_out);
+            let _ = engine.refresh_sync(runner);
+            let latest_snapshots = engine
+                .environments
+                .iter()
+                .find(|e| e.name == parsed.env_name)
+                .map(|e| &e.snapshots)
+                .unwrap_or(&env.snapshots);
+            let rollback_snap = latest_snapshots
+                .iter()
+                .rev()
+                .find(|s| s.starts_with("auto-"))
+                .or_else(|| latest_snapshots.last())
+                .map(String::as_str)
+                .unwrap_or("");
+            let summary = diff_system_state(&before, &after, rollback_snap);
+            let text = format_system_change_summary(&parsed.env_name, &summary);
+            io.write_stderr(text.as_bytes());
+        }
     }
     rc
 }
@@ -675,7 +709,8 @@ mod tests {
         );
         assert!(script.contains("incus config device add 'box' 'fonts-system' 'disk'"));
         assert!(script.contains("readonly='true'"));
-        assert!(script.contains("incus config device remove 'box' 'fonts-system'"));
+        assert!(script.contains("incus config device show 'box'"));
+        assert!(script.contains("fonts-system"));
     }
 
     #[test]

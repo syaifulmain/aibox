@@ -101,10 +101,10 @@ pub fn download_dir_script(name: &str) -> String {
     let q_dir = shell_quote(CONTAINER_DOWNLOAD_DIR);
     let q_line = shell_quote(&download_dir_line(CONTAINER_DOWNLOAD_DIR));
     let q_fresh = shell_quote(&upsert_download_dir("", CONTAINER_DOWNLOAD_DIR));
+    let combined = format!("mkdir -p {q_dir} >/dev/null 2>&1 || true\n{DOWNLOAD_SETUP_SNIPPET}");
     format!(
-        "incus exec {q_name} -- mkdir -p {q_dir} >/dev/null 2>&1 || true\n\
-         incus exec {q_name} -- sh -c {} aibox {q_line} {q_fresh} || true",
-        shell_quote(DOWNLOAD_SETUP_SNIPPET)
+        "incus exec {q_name} -- sh -c {} aibox {q_line} {q_fresh} >/dev/null 2>&1 || true",
+        shell_quote(&combined)
     )
 }
 
@@ -234,7 +234,7 @@ mod tests {
         let script = download_dir_script("it's a box; rm -rf /");
         assert!(script.contains("'it'\\''s a box; rm -rf /'"));
         assert!(!script.contains("; rm -rf /\n"));
-        assert!(script.contains("mkdir -p '/home/workspace/download'"));
+        assert!(script.contains("mkdir -p ") && script.contains("/home/workspace/download"));
         assert!(script.contains("$HOME/.config"));
     }
 

@@ -6,7 +6,7 @@
 use std::env;
 
 /// Host-side graphical session details used to build an environment plan.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostSession {
     pub uid: u32,
     pub gid: u32,

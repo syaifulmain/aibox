@@ -1,8 +1,9 @@
-use crate::backup::schedule::{install_schedule_script, BackupCadence};
+use crate::backup::schedule::{install_schedule_script_with_ws, BackupCadence};
 use crate::cli::commands::require_environment;
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::engine::Engine;
 use crate::process::CommandRunner;
+use crate::snapshot::workspace::workspace_snapshot_dir;
 
 pub fn run_backup_schedule(
     engine: &mut Engine,
@@ -19,17 +20,37 @@ pub fn run_backup_schedule(
         Err(rc) => return rc,
     };
 
+    if parsed.project_dir.contains(['\n', '\r']) || env.name.contains(['\n', '\r']) {
+        io.write_stderr(b"Error: Project path and environment name cannot contain newlines.\n");
+        return ExitCode::Usage.as_i32();
+    }
+
+    let project_dir = if parsed.project_dir.trim().is_empty() {
+        String::new()
+    } else {
+        std::fs::canonicalize(parsed.project_dir.trim())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| parsed.project_dir.trim().to_string())
+    };
+
     let aibox_bin = std::env::current_exe()
         .ok()
         .map(|p| p.to_string_lossy().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "aibox".to_string());
 
-    let script = install_schedule_script(
+    let ws_snap_dir = if env.workspace_path.trim().is_empty() {
+        String::new()
+    } else {
+        workspace_snapshot_dir(&env.workspace_path, &env.name)
+    };
+
+    let script = install_schedule_script_with_ws(
         &env.name,
         cadence,
         &aibox_bin,
-        &parsed.project_dir,
+        &project_dir,
+        &ws_snap_dir,
         parsed.backup_keep,
     );
     let out = runner.run("/bin/bash", &["-c", &script]);

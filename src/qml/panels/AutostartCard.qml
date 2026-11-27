@@ -6,7 +6,7 @@ import "../components"
 Card {
     id: root
 
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property string envName: root.env.name || ""
     readonly property bool autostartOn: root.env.bootAutostart || false
     readonly property int savedPriority: root.env.bootAutostartPriority || 0
@@ -29,11 +29,11 @@ Card {
         const dRaw = delayInput.text.trim()
         const pVal = pRaw.length === 0 ? 0 : Number(pRaw)
         const dVal = dRaw.length === 0 ? 0 : Number(dRaw)
-        if (!Number.isInteger(pVal) || pVal < 0) {
+        if (!Number.isInteger(pVal) || pVal < 0 || pVal > 2147483647) {
             root.errorText = qsTr("Priority must be a non-negative whole number.")
             return
         }
-        if (!Number.isInteger(dVal) || dVal < 0) {
+        if (!Number.isInteger(dVal) || dVal < 0 || dVal > 2147483647) {
             root.errorText = qsTr("Delay must be a non-negative whole number of seconds.")
             return
         }
@@ -42,10 +42,13 @@ Card {
             root.errorText = err
             return
         }
+        priorityInput.text = String(pVal)
+        delayInput.text = String(dVal)
         root.errorText = ""
     }
 
     onEnvNameChanged: root.syncFields()
+    onAutostartOnChanged: root.syncFields()
     onSavedPriorityChanged: root.syncFields()
     onSavedDelayChanged: root.syncFields()
     Component.onCompleted: root.syncFields()
@@ -58,11 +61,15 @@ Card {
             label: qsTr("Autostart")
             checked: root.autostartOn
             disabled: root.locked
-            onToggled: backend.setEnvironmentAutostart(
-                root.envName,
-                !root.autostartOn,
-                root.savedPriority,
-                root.savedDelay)
+            onToggled: {
+                const err = backend.setEnvironmentAutostart(
+                    root.envName,
+                    !root.autostartOn,
+                    root.savedPriority,
+                    root.savedDelay)
+                if (err && err.length > 0)
+                    root.errorText = err
+            }
         }
     ]
 
@@ -95,7 +102,7 @@ Card {
             mono: true
             placeholder: "0"
             disabled: root.locked
-            onAccepted: root.saveOptions()
+            onAccepted: if (!root.locked && root.dirty) root.saveOptions()
         }
 
         Text {
@@ -111,7 +118,7 @@ Card {
             mono: true
             placeholder: "0"
             disabled: root.locked
-            onAccepted: root.saveOptions()
+            onAccepted: if (!root.locked && root.dirty) root.saveOptions()
         }
 
         Item { Layout.fillWidth: true }

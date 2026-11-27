@@ -48,9 +48,11 @@ Rectangle {
                 readonly property real diskRatio: (modelData.diskQuotaBytes || 0) > 0
                                                  ? (modelData.diskUsageBytes || 0) / modelData.diskQuotaBytes
                                                  : 0
-                readonly property string usageSummary: app.sizePair(modelData.diskUsage, modelData.diskLimit)
-                                                      + "  ·  "
-                                                      + app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
+                readonly property string usageSummary: (listRoot.app
+                                                       ? listRoot.app.sizePair(modelData.diskUsage, modelData.diskLimit)
+                                                         + "  ·  "
+                                                         + listRoot.app.sizePair(modelData.memoryUsage, modelData.memoryLimit)
+                                                       : "")
                 readonly property string networkLabel: modelData.networkMode === "offline"
                                                        ? qsTr("NET OFF")
                                                        : (modelData.networkMode === "allowlist"
@@ -148,7 +150,16 @@ Rectangle {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: backend.selectedIndex = index
-                        onDoubleClicked: backend.enterEnvironment(modelData.name)
+                        onDoubleClicked: {
+                            if (backend.busy)
+                                return
+                            if (modelData.isTemplate) {
+                                if (listRoot.app)
+                                    listRoot.app.openCreateDialog(modelData.name)
+                            } else {
+                                backend.enterEnvironment(modelData.name)
+                            }
+                        }
                     }
                 }
             }

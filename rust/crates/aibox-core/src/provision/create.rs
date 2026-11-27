@@ -273,7 +273,11 @@ pub fn prepare_create_environment(
     } else {
         DesktopMode::Off
     };
-    let host = detect_host_session();
+    let host = if has_desktop {
+        detect_host_session()
+    } else {
+        crate::display::HostSession::default()
+    };
     let desktop_plan = build_desktop_plan(desktop_mode, &host);
     let mut desktop_script = set_desktop_mode_script(&name, desktop_mode, &host);
     for warning in &desktop_plan.warnings {
@@ -287,7 +291,11 @@ pub fn prepare_create_environment(
     } else {
         AudioMode::Off
     };
-    let host_audio = detect_host_audio();
+    let host_audio = if has_desktop {
+        detect_host_audio()
+    } else {
+        crate::display::HostAudio::default()
+    };
     let audio_plan = build_audio_plan(audio_mode, &host_audio, host_audio.uid);
     let mut audio_script = set_audio_mode_script(&name, audio_mode, &host_audio);
     for warning in &audio_plan.warnings {
@@ -310,7 +318,11 @@ pub fn prepare_create_environment(
     } else {
         DbusMode::Off
     };
-    let host_dbus = detect_host_dbus();
+    let host_dbus = if has_desktop {
+        detect_host_dbus()
+    } else {
+        crate::display::HostDbus::default()
+    };
     let dbus_plan = build_dbus_plan(dbus_mode, &host_dbus, &name);
     let mut dbus_script = set_dbus_mode_script(&name, dbus_mode, &host_dbus);
     for warning in &dbus_plan.warnings {
@@ -668,7 +680,7 @@ mod tests {
         assert!(script.contains("user.aibox.desktop 'on'"));
         assert!(script.contains("user.aibox.audio 'output'"));
         assert!(script.contains("'pulse' 'proxy'"));
-        assert!(script.contains("mkdir -p '/home/workspace/download'"));
+        assert!(script.contains("mkdir -p ") && script.contains("/home/workspace/download"));
         assert!(script.contains("user-dirs.dirs"));
         let workspace_at = script
             .find("config device add \"$NAME\" workspace")

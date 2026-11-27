@@ -19,6 +19,7 @@ pub struct ServiceEntry {
 pub fn is_valid_unit_name(unit: &str) -> bool {
     let trimmed = unit.trim();
     !trimmed.is_empty()
+        && !trimmed.starts_with('-')
         && trimmed.len() <= 128
         && trimmed
             .bytes()
@@ -148,7 +149,7 @@ pub fn service_action_script(env_name: &str, action: &str, unit: &str) -> Result
     let inner = match clean_action.as_str() {
         "enable" => format!(
             "if command -v systemctl >/dev/null 2>&1; then \
-               systemctl enable {q_unit}; \
+               systemctl enable -- {q_unit}; \
              elif command -v rc-update >/dev/null 2>&1; then \
                rc-update add {q_unit} default; \
              else \
@@ -157,7 +158,7 @@ pub fn service_action_script(env_name: &str, action: &str, unit: &str) -> Result
         ),
         "disable" => format!(
             "if command -v systemctl >/dev/null 2>&1; then \
-               systemctl disable {q_unit}; \
+               systemctl disable -- {q_unit}; \
              elif command -v rc-update >/dev/null 2>&1; then \
                rc-update del {q_unit} default; \
              else \
@@ -166,7 +167,7 @@ pub fn service_action_script(env_name: &str, action: &str, unit: &str) -> Result
         ),
         _ => format!(
             "if command -v systemctl >/dev/null 2>&1; then \
-               systemctl {clean_action} {q_unit}; \
+               systemctl {clean_action} -- {q_unit}; \
              elif command -v rc-service >/dev/null 2>&1; then \
                rc-service {q_unit} {clean_action}; \
              else \
@@ -215,6 +216,8 @@ mod tests {
         assert!(is_valid_unit_name("postgresql@16-main.service"));
         assert!(is_valid_unit_name("sshd"));
         assert!(!is_valid_unit_name(""));
+        assert!(!is_valid_unit_name("--boot"));
+        assert!(!is_valid_unit_name("-all"));
         assert!(!is_valid_unit_name("nginx; rm -rf /"));
         assert!(!is_valid_unit_name("foo/bar"));
     }

@@ -221,6 +221,23 @@ pub fn combine_scripts(parts: &[String]) -> String {
         .join("\n")
 }
 
+pub(crate) fn add_device_line(q_name: &str, device: &DeviceSpec) -> String {
+    let options = device_options(&device.options);
+    if options.is_empty() {
+        format!(
+            "incus config device add {q_name} {} {}",
+            shell_quote(&device.name),
+            shell_quote(&device.kind)
+        )
+    } else {
+        format!(
+            "incus config device add {q_name} {} {} {options}",
+            shell_quote(&device.name),
+            shell_quote(&device.kind)
+        )
+    }
+}
+
 /// Returns an idempotent snippet that installs the plan's devices.
 ///
 /// The container must already be running. Parent directories are created first
@@ -253,27 +270,156 @@ pub fn apply_devices_script(name: &str, plan: &DisplayPlan) -> String {
         ));
         lines.push(XHOST_ROOT_SNIPPET.to_string());
     }
+    lines.push(remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE]));
     for device in &plan.devices {
+        lines.push(add_device_line(&q_name, device));
+    }
+    lines.join("\n")
+}
+
+/// Builds a batched session-bridge script for Start, Enter, and Exec.
+///
+/// Combines all container-side directory creation + XDG download setup into a
+/// single `incus exec` call and queries `incus config device show` once so
+/// absent devices do not incur redundant `incus config device remove` calls.
+pub fn session_bridge_script(
+    name: &str,
+    desktop: &DisplayPlan,
+    audio: &crate::display::AudioPlan,
+    appearance: &crate::display::AppearancePlan,
+    dbus: &crate::display::DbusPlan,
+    extra: &crate::display::ExtraDevicesPlan,
+) -> String {
+    let q_name = shell_quote(name);
+    let mut mkdir_dirs: Vec<String> = Vec::new();
+    let mut runtime_chmod_dir: Option<String> = None;
+
+    if desktop.has_wayland() {
+        if let Some(runtime_dir) = desktop
+            .env
+            .iter()
+            .find(|(k, _)| k == "XDG_RUNTIME_DIR")
+            .map(|(_, v)| v.as_str())
+        {
+            runtime_chmod_dir = Some(runtime_dir.to_string());
+        }
+    }
+    if desktop.has_x11() {
+        mkdir_dirs.push("/tmp/.X11-unix".to_string());
+    }
+    if !audio.devices.is_empty() {
+        if let Some(pulse_dir) = audio
+            .env
+            .iter()
+            .find(|(k, _)| k == "PULSE_SERVER")
+            .and_then(|(_, v)| v.strip_prefix("unix:"))
+            .and_then(|p| p.rsplit_once('/'))
+            .map(|(dir, _)| dir.to_string())
+        {
+            mkdir_dirs.push(pulse_dir);
+        }
+        mkdir_dirs.push("/run/aibox".to_string());
+    }
+    for device in &appearance.devices {
+        if let Some((_, path)) = device.options.iter().find(|(k, _)| k == "path") {
+            mkdir_dirs.push(path.clone());
+        }
+    }
+    if dbus.enabled && !dbus.devices.is_empty() {
+        let rt = format!("/run/user/{}", dbus.uid);
+        if runtime_chmod_dir.as_deref() != Some(rt.as_str()) {
+            mkdir_dirs.push(rt);
+        }
+    }
+    if extra
+        .devices
+        .iter()
+        .any(|d| d.name == crate::display::PRINTER_DEVICE)
+    {
+        mkdir_dirs.push("/run/cups".to_string());
+    }
+
+    let mut lines = Vec::new();
+    let mut exec_cmds = Vec::new();
+    if let Some(ref rt) = runtime_chmod_dir {
+        let q_rt = shell_quote(rt);
+        exec_cmds.push(format!("mkdir -p {q_rt} && chmod 700 {q_rt}"));
+    }
+    if !mkdir_dirs.is_empty() {
+        let q_dirs: Vec<String> = mkdir_dirs.iter().map(|d| shell_quote(d)).collect();
+        exec_cmds.push(format!("mkdir -p {}", q_dirs.join(" ")));
+    }
+    if !exec_cmds.is_empty() {
+        let combined = format!("{} >/dev/null 2>&1 || true", exec_cmds.join(" && "));
         lines.push(format!(
-            "incus config device remove {q_name} {} >/dev/null 2>&1 || true",
-            shell_quote(&device.name)
+            "incus exec {q_name} -- sh -c {} >/dev/null 2>&1 || true",
+            shell_quote(&combined)
         ));
-        let options = device_options(&device.options);
-        let add = if options.is_empty() {
+    }
+
+    if desktop.has_x11() {
+        lines.push(XHOST_ROOT_SNIPPET.to_string());
+    }
+
+    // Collect all planned device names + known managed prefixes to remove only what exists.
+    let mut managed_exact: Vec<&str> = Vec::new();
+    if !desktop.devices.is_empty() {
+        managed_exact.extend([WAYLAND_DEVICE, X11_DEVICE]);
+    }
+    if !audio.devices.is_empty() {
+        managed_exact.extend(["pulse", "pipewire", "pulse-cookie"]);
+    }
+    if !appearance.devices.is_empty() {
+        managed_exact.extend(crate::display::APPEARANCE_DEVICE_NAMES.iter().copied());
+    }
+    if dbus.enabled && !dbus.devices.is_empty() {
+        managed_exact.push("dbus");
+    }
+
+    if !managed_exact.is_empty() || !extra.devices.is_empty() {
+        let exact_pat = managed_exact.join("|");
+        let case_pat = if exact_pat.is_empty() {
             format!(
-                "incus config device add {q_name} {} {}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
+                "{}*|{}*|{}",
+                crate::display::CAMERA_PREFIX,
+                crate::display::INPUT_PREFIX,
+                crate::display::PRINTER_DEVICE
             )
         } else {
             format!(
-                "incus config device add {q_name} {} {} {options}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
+                "{exact_pat}|{}*|{}*|{}",
+                crate::display::CAMERA_PREFIX,
+                crate::display::INPUT_PREFIX,
+                crate::display::PRINTER_DEVICE
             )
         };
-        lines.push(add);
+        lines.push(format!(
+            "incus config device show {q_name} 2>/dev/null | awk '/^[^[:space:]][^:]*:$/ {{ sub(/:$/, \"\"); print }}' | while IFS= read -r dev; do\n    case \"$dev\" in\n        {case_pat})\n            incus config device remove {q_name} \"$dev\" >/dev/null 2>&1 || true\n            ;;\n    esac\ndone || true"
+        ));
     }
+
+    for device in &desktop.devices {
+        lines.push(add_device_line(&q_name, device));
+    }
+    for device in &audio.devices {
+        lines.push(add_device_line(&q_name, device));
+    }
+    for device in &appearance.devices {
+        lines.push(add_device_line(&q_name, device));
+    }
+    for device in &extra.devices {
+        lines.push(add_device_line(&q_name, device));
+    }
+
+    let dbus_script = crate::display::apply_dbus_devices_script(name, dbus);
+    if !dbus_script.is_empty() {
+        lines.push(dbus_script);
+    }
+    let dl_script = crate::display::download_dir_script(name);
+    if !dl_script.is_empty() {
+        lines.push(dl_script);
+    }
+
     lines.join("\n")
 }
 
@@ -295,8 +441,13 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
     ];
     match mode {
         DesktopMode::On => {
-            let apply = apply_devices_script(name, &build_desktop_plan(mode, host));
-            if !apply.is_empty() {
+            let apply_display = apply_devices_script(name, &build_desktop_plan(mode, host));
+            let appearance_plan =
+                crate::display::build_appearance_plan(&crate::display::detect_host_appearance());
+            let apply_appearance =
+                crate::display::apply_appearance_devices_script(name, &appearance_plan);
+            let combined_apply = combine_scripts(&[apply_display, apply_appearance]);
+            if !combined_apply.is_empty() {
                 // A stopped instance cannot accept a proxy device that listens
                 // on a container path, so only configure it once it is running.
                 // The next Start/Enter applies the devices again.
@@ -304,7 +455,7 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
                     "STATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')"
                 ));
                 lines.push("if [[ \"$STATUS\" == \"RUNNING\" ]]; then".to_string());
-                lines.push(apply);
+                lines.push(combined_apply);
                 lines.push("fi".to_string());
             }
         }

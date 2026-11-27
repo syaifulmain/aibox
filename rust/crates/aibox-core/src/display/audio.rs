@@ -16,7 +16,7 @@
 use std::env;
 use std::path::Path;
 
-use crate::display::plan::{device_options, remove_device_lines, DeviceSpec};
+use crate::display::plan::{remove_device_lines, DeviceSpec};
 use crate::util::shell::shell_quote;
 
 /// Per-environment audio mode (`user.aibox.audio`).
@@ -68,7 +68,7 @@ impl AudioMode {
 }
 
 /// Host-side audio sockets and the Pulse cookie, detected once per operation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HostAudio {
     pub uid: u32,
     pub gid: u32,
@@ -287,21 +287,7 @@ pub fn apply_audio_devices_script(name: &str, plan: &AudioPlan) -> String {
     lines.push(remove_audio_devices_script(name));
 
     for device in &plan.devices {
-        let options = device_options(&device.options);
-        let add = if options.is_empty() {
-            format!(
-                "incus config device add {q_name} {} {}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
-            )
-        } else {
-            format!(
-                "incus config device add {q_name} {} {} {options}",
-                shell_quote(&device.name),
-                shell_quote(&device.kind)
-            )
-        };
-        lines.push(add);
+        lines.push(crate::display::plan::add_device_line(&q_name, device));
     }
     lines.join("\n")
 }
@@ -365,11 +351,19 @@ pub fn set_audio_mode_script(name: &str, mode: AudioMode, host: &HostAudio) -> S
 /// The test must receive the same bridge environment as Enter, otherwise root
 /// inside the container cannot discover the proxied Pulse socket.
 pub fn test_audio_script(name: &str, plan: &AudioPlan) -> String {
-    if plan.env.is_empty() {
+    if plan.mode == AudioMode::Off {
         return format!(
             "echo {} >&2\nexit 1",
             shell_quote("Audio is off for this environment. Choose Output or Output + Mic first.")
         );
+    }
+    if plan.env.is_empty() {
+        let msg = if plan.warnings.is_empty() {
+            "Host audio bridge is unavailable on this host.".to_string()
+        } else {
+            plan.warnings.join(" ")
+        };
+        return format!("echo {} >&2\nexit 1", shell_quote(&msg));
     }
     let mut cmd = format!("incus exec {}", shell_quote(name));
     for (key, value) in &plan.env {

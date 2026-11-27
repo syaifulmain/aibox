@@ -7,7 +7,7 @@ import "../components"
 Card {
     id: root
     property QtObject app: null
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property string snapshotNameText: snapNameInput.text
 
     Layout.fillHeight: true

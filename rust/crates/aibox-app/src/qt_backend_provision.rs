@@ -241,8 +241,14 @@ impl qobject::Backend {
         let Some(env) = environment_by_name(&self.engine.environments, &name_s) else {
             return;
         };
+        if env.is_template {
+            self.as_mut().set_error_message(
+                "Cannot start or stop a template. Clone it to a new environment first.",
+            );
+            return;
+        }
 
-        let auto_snap = if env.is_template {
+        let auto_snap = if env.running {
             String::new()
         } else {
             let ws_path = if env.workspace_path.is_empty() {
@@ -264,8 +270,16 @@ impl qobject::Backend {
             )
             .unwrap_or_default()
         };
-        let session_script = self.session_bridge_script_for_env(&name_s);
-        let dbus_stop = self.dbus_stop_script_for_env(&name_s);
+        let session_script = if env.running {
+            String::new()
+        } else {
+            self.session_bridge_script_for_env(&name_s)
+        };
+        let dbus_stop = if env.running {
+            self.dbus_stop_script_for_env(&name_s)
+        } else {
+            String::new()
+        };
 
         let needs_dns = !self.demo_mode
             && !env.is_template
@@ -357,8 +371,16 @@ impl qobject::Backend {
         let is_running =
             environment_by_name(&self.engine.environments, &name_s).is_some_and(|e| e.running);
         let plan = set_environment_template_script(&name_s, is_running, is_template);
+        let script = if is_template && is_running {
+            aibox_core::display::combine_scripts(&[
+                self.dbus_stop_script_for_env(&name_s),
+                plan.script,
+            ])
+        } else {
+            plan.script
+        };
         self.as_mut()
-            .run_shell_task(&plan.title, &plan.script, "", &name_s);
+            .run_shell_task(&plan.title, &script, "", &name_s);
     }
 
     #[allow(clippy::too_many_arguments)]

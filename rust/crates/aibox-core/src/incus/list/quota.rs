@@ -65,6 +65,9 @@ pub(crate) fn extract_port_forwards_and_mounts(
         let dev_type = dev_map.get("type").map(String::as_str).unwrap_or("");
         if dev_type == "proxy" {
             let listen_addr = dev_map.get("listen").map(String::as_str).unwrap_or("");
+            if !(listen_addr.starts_with("tcp:") || listen_addr.starts_with("udp:")) {
+                continue;
+            }
             let connect_addr = dev_map.get("connect").map(String::as_str).unwrap_or("");
             let host_port = listen_addr
                 .rsplit(':')
@@ -97,6 +100,8 @@ pub(crate) fn extract_port_forwards_and_mounts(
             && dev_name != "root"
             && dev_name != "workspace"
             && dev_name != "x11"
+            && dev_name != "pulse-cookie"
+            && !crate::display::APPEARANCE_DEVICE_NAMES.contains(&dev_name.as_str())
         {
             let src = dev_map.get("source").cloned().unwrap_or_default();
             let mnt_path = dev_map.get("path").cloned().unwrap_or_default();
@@ -131,5 +136,68 @@ fn parse_bind_address(listen_addr: &str) -> String {
         "127.0.0.1".to_string()
     } else {
         addr.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn excludes_internal_display_and_audio_devices_from_extra_mounts_and_ports() {
+        let mut devices = BTreeMap::new();
+        devices.insert(
+            "pulse-cookie".to_string(),
+            BTreeMap::from([
+                ("type".to_string(), "disk".to_string()),
+                (
+                    "source".to_string(),
+                    "/home/u/.config/pulse/cookie".to_string(),
+                ),
+                ("path".to_string(), "/run/aibox/pulse-cookie".to_string()),
+            ]),
+        );
+        devices.insert(
+            "fonts-system".to_string(),
+            BTreeMap::from([
+                ("type".to_string(), "disk".to_string()),
+                ("source".to_string(), "/usr/share/fonts".to_string()),
+                ("path".to_string(), "/usr/share/fonts".to_string()),
+            ]),
+        );
+        devices.insert(
+            "dbus".to_string(),
+            BTreeMap::from([
+                ("type".to_string(), "proxy".to_string()),
+                ("listen".to_string(), "unix:/run/user/1000/bus".to_string()),
+                (
+                    "connect".to_string(),
+                    "unix:/run/user/1000/aibox-dbus/x/auth.sock".to_string(),
+                ),
+            ]),
+        );
+        devices.insert(
+            "custom-data".to_string(),
+            BTreeMap::from([
+                ("type".to_string(), "disk".to_string()),
+                ("source".to_string(), "/data".to_string()),
+                ("path".to_string(), "/mnt/data".to_string()),
+                ("readonly".to_string(), "true".to_string()),
+            ]),
+        );
+        devices.insert(
+            "fwd-3000".to_string(),
+            BTreeMap::from([
+                ("type".to_string(), "proxy".to_string()),
+                ("listen".to_string(), "tcp:127.0.0.1:3000".to_string()),
+                ("connect".to_string(), "tcp:127.0.0.1:3000".to_string()),
+            ]),
+        );
+
+        let (ports, mounts) = extract_port_forwards_and_mounts(&devices);
+        assert_eq!(ports.len(), 1);
+        assert_eq!(ports[0].host_port, 3000);
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0].device_name, "custom-data");
     }
 }

@@ -34,11 +34,39 @@ pub fn unit_base_name(env_name: &str) -> String {
     format!("aibox-backup-{suffix}")
 }
 
+fn systemd_quote(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 2);
+    out.push('"');
+    for ch in raw.chars() {
+        match ch {
+            '\n' | '\r' => {}
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '%' => out.push_str("%%"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// Renders the systemd user `.service` unit that creates a snapshot and prunes old ones.
 pub fn render_backup_service_unit(
     env_name: &str,
     aibox_bin: &str,
     project_dir: &str,
+    keep: usize,
+) -> String {
+    render_backup_service_unit_with_ws(env_name, aibox_bin, project_dir, "", keep)
+}
+
+/// Renders the systemd user `.service` unit, also pruning paired Btrfs workspace snapshots
+/// under `workspace_snap_dir` when provided.
+pub fn render_backup_service_unit_with_ws(
+    env_name: &str,
+    aibox_bin: &str,
+    project_dir: &str,
+    workspace_snap_dir: &str,
     keep: usize,
 ) -> String {
     let q_bin = shell_quote(aibox_bin);
@@ -48,16 +76,25 @@ pub fn render_backup_service_unit(
     } else {
         format!("--project {} ", shell_quote(project_dir.trim()))
     };
+    let ws_prune = if workspace_snap_dir.trim().is_empty() {
+        String::new()
+    } else {
+        let q_ws_snap = shell_quote(workspace_snap_dir.trim());
+        format!(
+            " btrfs subvolume delete {q_ws_snap}/\"$s\" >/dev/null 2>&1 || rm -rf {q_ws_snap}/\"$s\" >/dev/null 2>&1 || true;"
+        )
+    };
     let keep_count = keep.clamp(1, 365);
-    let q_exec = shell_quote(&format!(
-        "{q_bin} {proj_flag}snapshot {q_env} \"sched-$(date +\\%Y\\%m\\%d-\\%H\\%M\\%S)\" && \
+    let q_exec = systemd_quote(&format!(
+        "{q_bin} {proj_flag}snapshot {q_env} \"sched-$(date +%Y%m%d-%H%M%S)\" && \
          old=$({q_bin} {proj_flag}snapshots {q_env} --json | grep -o '\"sched-[^\"]*\"' | tr -d '\"' | sort -r | tail -n +{}); \
-         for s in $old; do incus snapshot delete {q_env} \"$s\" >/dev/null 2>&1 || true; done",
+         for s in $old; do incus snapshot delete {q_env} \"$s\" >/dev/null 2>&1 || true;{ws_prune} done",
         keep_count + 1
     ));
+    let safe_env = env_name.replace(['\n', '\r'], " ");
     format!(
         "[Unit]\n\
-         Description=AIBox scheduled backup for {env_name}\n\
+         Description=AIBox scheduled backup for {safe_env}\n\
          \n\
          [Service]\n\
          Type=oneshot\n\
@@ -68,9 +105,10 @@ pub fn render_backup_service_unit(
 /// Renders the systemd user `.timer` unit for `cadence`.
 pub fn render_backup_timer_unit(env_name: &str, cadence: BackupCadence) -> String {
     let cal = cadence.on_calendar();
+    let safe_env = env_name.replace(['\n', '\r'], " ");
     format!(
         "[Unit]\n\
-         Description=AIBox {cal} backup timer for {env_name}\n\
+         Description=AIBox {cal} backup timer for {safe_env}\n\
          \n\
          [Timer]\n\
          OnCalendar={cal}\n\
@@ -90,6 +128,18 @@ pub fn install_schedule_script(
     project_dir: &str,
     keep: usize,
 ) -> String {
+    install_schedule_script_with_ws(env_name, cadence, aibox_bin, project_dir, "", keep)
+}
+
+/// Builds the install/disable script with optional paired workspace snapshot pruning.
+pub fn install_schedule_script_with_ws(
+    env_name: &str,
+    cadence: BackupCadence,
+    aibox_bin: &str,
+    project_dir: &str,
+    workspace_snap_dir: &str,
+    keep: usize,
+) -> String {
     let base = unit_base_name(env_name);
     let q_timer = shell_quote(&format!("{base}.timer"));
     let q_service = shell_quote(&format!("{base}.service"));
@@ -104,7 +154,13 @@ pub fn install_schedule_script(
         );
     }
 
-    let svc = render_backup_service_unit(env_name, aibox_bin, project_dir, keep);
+    let svc = render_backup_service_unit_with_ws(
+        env_name,
+        aibox_bin,
+        project_dir,
+        workspace_snap_dir,
+        keep,
+    );
     let tmr = render_backup_timer_unit(env_name, cadence);
     format!(
         "set -euo pipefail\n\
@@ -135,6 +191,18 @@ mod tests {
         assert!(svc.contains("Type=oneshot"));
         assert!(svc.contains("snapshot"));
         assert!(svc.contains("tail -n +8"));
+        assert!(svc.contains("%%Y%%m%%d-%%H%%M%%S"));
+        assert!(!svc.contains("\\%Y"));
+
+        let svc_ws = render_backup_service_unit_with_ws(
+            "web",
+            "aibox",
+            "/tmp/proj",
+            "/tmp/ws/.snapshots/web",
+            7,
+        );
+        assert!(svc_ws.contains("btrfs subvolume delete"));
+        assert!(svc_ws.contains("/tmp/ws/.snapshots/web"));
 
         let tmr = render_backup_timer_unit("web", BackupCadence::Daily);
         assert!(tmr.contains("OnCalendar=daily"));

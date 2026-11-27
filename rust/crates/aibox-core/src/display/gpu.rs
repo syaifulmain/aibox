@@ -93,14 +93,14 @@ fn detect_intel(sys_drm_dir: &Path) -> bool {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("card") {
+        if !is_numbered_node(&name, "card") {
             continue;
         }
         let vendor_path = entry.path().join("device").join("vendor");
         let Ok(vendor) = fs::read_to_string(vendor_path) else {
             continue;
         };
-        if vendor.trim().to_ascii_lowercase().contains("0x8086") {
+        if vendor.trim().eq_ignore_ascii_case("0x8086") {
             return true;
         }
     }

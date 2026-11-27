@@ -31,21 +31,20 @@ pub fn set_environment_autostart_script(
     lines.push("set -euo pipefail".to_string());
     lines.push("echo '@@STAGE:50:Updating boot autostart settings...'".to_string());
     if enabled {
-        lines.push(format!("incus config set {q_name} boot.autostart=true"));
+        let mut set_cmd = format!("incus config set {q_name} boot.autostart=true");
         if priority > 0 {
-            lines.push(format!(
-                "incus config set {q_name} boot.autostart.priority={priority}"
-            ));
-        } else {
+            set_cmd.push_str(&format!(" boot.autostart.priority={priority}"));
+        }
+        if delay_secs > 0 {
+            set_cmd.push_str(&format!(" boot.autostart.delay={delay_secs}"));
+        }
+        lines.push(set_cmd);
+        if priority <= 0 {
             lines.push(format!(
                 "incus config unset {q_name} boot.autostart.priority >/dev/null 2>&1 || true"
             ));
         }
-        if delay_secs > 0 {
-            lines.push(format!(
-                "incus config set {q_name} boot.autostart.delay={delay_secs}"
-            ));
-        } else {
+        if delay_secs <= 0 {
             lines.push(format!(
                 "incus config unset {q_name} boot.autostart.delay >/dev/null 2>&1 || true"
             ));
@@ -77,9 +76,9 @@ mod tests {
     #[test]
     fn generates_autostart_enable_and_disable_scripts() {
         let on_with_values = set_environment_autostart_script("srv-1", true, 50, 15);
-        assert!(on_with_values.contains("incus config set 'srv-1' boot.autostart=true"));
-        assert!(on_with_values.contains("incus config set 'srv-1' boot.autostart.priority=50"));
-        assert!(on_with_values.contains("incus config set 'srv-1' boot.autostart.delay=15"));
+        assert!(on_with_values.contains(
+            "incus config set 'srv-1' boot.autostart=true boot.autostart.priority=50 boot.autostart.delay=15"
+        ));
 
         let on_zero = set_environment_autostart_script("srv-1", true, 0, 0);
         assert!(on_zero.contains("incus config set 'srv-1' boot.autostart=true"));

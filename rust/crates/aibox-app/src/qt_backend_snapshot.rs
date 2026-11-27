@@ -235,13 +235,15 @@ impl qobject::Backend {
         let env_secrets_path =
             environment_secrets_store_path(&self.engine.secrets.secrets_path, &name_s);
         stop_file_access_process(&state_dir, &name_s);
-        let script = wipe_environment_script(
+        let dbus_stop = self.dbus_stop_script_for_env(&name_s);
+        let wipe_script = wipe_environment_script(
             &name_s,
             &host_ws,
             delete_workspace_files,
             &env_sessions_dir,
             &env_secrets_path,
         );
+        let script = aibox_core::display::combine_scripts(&[dbus_stop, wipe_script]);
         self.as_mut().run_shell_task(
             &format!("Wiping environment '{name_s}'"),
             &script,

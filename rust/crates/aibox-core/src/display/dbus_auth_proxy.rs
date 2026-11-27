@@ -18,11 +18,16 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::thread;
 
 const AUTH_PREFIX: &[u8] = b"AUTH EXTERNAL ";
 const DATA_PREFIX: &[u8] = b"DATA ";
+const NEGOTIATE_UNIX_FD: &[u8] = b"NEGOTIATE_UNIX_FD";
 const SEPARATOR: &[u8] = b"\r\n";
+const MAX_AUTH_PENDING_BYTES: usize = 16 * 1024;
+const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 
 /// Encodes a numeric UID the way D-Bus expects for `AUTH EXTERNAL`.
 ///
@@ -43,7 +48,16 @@ pub fn uid_auth_hex(uid: u32) -> String {
 /// the caller can forward them as a raw stream. An incomplete trailing line is
 /// also left unconsumed.
 pub fn rewrite_auth_lines(input: &[u8], uid_hex: &str) -> (Vec<u8>, usize, bool) {
+    let (out, _, consumed, begin) = rewrite_auth_lines_with_local(input, uid_hex);
+    (out, consumed, begin)
+}
+
+/// Rewrites auth lines, returning `(upstream_bytes, client_reply_bytes, consumed, begin)`.
+/// `NEGOTIATE_UNIX_FD` is answered locally with `ERROR` so clients do not send
+/// `SCM_RIGHTS` file descriptors that cannot be forwarded over plain streams.
+fn rewrite_auth_lines_with_local(input: &[u8], uid_hex: &str) -> (Vec<u8>, Vec<u8>, usize, bool) {
     let mut out = Vec::with_capacity(input.len());
+    let mut local_reply = Vec::new();
     let mut position = 0usize;
     let mut begin = false;
 
@@ -54,6 +68,15 @@ pub fn rewrite_auth_lines(input: &[u8], uid_hex: &str) -> (Vec<u8>, usize, bool)
             Some(0) => (&line[..1], &line[1..]),
             _ => (&line[..0], line),
         };
+
+        if body == NEGOTIATE_UNIX_FD {
+            if !prefix.is_empty() {
+                out.extend_from_slice(prefix);
+            }
+            local_reply.extend_from_slice(b"ERROR \"Unix FD passing not supported\"\r\n");
+            position = line_end + SEPARATOR.len();
+            continue;
+        }
 
         out.extend_from_slice(prefix);
         out.extend_from_slice(&rewrite_body(body, uid_hex));
@@ -66,7 +89,7 @@ pub fn rewrite_auth_lines(input: &[u8], uid_hex: &str) -> (Vec<u8>, usize, bool)
         }
     }
 
-    (out, position, begin)
+    (out, local_reply, position, begin)
 }
 
 fn rewrite_body(body: &[u8], uid_hex: &str) -> Vec<u8> {
@@ -187,8 +210,10 @@ fn serve(listen_path: &str, bus_path: &str) -> io::Result<()> {
         Err(error) => return Err(error),
     }
     if let Some(parent) = Path::new(listen_path).parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            std::fs::create_dir_all(parent)?;
+        if !parent.as_os_str().is_empty() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)?;
+            }
             std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
         }
     }
@@ -196,13 +221,29 @@ fn serve(listen_path: &str, bus_path: &str) -> io::Result<()> {
     let listener = UnixListener::bind(listen_path)?;
     std::fs::set_permissions(listen_path, std::fs::Permissions::from_mode(0o600))?;
 
+    struct ConnGuard(Arc<AtomicUsize>);
+    impl Drop for ConnGuard {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    let active_conns = Arc::new(AtomicUsize::new(0));
     let uid_hex = uid_auth_hex(unsafe { libc::getuid() });
     for incoming in listener.incoming() {
         match incoming {
             Ok(client) => {
+                let prev = active_conns.fetch_add(1, Ordering::AcqRel);
+                if prev >= MAX_CONCURRENT_CONNECTIONS {
+                    active_conns.fetch_sub(1, Ordering::AcqRel);
+                    let _ = client.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+                let guard = ConnGuard(Arc::clone(&active_conns));
                 let bus_path = bus_path.to_string();
                 let uid_hex = uid_hex.clone();
                 thread::spawn(move || {
+                    let _guard = guard;
                     if let Err(error) = handle_client(client, &bus_path, &uid_hex) {
                         eprintln!("aibox --dbus-auth-proxy: client connection failed: {error}");
                     }
@@ -220,7 +261,7 @@ fn serve(listen_path: &str, bus_path: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn handle_client(client: UnixStream, bus_path: &str, uid_hex: &str) -> io::Result<()> {
+fn handle_client(mut client: UnixStream, bus_path: &str, uid_hex: &str) -> io::Result<()> {
     let mut upstream = connect_upstream(bus_path)?;
     let mut upstream_read = upstream.try_clone()?;
     let mut client_write = client.try_clone()?;
@@ -247,46 +288,73 @@ fn handle_client(client: UnixStream, bus_path: &str, uid_hex: &str) -> io::Resul
     let mut pending: Vec<u8> = Vec::new();
     let mut raw = false;
     let mut credentials_sent = false;
+    let mut result: io::Result<()> = Ok(());
 
     loop {
         let read = match client_read.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => read,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
+            Err(error) => {
+                result = Err(error);
+                break;
+            }
         };
 
         if raw {
-            upstream.write_all(&buffer[..read])?;
+            if let Err(error) = upstream.write_all(&buffer[..read]) {
+                result = Err(error);
+                break;
+            }
             continue;
         }
 
+        if pending.len().saturating_add(read) > MAX_AUTH_PENDING_BYTES {
+            result = Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "D-Bus auth buffer limit exceeded",
+            ));
+            break;
+        }
         pending.extend_from_slice(&buffer[..read]);
-        let (out, consumed, begin) = rewrite_auth_lines(&pending, uid_hex);
+        let (out, local_reply, consumed, begin) = rewrite_auth_lines_with_local(&pending, uid_hex);
         if consumed > 0 {
             pending.drain(..consumed);
             if !out.is_empty() {
-                if !credentials_sent && out.first() == Some(&0) {
-                    send_with_credentials(&upstream, &out)?;
+                let write_res = if !credentials_sent && out.first() == Some(&0) {
+                    send_with_credentials(&upstream, &out)
                 } else {
-                    upstream.write_all(&out)?;
+                    upstream.write_all(&out)
+                };
+                if let Err(error) = write_res {
+                    result = Err(error);
+                    break;
                 }
                 credentials_sent = true;
+            }
+            if !local_reply.is_empty() {
+                if let Err(error) = client.write_all(&local_reply) {
+                    result = Err(error);
+                    break;
+                }
             }
         }
         if begin {
             raw = true;
             if !pending.is_empty() {
-                upstream.write_all(&pending)?;
+                if let Err(error) = upstream.write_all(&pending) {
+                    result = Err(error);
+                    break;
+                }
                 pending.clear();
             }
         }
     }
 
-    let _ = upstream.shutdown(std::net::Shutdown::Write);
+    let _ = upstream.shutdown(std::net::Shutdown::Both);
+    let _ = client.shutdown(std::net::Shutdown::Both);
     let _ = bus_to_client.join();
-    client.shutdown(std::net::Shutdown::Both).ok();
-    Ok(())
+    result
 }
 
 /// Connects to the filtered proxy, retrying briefly while it starts.
@@ -312,6 +380,12 @@ fn connect_upstream(bus_path: &str) -> io::Result<UnixStream> {
 fn send_with_credentials(mut stream: &UnixStream, data: &[u8]) -> io::Result<()> {
     use std::mem::size_of;
 
+    #[repr(C)]
+    struct ControlBuf {
+        _align: [libc::cmsghdr; 0],
+        buf: [u8; 64],
+    }
+
     let credentials = libc::ucred {
         pid: unsafe { libc::getpid() },
         uid: unsafe { libc::getuid() },
@@ -322,14 +396,20 @@ fn send_with_credentials(mut stream: &UnixStream, data: &[u8]) -> io::Result<()>
         iov_len: data.len(),
     };
     let control_len = unsafe { libc::CMSG_SPACE(size_of::<libc::ucred>() as u32) } as usize;
-    let mut control = vec![0u8; control_len];
+    let mut control = ControlBuf {
+        _align: [],
+        buf: [0u8; 64],
+    };
+    if control_len > control.buf.len() {
+        return Err(io::Error::other("SCM_CREDENTIALS control buffer too small"));
+    }
     let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
     message.msg_iov = &mut iov;
     message.msg_iovlen = 1;
-    message.msg_control = control.as_mut_ptr().cast();
+    message.msg_control = control.buf.as_mut_ptr().cast();
     message.msg_controllen = control_len;
 
-    let sent = unsafe {
+    unsafe {
         let header = libc::CMSG_FIRSTHDR(&message);
         if header.is_null() {
             return Err(io::Error::other("could not build SCM_CREDENTIALS header"));
@@ -342,12 +422,25 @@ fn send_with_credentials(mut stream: &UnixStream, data: &[u8]) -> io::Result<()>
             libc::CMSG_DATA(header),
             size_of::<libc::ucred>(),
         );
-        libc::sendmsg(stream.as_raw_fd(), &message, libc::MSG_NOSIGNAL)
-    };
-    if sent < 0 {
-        return Err(io::Error::last_os_error());
     }
-    let sent = sent as usize;
+
+    let sent = loop {
+        let rc = unsafe { libc::sendmsg(stream.as_raw_fd(), &message, libc::MSG_NOSIGNAL) };
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        break rc as usize;
+    };
+    if sent == 0 && !data.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "sendmsg wrote zero bytes",
+        ));
+    }
     if sent < data.len() {
         stream.write_all(&data[sent..])?;
     }
@@ -371,13 +464,13 @@ mod tests {
 
     #[test]
     fn rewrites_auth_data_and_keeps_other_lines() {
-        let input = b"\0AUTH EXTERNAL 30\r\nDATA\r\nNEGOTIATE_UNIX_FD\r\nBEGIN\r\n";
+        let input = b"\0AUTH EXTERNAL 30\r\nDATA\r\nHELLO\r\nBEGIN\r\n";
         let (out, consumed, begin) = rewrite_auth_lines(input, "31303030");
         assert!(begin);
         assert_eq!(consumed, input.len());
         assert_eq!(
             text(&out),
-            "\0AUTH EXTERNAL 31303030\r\nDATA\r\nNEGOTIATE_UNIX_FD\r\nBEGIN\r\n"
+            "\0AUTH EXTERNAL 31303030\r\nDATA\r\nHELLO\r\nBEGIN\r\n"
         );
     }
 
@@ -427,6 +520,19 @@ mod tests {
 
         let (out, _, _) = rewrite_auth_lines(b"HELLO\r\nERROR\r\n", "31303030");
         assert_eq!(text(&out), "HELLO\r\nERROR\r\n");
+    }
+
+    #[test]
+    fn negotiate_unix_fd_is_rejected_locally() {
+        let input = b"\0AUTH EXTERNAL 30\r\nNEGOTIATE_UNIX_FD\r\nBEGIN\r\n";
+        let (out, local_reply, consumed, begin) = rewrite_auth_lines_with_local(input, "31303030");
+        assert_eq!(consumed, input.len());
+        assert!(begin);
+        assert_eq!(text(&out), "\0AUTH EXTERNAL 31303030\r\nBEGIN\r\n");
+        assert_eq!(
+            text(&local_reply),
+            "ERROR \"Unix FD passing not supported\"\r\n"
+        );
     }
 
     #[test]

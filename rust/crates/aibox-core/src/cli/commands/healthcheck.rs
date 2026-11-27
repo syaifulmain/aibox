@@ -97,7 +97,12 @@ pub fn run_healthcheck(
     if !healthy {
         if auto_restart {
             let q_name = shell_quote(&env.name);
-            let restart_out = runner.run("/bin/bash", &["-c", &format!("incus restart {q_name}")]);
+            let cmd = if env.running {
+                format!("incus restart {q_name}")
+            } else {
+                format!("incus start {q_name}")
+            };
+            let restart_out = runner.run("/bin/bash", &["-c", &cmd]);
             restarted = restart_out.exit_code == 0;
         }
         let notify = notify_healthcheck_down_script(&env.name, &target, restarted);

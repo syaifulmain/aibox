@@ -6,7 +6,7 @@ import "../components"
 Card {
     id: root
 
-    readonly property var env: backend.selectedEnvironment
+    property var env: backend.selectedEnvironment
     readonly property bool isVm: (root.env.type || "") === "VIRTUAL-MACHINE"
                                  || (root.env.type || "") === "VM"
     readonly property bool template: root.env.isTemplate || false

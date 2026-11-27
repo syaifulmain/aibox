@@ -4,6 +4,8 @@ use crate::display::{
     AudioMode, DbusMode, DesktopMode, ExtraDeviceToggles,
 };
 use crate::incus::list::Environment;
+use crate::network::acl::network_control_script;
+use crate::network::allowlist::{parse_allowlist_entries, resolve_allowlist_cidrs, SystemResolver};
 use crate::network::ports::add_port_forward_script_with_bind;
 use crate::provision::autostart::{set_environment_autostart_script, validate_autostart_options};
 use crate::util::shell::shell_quote;
@@ -143,7 +145,12 @@ pub fn manifest_from_environment(env: &Environment) -> EnvManifest {
 }
 
 fn toml_quote(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped = s
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
     format!("\"{escaped}\"")
 }
 
@@ -210,22 +217,27 @@ pub fn render_manifest_toml(m: &EnvManifest) -> String {
 }
 
 fn strip_toml_comment(line: &str) -> &str {
-    let mut in_quotes = false;
+    let mut in_double = false;
+    let mut in_single = false;
     let mut escaped = false;
     for (idx, ch) in line.char_indices() {
         if escaped {
             escaped = false;
             continue;
         }
-        if ch == '\\' && in_quotes {
+        if ch == '\\' && in_double {
             escaped = true;
             continue;
         }
-        if ch == '"' {
-            in_quotes = !in_quotes;
+        if ch == '"' && !in_single {
+            in_double = !in_double;
             continue;
         }
-        if ch == '#' && !in_quotes {
+        if ch == '\'' && !in_double {
+            in_single = !in_single;
+            continue;
+        }
+        if ch == '#' && !in_double && !in_single {
             return &line[..idx];
         }
     }
@@ -243,6 +255,8 @@ fn unquote_toml_str(raw: &str) -> Result<String, String> {
                     Some('"') => out.push('"'),
                     Some('\\') => out.push('\\'),
                     Some('n') => out.push('\n'),
+                    Some('r') => out.push('\r'),
+                    Some('t') => out.push('\t'),
                     Some(other) => {
                         out.push('\\');
                         out.push(other);
@@ -284,22 +298,27 @@ fn parse_toml_str_array(raw: &str) -> Result<Vec<String>, String> {
     }
     let mut items = Vec::new();
     let mut start = 0;
-    let mut in_quotes = false;
+    let mut in_double = false;
+    let mut in_single = false;
     let mut escaped = false;
     for (idx, ch) in inner.char_indices() {
         if escaped {
             escaped = false;
             continue;
         }
-        if ch == '\\' && in_quotes {
+        if ch == '\\' && in_double {
             escaped = true;
             continue;
         }
-        if ch == '"' {
-            in_quotes = !in_quotes;
+        if ch == '"' && !in_single {
+            in_double = !in_double;
             continue;
         }
-        if ch == ',' && !in_quotes {
+        if ch == '\'' && !in_double {
+            in_single = !in_single;
+            continue;
+        }
+        if ch == ',' && !in_double && !in_single {
             let part = inner[start..idx].trim();
             if !part.is_empty() {
                 items.push(unquote_toml_str(part)?);
@@ -377,8 +396,33 @@ pub fn parse_manifest_toml(raw: &str) -> Result<EnvManifest, String> {
         }
     }
 
-    if manifest.name.trim().is_empty() {
+    let clean_name = manifest.name.trim();
+    if clean_name.is_empty() {
         return Err("Manifest [environment].name cannot be empty.".to_string());
+    }
+    if clean_name.len() > 63
+        || clean_name.starts_with('-')
+        || clean_name.ends_with('-')
+        || !clean_name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Err(format!(
+            "Manifest [environment].name '{clean_name}' must be 1-63 alphanumeric/hyphen characters."
+        ));
+    }
+    for spec in &manifest.ports {
+        let (hp, gp, _) = parse_manifest_port_spec(spec)?;
+        if !(1024..=65535).contains(&hp) {
+            return Err(format!(
+                "Host port {hp} in '{spec}' must be between 1024 and 65535."
+            ));
+        }
+        if !(1..=65535).contains(&gp) {
+            return Err(format!(
+                "Guest port {gp} in '{spec}' must be between 1 and 65535."
+            ));
+        }
     }
     if manifest.cpu < 1 {
         return Err("Manifest [resources].cpu must be at least 1.".to_string());
@@ -477,6 +521,34 @@ pub fn reconcile_manifest_script(m: &EnvManifest, existing_ports: &[i32]) -> Str
         ));
     }
 
+    let q_name = shell_quote(&m.name);
+    let net_mode = m.network_mode.trim().to_ascii_lowercase();
+    let allow_raw = m.network_allowlist.join(", ");
+    let resolved_cidrs = if net_mode == "allowlist" {
+        let entries = parse_allowlist_entries(&allow_raw);
+        resolve_allowlist_cidrs(&entries, &SystemResolver).0
+    } else {
+        Vec::new()
+    };
+    parts.push(network_control_script(
+        &m.name,
+        &net_mode,
+        &allow_raw,
+        &resolved_cidrs,
+        false,
+    ));
+
+    if m.secrets.is_empty() {
+        parts.push(format!(
+            "incus config unset {q_name} user.aibox.secrets >/dev/null 2>&1 || true"
+        ));
+    } else {
+        let q_secrets = shell_quote(&m.secrets.join(","));
+        parts.push(format!(
+            "incus config set {q_name} user.aibox.secrets {q_secrets}"
+        ));
+    }
+
     for spec in &m.ports {
         if let Ok((hp, gp, bind_lan)) = parse_manifest_port_spec(spec) {
             if !existing_ports.contains(&hp) {
@@ -486,7 +558,6 @@ pub fn reconcile_manifest_script(m: &EnvManifest, existing_ports: &[i32]) -> Str
     }
 
     if !m.packages.is_empty() {
-        let q_name = shell_quote(&m.name);
         let q_pkgs: Vec<String> = m.packages.iter().map(|p| shell_quote(p)).collect();
         let pkg_list = q_pkgs.join(" ");
         let inner = format!(
@@ -498,6 +569,9 @@ pub fn reconcile_manifest_script(m: &EnvManifest, existing_ports: &[i32]) -> Str
                apk add --no-cache {pkg_list}; \
              fi"
         );
+        parts.push(format!(
+            "if [ \"$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\" != \"RUNNING\" ]; then incus start {q_name}; fi"
+        ));
         parts.push(format!(
             "incus exec {q_name} -- sh -c {}",
             shell_quote(&inner)
@@ -569,5 +643,17 @@ mod tests {
         assert!(script.contains("fwd-8080"));
         assert!(script.contains("pacman -S --noconfirm --needed"));
         assert!(script.contains("nginx"));
+
+        let sq = parse_manifest_toml(
+            "[environment]\nname = 'app-1' # comment\npackages = ['a,b', 'c#d']\n",
+        )
+        .expect("single-quoted manifest");
+        assert_eq!(sq.name, "app-1");
+        assert_eq!(sq.packages, vec!["a,b".to_string(), "c#d".to_string()]);
+        assert!(parse_manifest_toml("[environment]\nname = \"-bad\"").is_err());
+        assert!(
+            parse_manifest_toml("[environment]\nname = \"ok\"\n[network]\nports = [\"80\"]")
+                .is_err()
+        );
     }
 }
