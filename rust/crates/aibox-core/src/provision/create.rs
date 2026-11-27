@@ -1,6 +1,7 @@
 use crate::config::defaults::{OsEntry, Preset};
 use crate::display::{
-    build_audio_plan, build_desktop_plan, combine_scripts, detect_host_audio, detect_host_session,
+    apply_appearance_devices_script, build_appearance_plan, build_audio_plan, build_desktop_plan,
+    combine_scripts, detect_host_appearance, detect_host_audio, detect_host_session,
     download_dir_script, set_audio_mode_script, set_desktop_mode_script, AudioMode, DesktopMode,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
@@ -290,7 +291,15 @@ pub fn prepare_create_environment(
     for warning in &audio_plan.warnings {
         audio_script.push_str(&format!("\necho {} >&2", shell_quote(warning)));
     }
-    let session_script = combine_scripts(&[desktop_script, audio_script]);
+
+    // Appearance mounts follow the desktop switch: GUI containers get the host
+    // fonts, icons, themes, and cursor settings; headless presets and VMs do not.
+    let appearance_script = if has_desktop {
+        apply_appearance_devices_script(&name, &build_appearance_plan(&detect_host_appearance()))
+    } else {
+        String::new()
+    };
+    let session_script = combine_scripts(&[desktop_script, audio_script, appearance_script]);
 
     let script = create_environment_script_with_session(
         &name,

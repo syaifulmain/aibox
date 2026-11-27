@@ -309,8 +309,12 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
             }
         }
         // Off means headless: remove every bridge device even though an Off
-        // plan has no devices of its own.
-        DesktopMode::Off => lines.push(remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE])),
+        // plan has no devices of its own. Appearance mounts follow the desktop
+        // switch too, so a headless environment keeps no host theme files.
+        DesktopMode::Off => {
+            lines.push(remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE]));
+            lines.push(crate::display::appearance::remove_appearance_devices_script(name));
+        }
     }
     lines.join("\n")
 }
@@ -552,6 +556,7 @@ mod tests {
         assert!(off.contains("incus config set 'box' user.aibox.desktop 'off'"));
         assert!(off.contains("incus config device remove 'box' 'wayland'"));
         assert!(off.contains("incus config device remove 'box' 'x11'"));
+        assert!(off.contains("incus config device remove 'box' 'fonts-system'"));
         assert!(!off.contains("xhost"));
     }
 

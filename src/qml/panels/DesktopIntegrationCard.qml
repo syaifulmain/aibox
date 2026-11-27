@@ -38,4 +38,14 @@ Card {
         font.pixelSize: Style.fontSmall
         wrapMode: Text.WordWrap
     }
+
+    Text {
+        visible: root.desktopOn
+        Layout.fillWidth: true
+        text: qsTr("Fonts, icons, GTK theme and cursor follow the host; clipboard and drag-and-drop follow the Wayland session.")
+        color: theme.textMuted
+        font.family: Style.fontSans
+        font.pixelSize: Style.fontSmall
+        wrapMode: Text.WordWrap
+    }
 }

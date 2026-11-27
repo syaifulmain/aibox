@@ -7,9 +7,11 @@ use serde_json::Value;
 use crate::cli::commands::{require_environment, run_script_with_task_lock, to_json_qt_indented};
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
-    apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
-    combine_scripts, detect_host_audio, detect_host_session, download_dir_script, download_env,
-    gpu_env, merge_env_pairs, AudioMode, AudioPlan, DesktopMode, DisplayPlan,
+    apply_appearance_devices_script, apply_audio_devices_script, apply_devices_script,
+    build_appearance_plan, build_audio_plan, build_desktop_plan, combine_scripts,
+    detect_host_appearance, detect_host_audio, detect_host_session, download_dir_script,
+    download_env, gpu_env, merge_env_pairs, AppearancePlan, AudioMode, AudioPlan, DesktopMode,
+    DisplayPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -80,18 +82,44 @@ fn audio_plan_for(env: &Environment) -> AudioPlan {
     build_audio_plan(mode, &host, host.uid)
 }
 
-fn session_bridge_script(name: &str, desktop: &DisplayPlan, audio: &AudioPlan) -> String {
+fn appearance_plan_for_mode(desktop_mode: DesktopMode) -> AppearancePlan {
+    if desktop_mode == DesktopMode::Off {
+        return AppearancePlan::default();
+    }
+    build_appearance_plan(&detect_host_appearance())
+}
+
+fn appearance_plan_for(env: &Environment) -> AppearancePlan {
+    let desktop_mode = if crate::provision::is_vm_env_type(&env.env_type) {
+        DesktopMode::Off
+    } else {
+        DesktopMode::from_enabled(env.desktop_enabled)
+    };
+    appearance_plan_for_mode(desktop_mode)
+}
+
+fn session_bridge_script(
+    name: &str,
+    desktop: &DisplayPlan,
+    audio: &AudioPlan,
+    appearance: &AppearancePlan,
+) -> String {
     combine_scripts(&[
         apply_devices_script(name, desktop),
         apply_audio_devices_script(name, audio),
+        apply_appearance_devices_script(name, appearance),
         download_dir_script(name),
     ])
 }
 
-fn session_environment(desktop: &DisplayPlan, audio: &AudioPlan) -> Vec<(String, String)> {
+fn session_environment(
+    desktop: &DisplayPlan,
+    audio: &AudioPlan,
+    appearance: &AppearancePlan,
+) -> Vec<(String, String)> {
     let downloads = download_env();
     let gpu = gpu_env();
-    merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu])
+    merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu, &appearance.env])
 }
 
 fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
@@ -99,7 +127,8 @@ fn prepare_environment_script(engine: &Engine, env: &Environment) -> String {
     let allow_refresh = build_allowlist_refresh_for_env(env);
     let desktop = desktop_plan_for(env);
     let audio = audio_plan_for(env);
-    let session = session_bridge_script(&env.name, &desktop, &audio);
+    let appearance = appearance_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance);
     build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -108,7 +137,8 @@ fn start_environment_script_for(engine: &Engine, env: &Environment) -> String {
     let allow_refresh = build_allowlist_refresh_for_env(env);
     let desktop = desktop_plan_for(env);
     let audio = audio_plan_for(env);
-    let session = session_bridge_script(&env.name, &desktop, &audio);
+    let appearance = appearance_plan_for(env);
+    let session = session_bridge_script(&env.name, &desktop, &audio, &appearance);
     start_environment_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -253,7 +283,8 @@ pub fn run_enter(
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let desktop = desktop_plan_for(&env);
     let audio = audio_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio);
+    let appearance = appearance_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio, &appearance);
     // The plan owns DISPLAY when desktop integration is on; passing an empty
     // display keeps Off purely headless instead of falling back to `:0`.
     let exec_args = enter_incus_exec_args_with_env(
@@ -332,7 +363,8 @@ pub fn run_exec(
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let desktop = desktop_plan_for(&env);
     let audio = audio_plan_for(&env);
-    let session_env = session_environment(&desktop, &audio);
+    let appearance = appearance_plan_for(&env);
+    let session_env = session_environment(&desktop, &audio, &appearance);
     let args = exec_incus_command_args_with_env(
         &parsed.env_name,
         &parsed.exec_command,
@@ -405,4 +437,138 @@ pub fn run_stop(
         &script,
         true,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::DeviceSpec;
+
+    fn appearance_plan() -> AppearancePlan {
+        AppearancePlan {
+            devices: vec![DeviceSpec {
+                name: "fonts-system".to_string(),
+                kind: "disk".to_string(),
+                options: vec![
+                    ("source".to_string(), "/usr/share/fonts".to_string()),
+                    ("path".to_string(), "/usr/share/fonts".to_string()),
+                    ("readonly".to_string(), "true".to_string()),
+                ],
+            }],
+            env: vec![
+                ("XCURSOR_THEME".to_string(), "Bibata".to_string()),
+                ("XCURSOR_SIZE".to_string(), "32".to_string()),
+                ("GTK_THEME".to_string(), "Adwaita:dark".to_string()),
+            ],
+            warnings: Vec::new(),
+        }
+    }
+
+    fn desktop_plan() -> DisplayPlan {
+        DisplayPlan {
+            mode: DesktopMode::On,
+            devices: Vec::new(),
+            env: vec![
+                ("DISPLAY".to_string(), ":0".to_string()),
+                ("WAYLAND_DISPLAY".to_string(), "wayland-0".to_string()),
+            ],
+            warnings: Vec::new(),
+        }
+    }
+
+    fn empty_audio_plan() -> AudioPlan {
+        AudioPlan {
+            mode: AudioMode::Off,
+            devices: Vec::new(),
+            env: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn session_environment_adds_appearance_env_after_the_other_bridges() {
+        let desktop = desktop_plan();
+        let audio = AudioPlan {
+            mode: AudioMode::Off,
+            devices: Vec::new(),
+            env: vec![("DISPLAY".to_string(), ":99".to_string())],
+            warnings: Vec::new(),
+        };
+        let appearance = appearance_plan();
+        let env = session_environment(&desktop, &audio, &appearance);
+
+        assert_eq!(
+            env.iter()
+                .find(|(key, _)| key == "DISPLAY")
+                .map(|(_, value)| value.as_str()),
+            Some(":0"),
+            "display still wins over a later duplicate"
+        );
+        for (key, value) in [
+            ("XCURSOR_THEME", "Bibata"),
+            ("XCURSOR_SIZE", "32"),
+            ("GTK_THEME", "Adwaita:dark"),
+        ] {
+            assert_eq!(
+                env.iter()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.as_str()),
+                Some(value),
+                "env {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn enter_and_exec_args_carry_appearance_environment_when_desktop_is_on() {
+        let env = session_environment(&desktop_plan(), &empty_audio_plan(), &appearance_plan());
+        for args in [
+            enter_incus_exec_args_with_env("box", "", "/home/workspace", "", "", &env),
+            exec_incus_command_args_with_env(
+                "box",
+                &["firefox".to_string()],
+                "",
+                "/home/workspace",
+                &env,
+            ),
+        ] {
+            for pair in [
+                "XCURSOR_THEME=Bibata",
+                "XCURSOR_SIZE=32",
+                "GTK_THEME=Adwaita:dark",
+            ] {
+                assert!(
+                    args.iter().any(|arg| arg == pair),
+                    "missing {pair} in {args:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn session_bridge_script_includes_appearance_devices() {
+        let script = session_bridge_script(
+            "box",
+            &desktop_plan(),
+            &empty_audio_plan(),
+            &appearance_plan(),
+        );
+        assert!(script.contains("incus config device add 'box' 'fonts-system' 'disk'"));
+        assert!(script.contains("readonly='true'"));
+        assert!(script.contains("incus config device remove 'box' 'fonts-system'"));
+    }
+
+    #[test]
+    fn appearance_plan_is_empty_when_desktop_is_off() {
+        assert_eq!(
+            appearance_plan_for_mode(DesktopMode::Off),
+            AppearancePlan::default()
+        );
+        // The GUI/CLI wrappers force DesktopMode::Off for VMs before this call.
+        let on = appearance_plan_for_mode(DesktopMode::On);
+        assert!(
+            !on.env.is_empty(),
+            "an on plan always carries cursor defaults"
+        );
+    }
 }

@@ -7,12 +7,18 @@
 //! from the shell snippets makes the behaviour unit-testable without a live
 //! Incus daemon.
 
+pub mod appearance;
 pub mod audio;
 pub mod downloads;
 pub mod gpu;
 pub mod host;
 pub mod plan;
 
+pub use appearance::{
+    apply_appearance_devices_script, build_appearance_plan, detect_host_appearance,
+    detect_host_appearance_with, parse_gtk_settings, remove_appearance_devices_script,
+    AppearancePlan, AppearanceSource, GtkSettings, HostAppearance, APPEARANCE_DEVICE_NAMES,
+};
 pub use audio::{
     apply_audio_devices_script, build_audio_plan, detect_host_audio, detect_host_audio_with,
     remove_audio_devices_script, set_audio_mode_script, test_audio_script, AudioMode, AudioPlan,

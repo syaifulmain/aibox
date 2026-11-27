@@ -490,6 +490,7 @@
   "Output and microphone — apps can record audio.": "Udgang og mikrofon — apps kan optage lyd.",
   "Microphone input is best-effort through the PulseAudio compatibility socket; per-app mic denial needs a future PipeWire policy.": "Mikrofoninput er bedst muligt via PulseAudio-kompatibilitetsstikket; afvisning af mikrofon per app kræver en fremtidig PipeWire-politik.",
   "Wayland apps (with X11 fallback), clipboard and drag-and-drop use your host desktop.": "Wayland-apps (med X11-fallback), udklipsholder og træk-og-slip bruger dit skrivebord på værten.",
+  "Fonts, icons, GTK theme and cursor follow the host; clipboard and drag-and-drop follow the Wayland session.": "Skrifttyper, ikoner, GTK-tema og markør følger værten; udklipsholder og træk-og-slip følger Wayland-sessionen.",
   "Off — headless server mode. Enable before running GUI programs.": "Fra — headless servertilstand. Aktivér før du kører GUI-programmer.",
   "GPU & Video": "GPU og video",
   "Test GPU": "Test GPU",

@@ -10,9 +10,11 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
 use aibox_core::display::{
-    apply_audio_devices_script, apply_devices_script, build_audio_plan, build_desktop_plan,
-    combine_scripts, detect_host_audio, detect_host_session, download_dir_script, download_env,
-    gpu_env, merge_env_pairs, AudioMode, AudioPlan, DesktopMode, DisplayPlan,
+    apply_appearance_devices_script, apply_audio_devices_script, apply_devices_script,
+    build_appearance_plan, build_audio_plan, build_desktop_plan, combine_scripts,
+    detect_host_appearance, detect_host_audio, detect_host_session, download_dir_script,
+    download_env, gpu_env, merge_env_pairs, AppearancePlan, AudioMode, AudioPlan, DesktopMode,
+    DisplayPlan,
 };
 use aibox_core::health::idle::{
     effective_idle_stop_minutes, evaluate_idle_decision, parse_active_incus_exec_envs,
@@ -536,22 +538,43 @@ impl qobject::Backend {
         build_audio_plan(mode, &host, host.uid)
     }
 
+    fn appearance_plan_for_env(&self, env_name: &str) -> AppearancePlan {
+        let env = self
+            .engine
+            .environments
+            .iter()
+            .find(|env| env.name == env_name);
+        let desktop_mode = match env {
+            Some(env) if !aibox_core::provision::is_vm_env_type(&env.env_type) => {
+                DesktopMode::from_enabled(env.desktop_enabled)
+            }
+            _ => DesktopMode::Off,
+        };
+        if desktop_mode == DesktopMode::Off {
+            return AppearancePlan::default();
+        }
+        build_appearance_plan(&detect_host_appearance())
+    }
+
     fn session_env_for_env(&self, env_name: &str) -> Vec<(String, String)> {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
+        let appearance = self.appearance_plan_for_env(env_name);
         let downloads = download_env();
         let gpu = gpu_env();
-        merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu])
+        merge_env_pairs(&[&desktop.env, &audio.env, &downloads, &gpu, &appearance.env])
     }
 
-    /// Applies display, audio, and download integration for GUI Start, not
-    /// only Enter.
+    /// Applies display, audio, appearance, and download integration for GUI
+    /// Start, not only Enter.
     pub(crate) fn session_bridge_script_for_env(&self, env_name: &str) -> String {
         let desktop = self.desktop_plan_for_env(env_name);
         let audio = self.audio_plan_for_env(env_name);
+        let appearance = self.appearance_plan_for_env(env_name);
         combine_scripts(&[
             apply_devices_script(env_name, &desktop),
             apply_audio_devices_script(env_name, &audio),
+            apply_appearance_devices_script(env_name, &appearance),
             download_dir_script(env_name),
         ])
     }
