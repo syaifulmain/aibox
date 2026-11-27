@@ -15,10 +15,12 @@ pub fn parse_command_name(token: &str) -> Command {
         "snapshots" => Command::Snapshots,
         "restore" => Command::Restore,
         "diff" => Command::Diff,
+        "export-config" => Command::ExportConfig,
         "run" => Command::Run,
         "ssh-config" => Command::SshConfig,
         "svc" => Command::Svc,
         "theme" => Command::Theme,
+        "up" => Command::Up,
         "completions" => Command::Completions,
         _ => Command::None,
     }
@@ -383,13 +385,16 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
         );
     }
 
-    if (!parsed.output_path.is_empty() || !parsed.theme_path.is_empty())
-        && parsed.command != Command::Theme
+    if !parsed.output_path.is_empty()
+        && !matches!(parsed.command, Command::Theme | Command::ExportConfig)
     {
         return make_usage_error(
-            "--output and --theme-dir are only supported for 'theme'.",
+            "--output is only supported for 'theme' and 'export-config'.",
             parsed.command,
         );
+    }
+    if !parsed.theme_path.is_empty() && parsed.command != Command::Theme {
+        return make_usage_error("--theme-dir is only supported for 'theme'.", parsed.command);
     }
     if parsed.timeout_secs.is_some() && parsed.command != Command::Exec {
         return make_usage_error("--timeout is only supported for 'exec'.", parsed.command);
@@ -486,6 +491,20 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             parsed.env_name = positionals[0].clone();
             if positionals.len() == 2 {
                 parsed.snapshot_name = positionals[1].clone();
+            }
+        }
+        Command::ExportConfig => {
+            if positionals.len() != 1 {
+                return make_usage_error("Expected <env>.", Command::ExportConfig);
+            }
+            parsed.env_name = positionals[0].clone();
+        }
+        Command::Up => {
+            if positionals.len() > 1 {
+                return make_usage_error("Expected [aibox.toml].", Command::Up);
+            }
+            if let Some(path) = positionals.first() {
+                parsed.manifest_path = path.clone();
             }
         }
         Command::SshConfig => {

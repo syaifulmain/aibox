@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Declarative `aibox.toml` Manifest (`aibox export-config` & `aibox up`) (`rust/crates/aibox-core/src/config/manifest.rs`, `config/mod.rs`, `cli/commands/manifest.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
+
+- Added zero-dependency `aibox-core::config::manifest` with `EnvManifest`, `manifest_from_environment`, `render_manifest_toml`, `parse_manifest_toml`, `parse_manifest_port_spec`, and `reconcile_manifest_script` (applying autostart, desktop/audio/D-Bus/extra device toggles, missing port forwards, and optional packages).
+- Added `aibox export-config <env> [--output <path>]` and `aibox up [path]` (default `./aibox.toml`) to create or reconcile environments declaratively, and updated `aibox help` and bash/zsh/fish completions.
+
 ### Ephemeral Environments (`aibox run --ephemeral --from <template>`) (`rust/crates/aibox-core/src/cli/commands/run.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
 
 - Added `aibox run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>` to clone a disposable environment (`eph-<template>-<epoch>`), start it, forward the command, and delete both the Incus instance and workspace afterward (or keep them on non-zero exit when `--keep-on-fail` is passed).

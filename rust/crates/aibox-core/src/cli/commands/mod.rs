@@ -1,5 +1,6 @@
 pub mod completions;
 pub mod env;
+pub mod manifest;
 pub mod run;
 pub mod snapshot;
 pub mod ssh_config;
@@ -386,6 +387,8 @@ pub fn execute_with(
         Command::SshConfig => ssh_config::run_ssh_config(&mut engine, parsed, io, runner),
         Command::Svc => svc::run_svc(&mut engine, parsed, io, runner),
         Command::Run => run::run_ephemeral(&mut engine, parsed, io, runner),
+        Command::ExportConfig => manifest::run_export_config(&mut engine, parsed, io, runner),
+        Command::Up => manifest::run_up(&mut engine, parsed, io, runner, cwd),
         Command::Check | Command::Help | Command::None | Command::Theme | Command::Completions => {
             ExitCode::Usage.as_i32()
         }

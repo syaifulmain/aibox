@@ -44,6 +44,14 @@ pub fn help_text(cmd: Command) -> &'static str {
             "Usage: aibox [--project <dir>] diff <env> [snap] [--json]\n\n\
              Show /home/workspace file changes compared against a snapshot (default: latest).\n"
         }
+        Command::ExportConfig => {
+            "Usage: aibox [--project <dir>] export-config <env> [--output <path>]\n\n\
+             Export an environment's settings as a declarative aibox.toml manifest.\n"
+        }
+        Command::Up => {
+            "Usage: aibox [--project <dir>] up [path]\n\n\
+             Create or reconcile an environment from a declarative aibox.toml manifest (default: ./aibox.toml).\n"
+        }
         Command::Run => {
             "Usage: aibox [--project <dir>] run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>\n\n\
              Clone a temporary environment from <template>, run <cmd...>, and delete it afterward.\n"
@@ -83,6 +91,8 @@ pub fn help_text(cmd: Command) -> &'static str {
              \x20                                                     Run command in disposable clone\n\
              \x20 ssh-config [env]                                    Print SSH config stanzas\n\
              \x20 svc <env> <action> [unit] [--lines <n>] [--json]    Manage container services\n\
+             \x20 export-config <env> [--output <path>]               Export aibox.toml manifest\n\
+             \x20 up [path]                                           Provision/reconcile from aibox.toml\n\
              \x20 completions <bash|zsh|fish>                         Generate shell completions\n\
              \x20 help [command]                                      Show help\n\n\
              Global options:\n\

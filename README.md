@@ -82,6 +82,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 - `aibox ssh-config [env]` — print SSH client config stanzas (`Host aibox-<env>`) via `ProxyCommand incus exec` for VS Code / Zed Remote-SSH
 - `aibox svc <env> <list|logs|start|stop|restart|enable|disable> [unit] [--lines <n>] [--json]` — inspect and control systemd or OpenRC services inside a running environment
 - `aibox run --ephemeral --from <template> [--keep-on-fail] -- <cmd...>` — run a command inside a disposable clone and delete it afterward (unless `--keep-on-fail` is set on error)
+- `aibox export-config <env> [--output <path>]` / `aibox up [path]` — export an environment to `aibox.toml` or provision/reconcile an environment from `aibox.toml`
 - `aibox list [--json]` / `aibox check [--fix] [--json]` / `aibox help [command]` — list environments, run diagnostics, or view usage
 - `aibox completions <bash|zsh|fish>` — generate shell completion scripts for `bash`, `zsh`, or `fish`
 
