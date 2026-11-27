@@ -210,7 +210,6 @@
   "Ports": "Porte",
   "Edit quotas and limits of selected environment": "Redigér kvoter og grænser for valgt miljø",
   "Port Forwarding · %1": "Port videresendelse · %1",
-  "Binds container ports to 127.0.0.1 on Host only (never 0.0.0.0)": "Binder kun containerporte til 127.0.0.1 på værten (aldrig 0.0.0.0)",
   "Host port (e.g. 3000)": "Værtsport (f.eks. 3000)",
   "Container port (e.g. 3000)": "Containerport (f.eks. 3000)",
   "No forwarded ports configured for this environment.": "Ingen videresendte porte konfigureret til dette miljø.",
@@ -516,5 +515,12 @@
   "Delay (s)": "Forsinkelse (s)",
   "Save": "Gem",
   "Priority must be a non-negative whole number.": "Prioritet skal være et ikke-negativt heltal.",
-  "Delay must be a non-negative whole number of seconds.": "Forsinkelse skal være et ikke-negativt heltal i sekunder."
+  "Delay must be a non-negative whole number of seconds.": "Forsinkelse skal være et ikke-negativt heltal i sekunder.",
+  "Binds container ports to 127.0.0.1 by default, or optionally 0.0.0.0 for LAN access": "Binder containerporte til 127.0.0.1 som standard, eller valgfrit 0.0.0.0 for LAN-adgang",
+  "Local domain": "Lokalt domæne",
+  "DNS Setup": "DNS-opsætning",
+  "DNS setup command": "DNS-opsætningskommando",
+  "LAN": "LAN",
+  "Expose on LAN (0.0.0.0)": "Eksponér på LAN (0.0.0.0)",
+  "I understand devices on my local network can reach this port": "Jeg forstår, at enheder på mit lokale netværk kan nå denne port"
 }

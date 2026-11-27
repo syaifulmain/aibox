@@ -63,6 +63,13 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Optional LAN Port Binding & Local `.aibox.test` Domain (`rust/crates/aibox-core/src/network/ports.rs`, `incus/list/`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_network.rs`, `src/qml/dialogs/PortsDialog.qml`, `src/i18n/`)
+
+- Extended `PortForwardEntry` (`bind_address`, `lan_exposed`; serialized as `bindAddress`, `lanExposed`) and `Environment` (`local_domain`; serialized as `localDomain` set to `<env>.aibox.test` for non-template instances). `extract_port_forwards_and_mounts` parses the bind address from `listen` and marks `0.0.0.0` / `::` forwards as `lan_exposed`.
+- Added `add_port_forward_script_with_bind`, `validate_add_port_forward_with_bind` (requiring explicit confirmation before binding `0.0.0.0`), `local_domain_for`, and `local_domain_setup_hint` in `aibox-core::network::ports`.
+- Exposed `addPortForwardWithBind(name, hostPort, guestPort, bindLan, confirmLan)` and `localDomainSetupCommand()` on `Backend`.
+- Updated `PortsDialog.qml` with a local `.aibox.test` domain strip (**Copy** + **DNS Setup**), `bindAddress:hostPort -> guestPort` display with a `LAN` warning badge, and opt-in **Expose on LAN (0.0.0.0)** + confirmation checkboxes. Added all strings to `src/i18n/en.json` and `src/i18n/da.json`.
+
 ### Per-Environment Boot Autostart (`rust/crates/aibox-core/src/provision/autostart.rs`, `provision/mod.rs`, `incus/list/`, `rust/crates/aibox-app/src/qt_backend.rs`, `qt_backend_health.rs`, `src/qml/panels/AutostartCard.qml`, `EnvironmentInspector.qml`, `EnvironmentList.qml`, `src/resources.qrc`, `src/i18n/`)
 
 - Added `aibox-core::provision::autostart` with `validate_autostart_options(priority, delay_secs)` (bounding priority to `0..=1000` and delay to `0..=3600` seconds) and `set_environment_autostart_script(name, enabled, priority, delay_secs)`. Enabling sets `boot.autostart=true` and writes `boot.autostart.priority`/`boot.autostart.delay` when positive (or unsets them when `0`); disabling sets `boot.autostart=false` while preserving existing priority/delay values so re-enabling restores them.

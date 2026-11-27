@@ -6,33 +6,83 @@ ModalDialog {
     id: portsOverlay
     property QtObject app: null
     readonly property var env: backend.selectedEnvironment
+    property bool lanBind: false
+    property bool lanConfirmed: false
     open: app.portsVisible
     zOrder: 87
     clipCard: true
     size: "md"
     cardHeight: Math.min(parent.height - Style.modalGutter, Style.modalWidthSm)
-    onDismissed: app.portsVisible = false
+    onDismissed: {
+        portsOverlay.lanBind = false
+        portsOverlay.lanConfirmed = false
+        app.portsVisible = false
+    }
 
     function submitPort() {
         const hp = parseInt(hostPortInput.text.trim(), 10)
         const gp = parseInt(guestPortInput.text.trim(), 10)
-        const err = backend.addPortForward(
+        const err = backend.addPortForwardWithBind(
             portsOverlay.env.name || "",
             isNaN(hp) ? 0 : hp,
-            isNaN(gp) ? (isNaN(hp) ? 0 : hp) : gp)
+            isNaN(gp) ? (isNaN(hp) ? 0 : hp) : gp,
+            portsOverlay.lanBind,
+            portsOverlay.lanConfirmed)
         if (err.length > 0) {
             app.portForwardError = err
         } else {
             app.portForwardError = ""
             hostPortInput.text = ""
             guestPortInput.text = ""
+            portsOverlay.lanBind = false
+            portsOverlay.lanConfirmed = false
         }
     }
 
     ModalHeader {
         title: qsTr("Port Forwarding · %1").arg(portsOverlay.env.name || "")
-        subtitle: qsTr("Binds container ports to 127.0.0.1 on Host only (never 0.0.0.0)")
+        subtitle: qsTr("Binds container ports to 127.0.0.1 by default, or optionally 0.0.0.0 for LAN access")
         onClosed: app.portsVisible = false
+    }
+
+    Rectangle {
+        visible: (portsOverlay.env.localDomain || "").length > 0
+        Layout.fillWidth: true
+        implicitHeight: domainRow.implicitHeight + Style.padCard * 2
+        radius: Math.min(Style.radiusMd, theme.radius)
+        color: theme.surfaceInput
+        border.width: Style.hairline
+        border.color: theme.borderSubtle
+
+        RowLayout {
+            id: domainRow
+            anchors.fill: parent
+            anchors.margins: Style.padCard
+            spacing: Style.gap
+
+            Text {
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+                text: portsOverlay.env.localDomain || ""
+                color: theme.accentText
+                font.family: Style.fontMono
+                font.pixelSize: Style.fontBody
+            }
+
+            ActionButton {
+                label: qsTr("Copy")
+                onClicked: backend.copyText(
+                    portsOverlay.env.localDomain || "",
+                    qsTr("Local domain"))
+            }
+
+            ActionButton {
+                label: qsTr("DNS Setup")
+                onClicked: backend.copyText(
+                    backend.localDomainSetupCommand(),
+                    qsTr("DNS setup command"))
+            }
+        }
     }
 
     Rectangle {
@@ -97,10 +147,16 @@ ModalDialog {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "127.0.0.1:" + modelData.hostPort + "  →  " + modelData.guestPort
+                        text: (modelData.bindAddress || "127.0.0.1") + ":" + modelData.hostPort + "  →  " + modelData.guestPort
                         color: theme.textPrimary
                         font.family: Style.fontMono
                         font.pixelSize: Style.fontBody
+                    }
+
+                    TagBadge {
+                        visible: modelData.lanExposed || false
+                        text: qsTr("LAN")
+                        tone: "warning"
                     }
 
                     ActionButton {
@@ -151,6 +207,27 @@ ModalDialog {
             placeholder: qsTr("Container port (e.g. 3000)")
             onAccepted: portsOverlay.submitPort()
         }
+    }
+
+    CheckRow {
+        text: qsTr("Expose on LAN (0.0.0.0)")
+        checked: portsOverlay.lanBind
+        danger: true
+        disabled: backend.busy
+        onToggled: {
+            portsOverlay.lanBind = !portsOverlay.lanBind
+            if (!portsOverlay.lanBind)
+                portsOverlay.lanConfirmed = false
+        }
+    }
+
+    CheckRow {
+        visible: portsOverlay.lanBind
+        text: qsTr("I understand devices on my local network can reach this port")
+        checked: portsOverlay.lanConfirmed
+        danger: true
+        disabled: backend.busy
+        onToggled: portsOverlay.lanConfirmed = !portsOverlay.lanConfirmed
     }
 
     DialogFooter {

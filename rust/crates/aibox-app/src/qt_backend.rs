@@ -586,6 +586,21 @@ pub mod qobject {
         ) -> QString;
 
         #[qinvokable]
+        #[cxx_name = "addPortForwardWithBind"]
+        fn add_port_forward_with_bind(
+            self: Pin<&mut Backend>,
+            name: &QString,
+            host_port: i32,
+            guest_port: i32,
+            bind_lan: bool,
+            confirm_lan: bool,
+        ) -> QString;
+
+        #[qinvokable]
+        #[cxx_name = "localDomainSetupCommand"]
+        fn local_domain_setup_command(self: &Backend) -> QString;
+
+        #[qinvokable]
         #[cxx_name = "removePortForward"]
         fn remove_port_forward(self: Pin<&mut Backend>, name: &QString, device_name: &QString);
 

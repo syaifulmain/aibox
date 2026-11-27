@@ -153,5 +153,12 @@
   "Delay (s)": "Delay (s)",
   "Save": "Save",
   "Priority must be a non-negative whole number.": "Priority must be a non-negative whole number.",
-  "Delay must be a non-negative whole number of seconds.": "Delay must be a non-negative whole number of seconds."
+  "Delay must be a non-negative whole number of seconds.": "Delay must be a non-negative whole number of seconds.",
+  "Binds container ports to 127.0.0.1 by default, or optionally 0.0.0.0 for LAN access": "Binds container ports to 127.0.0.1 by default, or optionally 0.0.0.0 for LAN access",
+  "Local domain": "Local domain",
+  "DNS Setup": "DNS Setup",
+  "DNS setup command": "DNS setup command",
+  "LAN": "LAN",
+  "Expose on LAN (0.0.0.0)": "Expose on LAN (0.0.0.0)",
+  "I understand devices on my local network can reach this port": "I understand devices on my local network can reach this port"
 }

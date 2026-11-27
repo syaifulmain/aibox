@@ -962,6 +962,11 @@ pub fn parse_with_now_checked(
         let port_forward_count = port_forwards.len();
         let extra_mount_count = extra_mounts.len();
         let network_blocked = net_mode == "offline";
+        let local_domain = if is_template {
+            String::new()
+        } else {
+            crate::network::ports::local_domain_for(name)
+        };
 
         result.push(Environment {
             name: name.to_string(),
@@ -1050,6 +1055,7 @@ pub fn parse_with_now_checked(
             network_allowlist: net_allowlist,
             network_blocked,
             egress_recording,
+            local_domain,
             swap_limit,
             root_pool: limits.root_pool.to_string(),
         });
@@ -1425,5 +1431,39 @@ mod tests {
         assert_eq!(value["bootAutostart"], serde_json::json!(true));
         assert_eq!(value["bootAutostartPriority"], serde_json::json!(10));
         assert_eq!(value["bootAutostartDelay"], serde_json::json!(5));
+    }
+
+    #[test]
+    fn port_forwards_and_local_domain_parse_lan_bind() {
+        let json = r#"[
+            {
+                "name": "web-srv",
+                "status": "Running",
+                "type": "container",
+                "config": {},
+                "devices": {
+                    "fwd-3000": {"type": "proxy", "listen": "tcp:127.0.0.1:3000", "connect": "tcp:127.0.0.1:3000"},
+                    "fwd-8080": {"type": "proxy", "listen": "tcp:0.0.0.0:8080", "connect": "tcp:127.0.0.1:80"}
+                },
+                "expanded_devices": {}
+            }
+        ]"#;
+        let envs = parse_envs(json);
+        assert_eq!(envs[0].local_domain, "web-srv.aibox.test");
+        assert_eq!(envs[0].port_forwards.len(), 2);
+        assert_eq!(envs[0].port_forwards[0].bind_address, "127.0.0.1");
+        assert!(!envs[0].port_forwards[0].lan_exposed);
+        assert_eq!(envs[0].port_forwards[1].bind_address, "0.0.0.0");
+        assert!(envs[0].port_forwards[1].lan_exposed);
+
+        let value = serde_json::to_value(&envs[0]).expect("serialize");
+        assert_eq!(
+            value["localDomain"],
+            serde_json::json!("web-srv.aibox.test")
+        );
+        assert_eq!(
+            value["portForwards"][1]["lanExposed"],
+            serde_json::json!(true)
+        );
     }
 }

@@ -71,6 +71,8 @@ pub(crate) fn extract_port_forwards_and_mounts(
                 .next()
                 .and_then(|s| s.trim().parse::<i32>().ok())
                 .unwrap_or(0);
+            let bind_address = parse_bind_address(listen_addr);
+            let lan_exposed = bind_address == "0.0.0.0" || bind_address == "::";
             let guest_port = connect_addr
                 .rsplit(':')
                 .next()
@@ -87,6 +89,8 @@ pub(crate) fn extract_port_forwards_and_mounts(
                     } else {
                         host_port
                     },
+                    bind_address,
+                    lan_exposed,
                 });
             }
         } else if dev_type == "disk"
@@ -111,4 +115,21 @@ pub(crate) fn extract_port_forwards_and_mounts(
     }
 
     (port_forwards, extra_mounts)
+}
+
+fn parse_bind_address(listen_addr: &str) -> String {
+    let stripped = listen_addr
+        .trim()
+        .strip_prefix("tcp:")
+        .or_else(|| listen_addr.trim().strip_prefix("udp:"))
+        .unwrap_or(listen_addr.trim());
+    let addr = stripped
+        .rsplit_once(':')
+        .map(|(host, _)| host.trim().trim_start_matches('[').trim_end_matches(']'))
+        .unwrap_or("");
+    if addr.is_empty() {
+        "127.0.0.1".to_string()
+    } else {
+        addr.to_string()
+    }
 }

@@ -10,14 +10,27 @@ pub fn proxy_device_name(host_port: i32) -> String {
 
 /// Builds the shell script to attach a localhost proxy device to an environment.
 pub fn add_port_forward_script(name: &str, host_port: i32, guest_port: i32) -> String {
+    add_port_forward_script_with_bind(name, host_port, guest_port, false)
+}
+
+/// Builds the shell script to attach a localhost (`127.0.0.1`) or LAN (`0.0.0.0`)
+/// proxy device to an environment.
+pub fn add_port_forward_script_with_bind(
+    name: &str,
+    host_port: i32,
+    guest_port: i32,
+    bind_lan: bool,
+) -> String {
     let dev = proxy_device_name(host_port);
     let q_name = shell_quote(name);
     let q_dev = shell_quote(&dev);
-    let q_listen = shell_quote(&format!("tcp:127.0.0.1:{host_port}"));
+    let bind_addr = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
+    let scope = if bind_lan { "LAN" } else { "localhost" };
+    let q_listen = shell_quote(&format!("tcp:{bind_addr}:{host_port}"));
     let q_connect = shell_quote(&format!("tcp:127.0.0.1:{guest_port}"));
     format!(
         "set -euo pipefail\n\
-         echo '@@STAGE:45:Adding localhost port forward ({host_port} -> {guest_port})...'\n\
+         echo '@@STAGE:45:Adding {scope} port forward ({host_port} -> {guest_port})...'\n\
          incus config device add {q_name} {q_dev} proxy listen={q_listen} connect={q_connect}\n\
          echo '@@STAGE:100:Port forward active.'"
     )
@@ -72,6 +85,47 @@ pub fn validate_add_port_forward(
     Ok(())
 }
 
+/// Validates parameters, LAN confirmation, and host port availability for adding a port forward.
+#[allow(clippy::too_many_arguments)]
+pub fn validate_add_port_forward_with_bind(
+    name: &str,
+    busy: bool,
+    host_port: i32,
+    guest_port: i32,
+    bind_lan: bool,
+    confirm_lan: bool,
+    env_found: bool,
+    existing_host_ports: &[i32],
+) -> Result<(), String> {
+    validate_add_port_forward(
+        name,
+        busy,
+        host_port,
+        guest_port,
+        env_found,
+        existing_host_ports,
+    )?;
+    if bind_lan && !confirm_lan {
+        return Err("Confirm LAN exposure (0.0.0.0) before forwarding this port.".to_string());
+    }
+    Ok(())
+}
+
+/// Returns `<env>.aibox.test` when `env_name` is non-empty.
+pub fn local_domain_for(env_name: &str) -> String {
+    let trimmed = env_name.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}.aibox.test")
+    }
+}
+
+/// Returns the host `incus`/`systemd-resolved` command for resolving `*.aibox.test`.
+pub fn local_domain_setup_hint() -> String {
+    "incus network set incusbr0 dns.domain=aibox.test && sudo resolvectl dns incusbr0 $(incus network get incusbr0 ipv4.address | cut -d/ -f1) && sudo resolvectl domain incusbr0 ~aibox.test".to_string()
+}
+
 /// Returns the localhost HTTP URL for an open forwarded port if `host_port` is valid.
 pub fn open_forwarded_port_url(host_port: i32) -> Option<String> {
     if (1..=65535).contains(&host_port) {
@@ -108,5 +162,34 @@ mod tests {
         assert!(validate_add_port_forward("web-box", false, 3000, 0, true, &[]).is_err());
         assert!(validate_add_port_forward("web-box", false, 3000, 80, false, &[]).is_err());
         assert!(validate_add_port_forward("web-box", false, 3000, 80, true, &[3000]).is_err());
+
+        let lan_script = add_port_forward_script_with_bind("web-box", 3000, 8080, true);
+        assert!(lan_script
+            .contains("'fwd-3000' proxy listen='tcp:0.0.0.0:3000' connect='tcp:127.0.0.1:8080'"));
+        assert!(validate_add_port_forward_with_bind(
+            "web-box",
+            false,
+            3000,
+            80,
+            true,
+            false,
+            true,
+            &[]
+        )
+        .is_err());
+        assert!(validate_add_port_forward_with_bind(
+            "web-box",
+            false,
+            3000,
+            80,
+            true,
+            true,
+            true,
+            &[]
+        )
+        .is_ok());
+        assert_eq!(local_domain_for("web-box"), "web-box.aibox.test");
+        assert_eq!(local_domain_for("  "), "");
+        assert!(local_domain_setup_hint().contains("aibox.test"));
     }
 }

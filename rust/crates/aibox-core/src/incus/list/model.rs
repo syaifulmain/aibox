@@ -35,6 +35,8 @@ pub struct PortForwardEntry {
     pub connect: Option<String>,
     pub host_port: i32,
     pub guest_port: i32,
+    pub bind_address: String,
+    pub lan_exposed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -147,6 +149,7 @@ pub struct Environment {
     pub network_allowlist: String,
     pub network_blocked: bool,
     pub egress_recording: bool,
+    pub local_domain: String,
     /// Explicit container swap value: `Off`, a size such as `4GiB`, or empty
     /// when the instance follows the Incus default (`Host`).
     #[serde(skip_serializing_if = "String::is_empty")]

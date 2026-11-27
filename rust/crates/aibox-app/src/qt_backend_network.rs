@@ -15,8 +15,8 @@ use aibox_core::network::allowlist::{
 };
 use aibox_core::network::egress::parse_kernel_egress_logs;
 use aibox_core::network::ports::{
-    add_port_forward_script, open_forwarded_port_url, remove_port_forward_script,
-    validate_add_port_forward,
+    add_port_forward_script_with_bind, local_domain_setup_hint, open_forwarded_port_url,
+    remove_port_forward_script, validate_add_port_forward_with_bind,
 };
 
 use crate::qt_backend::{qobject, spawn_detached};
@@ -256,10 +256,21 @@ impl qobject::Backend {
     }
 
     pub fn add_port_forward(
+        self: Pin<&mut Self>,
+        name: &QString,
+        host_port: i32,
+        guest_port: i32,
+    ) -> QString {
+        self.add_port_forward_with_bind(name, host_port, guest_port, false, false)
+    }
+
+    pub fn add_port_forward_with_bind(
         mut self: Pin<&mut Self>,
         name: &QString,
         host_port: i32,
         guest_port: i32,
+        bind_lan: bool,
+        confirm_lan: bool,
     ) -> QString {
         let name_s = name.to_string();
         let env = if name_s.is_empty() {
@@ -272,25 +283,32 @@ impl qobject::Backend {
             .map(|e| e.port_forwards.iter().map(|p| p.host_port).collect())
             .unwrap_or_default();
 
-        if let Err(err) = validate_add_port_forward(
+        if let Err(err) = validate_add_port_forward_with_bind(
             &name_s,
             *self.busy(),
             host_port,
             guest_port,
+            bind_lan,
+            confirm_lan,
             env.is_some(),
             &existing_ports,
         ) {
             return QString::from(err.as_str());
         }
 
-        let script = add_port_forward_script(&name_s, host_port, guest_port);
+        let bind_addr = if bind_lan { "0.0.0.0" } else { "127.0.0.1" };
+        let script = add_port_forward_script_with_bind(&name_s, host_port, guest_port, bind_lan);
         self.as_mut().run_shell_task(
-            &format!("Forwarding 127.0.0.1:{host_port} -> {name_s}:{guest_port}"),
+            &format!("Forwarding {bind_addr}:{host_port} -> {name_s}:{guest_port}"),
             &script,
             "",
             &name_s,
         );
         QString::default()
+    }
+
+    pub fn local_domain_setup_command(&self) -> QString {
+        QString::from(local_domain_setup_hint().as_str())
     }
 
     pub fn remove_port_forward(mut self: Pin<&mut Self>, name: &QString, device_name: &QString) {
