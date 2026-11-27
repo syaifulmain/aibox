@@ -32,6 +32,53 @@ pub fn make_usage_error(message: impl Into<String>, target: Command) -> ParsedAr
     }
 }
 
+const MAX_EXEC_TIMEOUT_SECS: u64 = 86_400;
+
+/// Parses a duration such as `90`, `30s`, `5m`, `2h`, or `1h30m` into seconds (`1..=86400`).
+pub fn parse_duration_secs(raw: &str) -> Result<u64, String> {
+    let trimmed = raw.trim().to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return Err("Timeout duration cannot be empty.".to_string());
+    }
+    if let Ok(plain_secs) = trimmed.parse::<u64>() {
+        if plain_secs == 0 || plain_secs > MAX_EXEC_TIMEOUT_SECS {
+            return Err(format!(
+                "Timeout must be between 1s and {MAX_EXEC_TIMEOUT_SECS}s."
+            ));
+        }
+        return Ok(plain_secs);
+    }
+
+    let mut total: u64 = 0;
+    let mut num_buf = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_ascii_digit() {
+            num_buf.push(ch);
+            continue;
+        }
+        if num_buf.is_empty() {
+            return Err(format!("Invalid timeout duration: '{raw}'."));
+        }
+        let val = num_buf
+            .parse::<u64>()
+            .map_err(|_| format!("Invalid timeout duration: '{raw}'."))?;
+        num_buf.clear();
+        let mult = match ch {
+            's' => 1,
+            'm' => 60,
+            'h' => 3600,
+            _ => return Err(format!("Invalid timeout unit '{ch}' in '{raw}'.")),
+        };
+        total = total.saturating_add(val.saturating_mul(mult));
+    }
+    if !num_buf.is_empty() || total == 0 || total > MAX_EXEC_TIMEOUT_SECS {
+        return Err(format!(
+            "Timeout must be between 1s and {MAX_EXEC_TIMEOUT_SECS}s (e.g. 30s, 15m, 1h30m)."
+        ));
+    }
+    Ok(total)
+}
+
 pub fn argv_without_program(argv: &[String]) -> Vec<String> {
     if argv.len() <= 1 {
         Vec::new()
@@ -129,6 +176,29 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
                     );
                 }
                 parsed.theme_path = val.to_string();
+                i += 1;
+                continue;
+            }
+            if arg == "--timeout" {
+                if i + 1 >= args.len() || args[i + 1].trim().is_empty() {
+                    return make_usage_error(
+                        "--timeout requires a duration (e.g. 30m).",
+                        Command::Exec,
+                    );
+                }
+                i += 1;
+                match parse_duration_secs(&args[i]) {
+                    Ok(secs) => parsed.timeout_secs = Some(secs),
+                    Err(msg) => return make_usage_error(msg, Command::Exec),
+                }
+                i += 1;
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--timeout=") {
+                match parse_duration_secs(val) {
+                    Ok(secs) => parsed.timeout_secs = Some(secs),
+                    Err(msg) => return make_usage_error(msg, Command::Exec),
+                }
                 i += 1;
                 continue;
             }
@@ -250,6 +320,9 @@ pub fn parse_args(args: &[String]) -> ParsedArgs {
             "--output and --theme-dir are only supported for 'theme'.",
             parsed.command,
         );
+    }
+    if parsed.timeout_secs.is_some() && parsed.command != Command::Exec {
+        return make_usage_error("--timeout is only supported for 'exec'.", parsed.command);
     }
 
     parsed.json_output = saw_json;

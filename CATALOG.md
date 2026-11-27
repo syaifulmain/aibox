@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Session Time Limit (`aibox exec --timeout <dur>`) (`rust/crates/aibox-core/src/cli/parse.rs`, `cli/mod.rs`, `cli/help.rs`, `cli/commands/env.rs`, `cli/commands/completions.rs`)
+
+- Added `parse_duration_secs` (supporting `90`, `30s`, `15m`, `2h`, `1h30m`, bounded to `1s..=24h`) and `--timeout <dur>` / `--timeout=<dur>` on `aibox exec`.
+- When `--timeout` is provided, `run_exec` wraps the `incus` invocation in `timeout --signal=TERM --kill-after=10s <secs>s incus ...` and prints a warning to stderr when the command times out (exit code `124`).
+- Updated `aibox help` and bash/zsh/fish shell completions.
+
 ### Remote-SSH Access (`aibox ssh-config`) (`rust/crates/aibox-core/src/cli/commands/ssh_config.rs`, `cli/mod.rs`, `cli/parse.rs`, `cli/help.rs`, `cli/commands/mod.rs`, `cli/commands/completions.rs`)
 
 - Added `aibox ssh-config [env]` to generate `Host aibox-<env>` SSH client stanzas using `ProxyCommand incus exec '<env>' -- sh -c '...'` (preferring `sshd -i` and falling back to `nc 127.0.0.1 22`).

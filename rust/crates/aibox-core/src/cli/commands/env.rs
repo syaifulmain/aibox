@@ -419,6 +419,20 @@ pub fn run_exec(
         &c_ws_path,
         &session_env,
     );
+    if let Some(secs) = parsed.timeout_secs {
+        let mut timeout_args = vec![
+            "--signal=TERM".to_string(),
+            "--kill-after=10s".to_string(),
+            format!("{secs}s"),
+            "incus".to_string(),
+        ];
+        timeout_args.extend(args);
+        let rc = io.run_forwarded("timeout", &timeout_args);
+        if rc == 124 {
+            io.write_stderr(format!("Warning: Command timed out after {secs}s.\n").as_bytes());
+        }
+        return rc;
+    }
     io.run_forwarded("incus", &args)
 }
 

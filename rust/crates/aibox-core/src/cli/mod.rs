@@ -88,6 +88,7 @@ pub struct ParsedArgs {
     pub env_name: String,
     pub snapshot_name: String,
     pub exec_command: Vec<String>,
+    pub timeout_secs: Option<u64>,
     pub theme_subcommand: String,
     pub theme_path: String,
     pub output_path: String,
@@ -111,6 +112,7 @@ impl Default for ParsedArgs {
             env_name: String::new(),
             snapshot_name: String::new(),
             exec_command: Vec::new(),
+            timeout_secs: None,
             theme_subcommand: String::new(),
             theme_path: String::new(),
             output_path: String::new(),
@@ -451,6 +453,26 @@ mod tests {
             assert_eq!(p.command, Command::SshConfig);
             assert_eq!(p.env_name, "dev-box");
         }
+        {
+            let p = parse_args(&svec(&[
+                "exec",
+                "--timeout",
+                "30m",
+                "dev-box",
+                "--",
+                "echo",
+                "hi",
+            ]));
+            assert!(p.valid);
+            assert_eq!(p.command, Command::Exec);
+            assert_eq!(p.timeout_secs, Some(1800));
+            assert_eq!(p.env_name, "dev-box");
+        }
+        {
+            let p = parse_args(&svec(&["exec", "--timeout=1h30m", "dev-box", "--", "true"]));
+            assert!(p.valid);
+            assert_eq!(p.timeout_secs, Some(5400));
+        }
 
         let bad_cases = [
             svec(&["unknowncmd"]),
@@ -461,6 +483,10 @@ mod tests {
             svec(&["exec", "dev-box", "--"]),
             svec(&["exec", "--", "ls"]),
             svec(&["start", "dev-box", "--json"]),
+            svec(&["start", "dev-box", "--timeout", "10s"]),
+            svec(&["exec", "--timeout", "0s", "dev-box", "--", "true"]),
+            svec(&["exec", "--timeout", "25h", "dev-box", "--", "true"]),
+            svec(&["exec", "--timeout", "abc", "dev-box", "--", "true"]),
             svec(&[
                 "restore",
                 "dev-box",
@@ -591,6 +617,37 @@ mod tests {
             "/tmp",
         );
         assert_eq!(rc_fail, 1);
+
+        // exec --timeout wraps incus in `timeout` and warns on exit code 124
+        let mut io_to = TestCliIo::new();
+        io_to.forwarded_exit_code = 124;
+        let rc_to = execute_with(
+            &parse_args(&svec(&[
+                "--project",
+                &proj_str,
+                "exec",
+                "--timeout",
+                "5m",
+                "dev",
+                "--",
+                "sleep",
+                "999",
+            ])),
+            &mut io_to,
+            &runner,
+            "/tmp",
+        );
+        assert_eq!(rc_to, 124);
+        assert_eq!(io_to.forwarded_calls[0].0, "timeout");
+        assert!(io_to.forwarded_calls[0].1.starts_with(&svec(&[
+            "--signal=TERM",
+            "--kill-after=10s",
+            "300s",
+            "incus"
+        ])));
+        assert!(io_to
+            .stderr_str()
+            .contains("Warning: Command timed out after 300s."));
 
         // missing & template -> exit 4
         let mut io4 = TestCliIo::new();

@@ -76,6 +76,9 @@ const BASH_COMPLETIONS: &str = r#"_aibox_completions() {
         check)
             COMPREPLY=( $(compgen -W "--fix --json -h --help" -- "$cur") )
             ;;
+        exec)
+            COMPREPLY=( $(compgen -W "--timeout -h --help" -- "$cur") )
+            ;;
         snapshots|diff)
             COMPREPLY=( $(compgen -W "--json -h --help" -- "$cur") )
             ;;
@@ -138,6 +141,9 @@ _aibox() {
                 check)
                     _arguments '--fix[Attempt automatic fixes]' '--json[JSON output]' '(-h --help)'{-h,--help}'[Show help]'
                     ;;
+                exec)
+                    _arguments '--timeout[Terminate command after duration]:duration:' '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
                 snapshots|diff)
                     _arguments '--json[JSON output]' '(-h --help)'{-h,--help}'[Show help]'
                     ;;
@@ -185,6 +191,7 @@ complete -c aibox -n "not __fish_seen_subcommand_from $__aibox_cmds" -a help -d 
 
 complete -c aibox -n "__fish_seen_subcommand_from list check snapshots diff" -l json -d "JSON output"
 complete -c aibox -n "__fish_seen_subcommand_from check" -l fix -d "Attempt automatic fixes"
+complete -c aibox -n "__fish_seen_subcommand_from exec" -l timeout -r -d "Terminate command after duration"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -l system-only -d "Restore OS only"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -l workspace-only -d "Restore workspace only"
 complete -c aibox -n "__fish_seen_subcommand_from restore" -s y -l yes -d "Skip confirmation"
