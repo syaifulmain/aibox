@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Non-Conflicting Host Appearance Mounts (`aibox-core`, `README.md`)
+
+- **Relocated system appearance mounts (`display/appearance.rs`)**: Moved read-only host mounts for `fonts-system`, `icons-system`, and `themes-system` from `/usr/share/{fonts,icons,themes}` to `/usr/local/share/fonts/aibox-host`, `/usr/local/share/aibox-host/icons`, and `/usr/local/share/aibox-host/themes` so guest package managers (`dpkg`/`apt`, `pacman`) can still write to `/usr/share/{fonts,icons,themes}` when installing GUI applications and themes.
+- **Session environment discovery**: `build_appearance_plan` now exports `XDG_DATA_DIRS=/usr/local/share/aibox-host:/usr/local/share:/usr/share` when `icons-system` or `themes-system` is mounted and `XCURSOR_PATH=/root/.icons:/root/.local/share/icons:/usr/local/share/aibox-host/icons:/usr/share/icons` when `icons-system` is mounted.
+- **Tests & docs**: Updated `display::appearance` unit tests and [README.md](README.md) to reflect the non-conflicting mount targets.
+
 ### Stale Proxy Cleanup & `incus start` Failure Propagation (`aibox-core`)
 
 - **Pre-start stale proxy cleanup (`display/plan.rs`, `display/mod.rs`, `provision/lifecycle.rs`)**: Added `strip_ephemeral_proxy_devices_script` (`EPHEMERAL_PROXY_DEVICES`: `wayland`, `x11`, `pulse`, `pipewire`, `dbus`, `printer`) and invoked it right before `incus start` in both `start_environment_script_with_desktop` and `build_prepare_script_inner` (inside the non-running branch). Prevents `incus start` from failing with `bind: no such file or directory` on `/run/user/<uid>/bus` (or other container-bound proxy paths) before `/run/user/<uid>` exists in the fresh container `tmpfs`, while preserving legacy device inference on stopped instances.

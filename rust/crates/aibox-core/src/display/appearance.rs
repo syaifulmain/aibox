@@ -6,6 +6,11 @@
 //! can never rewrite the host's theme files, and every source is optional
 //! because minimal hosts legitimately ship only `/usr/share/fonts`.
 //!
+//! System directories are mounted under `/usr/local/share/...` rather than
+//! `/usr/share/...` so guest package managers (`dpkg`/`apt`, `pacman`) can
+//! still write to `/usr/share/fonts`, `/usr/share/icons`, and `/usr/share/themes`
+//! without hitting a read-only mount.
+//!
 //! VMs and headless environments are out of scope: the desktop integration
 //! switch in [`crate::display::plan`] decides whether the plan is used at all.
 
@@ -23,6 +28,11 @@ use crate::util::shell::shell_quote;
 /// are mapped into `/root` instead of mirroring the host user name. Non-root
 /// container users keep their own home and see only the system directories.
 const CONTAINER_HOME: &str = "/root";
+const HOST_SHARE_DIR: &str = "/usr/local/share/aibox-host";
+/// Fontconfig scans `/usr/local/share/fonts` recursively by default.
+const HOST_FONTS_TARGET: &str = "/usr/local/share/fonts/aibox-host";
+const HOST_ICONS_TARGET: &str = "/usr/local/share/aibox-host/icons";
+const HOST_THEMES_TARGET: &str = "/usr/local/share/aibox-host/themes";
 
 /// Stable device names, also used to remove every appearance mount.
 pub const APPEARANCE_DEVICE_NAMES: [&str; 10] = [
@@ -123,7 +133,7 @@ fn appearance_sources(home: &str) -> Vec<AppearanceSource> {
         (
             "fonts-system",
             "/usr/share/fonts".to_string(),
-            "/usr/share/fonts".to_string(),
+            HOST_FONTS_TARGET.to_string(),
         ),
         (
             "fonts-user",
@@ -138,7 +148,7 @@ fn appearance_sources(home: &str) -> Vec<AppearanceSource> {
         (
             "icons-system",
             "/usr/share/icons".to_string(),
-            "/usr/share/icons".to_string(),
+            HOST_ICONS_TARGET.to_string(),
         ),
         (
             "icons-user",
@@ -153,7 +163,7 @@ fn appearance_sources(home: &str) -> Vec<AppearanceSource> {
         (
             "themes-system",
             "/usr/share/themes".to_string(),
-            "/usr/share/themes".to_string(),
+            HOST_THEMES_TARGET.to_string(),
         ),
         (
             "themes-user",
@@ -308,6 +318,29 @@ pub fn build_appearance_plan(host: &HostAppearance) -> AppearancePlan {
         plan.env.push(("GTK_THEME".to_string(), theme));
     }
 
+    let has_icons_system = host
+        .sources
+        .iter()
+        .any(|source| source.name == "icons-system");
+    let has_themes_system = host
+        .sources
+        .iter()
+        .any(|source| source.name == "themes-system");
+    if has_icons_system || has_themes_system {
+        plan.env.push((
+            "XDG_DATA_DIRS".to_string(),
+            format!("{HOST_SHARE_DIR}:/usr/local/share:/usr/share"),
+        ));
+    }
+    if has_icons_system {
+        plan.env.push((
+            "XCURSOR_PATH".to_string(),
+            format!(
+                "{CONTAINER_HOME}/.icons:{CONTAINER_HOME}/.local/share/icons:{HOST_ICONS_TARGET}:/usr/share/icons"
+            ),
+        ));
+    }
+
     if plan.devices.is_empty() {
         plan.warnings.push(
             "No host font, icon, or theme directory was found; the environment keeps its own appearance."
@@ -458,7 +491,11 @@ mod tests {
         );
         assert_eq!(
             option(device(&plan, "fonts-system"), "path"),
-            "/usr/share/fonts"
+            HOST_FONTS_TARGET
+        );
+        assert_eq!(
+            option(device(&plan, "icons-system"), "path"),
+            HOST_ICONS_TARGET
         );
         assert_eq!(
             option(device(&plan, "themes-user"), "path"),
@@ -468,10 +505,41 @@ mod tests {
             option(device(&plan, "gtk4-config"), "path"),
             "/root/.config/gtk-4.0"
         );
+        assert_eq!(
+            plan_env(&plan, "XDG_DATA_DIRS"),
+            Some("/usr/local/share/aibox-host:/usr/local/share:/usr/share")
+        );
+        assert_eq!(
+            plan_env(&plan, "XCURSOR_PATH"),
+            Some("/root/.icons:/root/.local/share/icons:/usr/local/share/aibox-host/icons:/usr/share/icons")
+        );
         for device in &plan.devices {
             assert_eq!(device.kind, "disk");
             assert_eq!(option(device, "readonly"), "true");
+            let path = option(device, "path");
+            assert!(
+                !matches!(
+                    path,
+                    "/usr/share/fonts" | "/usr/share/icons" | "/usr/share/themes"
+                ),
+                "system appearance mount {path} must not shadow /usr/share"
+            );
         }
+
+        let themes_only = build_appearance_plan(&detect_host_appearance_with(
+            getter(&[]),
+            exists_set(&["/usr/share/themes"]),
+            home,
+        ));
+        assert_eq!(
+            option(device(&themes_only, "themes-system"), "path"),
+            HOST_THEMES_TARGET
+        );
+        assert_eq!(
+            plan_env(&themes_only, "XDG_DATA_DIRS"),
+            Some("/usr/local/share/aibox-host:/usr/local/share:/usr/share")
+        );
+        assert_eq!(plan_env(&themes_only, "XCURSOR_PATH"), None);
     }
 
     #[test]
@@ -571,6 +639,8 @@ unknown-key = ignored
         assert_eq!(plan_env(&defaults, "XCURSOR_THEME"), Some("default"));
         assert_eq!(plan_env(&defaults, "XCURSOR_SIZE"), Some("24"));
         assert_eq!(plan_env(&defaults, "GTK_THEME"), None);
+        assert_eq!(plan_env(&defaults, "XDG_DATA_DIRS"), None);
+        assert_eq!(plan_env(&defaults, "XCURSOR_PATH"), None);
 
         let from_gtk = build_appearance_plan(&host_with(None, None, None, gtk));
         assert_eq!(plan_env(&from_gtk, "XCURSOR_THEME"), Some("Adwaita"));
@@ -717,7 +787,7 @@ unknown-key = ignored
         assert!(remove_at < add_at);
         assert!(script.contains("readonly='true'"));
         assert!(script.contains("source='/usr/share/fonts'"));
-        assert!(script.contains("path='/usr/share/fonts'"));
+        assert!(script.contains("path='/usr/local/share/fonts/aibox-host'"));
         assert!(script.contains(">/dev/null 2>&1 || true"));
     }
 

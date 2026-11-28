@@ -4,3 +4,4 @@
 *.pkg.tar.*
 /.aibox/
 /rust/target/
+/temp/
