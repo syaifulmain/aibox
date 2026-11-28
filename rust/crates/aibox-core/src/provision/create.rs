@@ -7,6 +7,7 @@ use crate::display::{
     DesktopMode, ExtraDeviceToggles, HostDevices,
 };
 use crate::provision::templates::{render_template, rollback_trap_snippet, CREATE_SCRIPT_TEMPLATE};
+use crate::provision::user::{create_user_snippet, validate_login_username, NewUserSpec};
 use crate::provision::{
     is_valid_size_spec, swap_config_value, validate_limits, validate_new_env_name,
     validate_swap_limit, ProvisionError,
@@ -55,6 +56,7 @@ pub fn create_environment_script(
         swap_limit,
         is_vm,
         None,
+        "",
     )
 }
 
@@ -118,6 +120,47 @@ pub fn create_environment_script_with_session(
     is_vm: bool,
     session_script: &str,
 ) -> String {
+    create_environment_script_with_session_and_user(
+        name,
+        local_alias,
+        remote_image,
+        workspace,
+        cache_base,
+        profile_flags,
+        ram_gib,
+        disk_gib,
+        cpu_cores,
+        x11,
+        process_limit,
+        io_limit,
+        swap_limit,
+        is_vm,
+        session_script,
+        "",
+    )
+}
+
+/// Like [`create_environment_script_with_session`], plus an optional
+/// non-root user creation snippet injected before `AIBOX_DONE=1`.
+#[allow(clippy::too_many_arguments)]
+pub fn create_environment_script_with_session_and_user(
+    name: &str,
+    local_alias: &str,
+    remote_image: &str,
+    workspace: &str,
+    cache_base: &str,
+    profile_flags: &str,
+    ram_gib: &str,
+    disk_gib: &str,
+    cpu_cores: i32,
+    x11: bool,
+    process_limit: &str,
+    io_limit: &str,
+    swap_limit: &str,
+    is_vm: bool,
+    session_script: &str,
+    user_setup: &str,
+) -> String {
     let session_script = combine_scripts(&[session_script.to_string(), download_dir_script(name)]);
     create_environment_script_inner(
         name,
@@ -135,6 +178,7 @@ pub fn create_environment_script_with_session(
         swap_limit,
         is_vm,
         Some(&session_script),
+        user_setup,
     )
 }
 
@@ -157,6 +201,7 @@ fn create_environment_script_inner(
     swap_limit: &str,
     is_vm: bool,
     session_script: Option<&str>,
+    user_setup: &str,
 ) -> String {
     let mut root_opts = format!("size={}", disk_gib.trim());
     let clean_io = io_limit.trim();
@@ -204,6 +249,7 @@ fn create_environment_script_inner(
             ("WORKSPACE_CREATE", &ws_snippet),
             ("X11_BLOCK", x11_block),
             ("DESKTOP_SETUP", session_setup),
+            ("USER_SETUP", user_setup),
         ],
     )
 }
@@ -227,6 +273,7 @@ pub fn prepare_create_environment(
     workspace_parent: &str,
     workspace_base: &str,
     os_storage_path: &str,
+    new_user: Option<&NewUserSpec>,
 ) -> Result<CreateEnvironmentPlan, ProvisionError> {
     if busy {
         return Err(ProvisionError::Busy);
@@ -246,6 +293,17 @@ pub fn prepare_create_environment(
 
     let (clean_proc, clean_io) = validate_limits(process_limit, io_limit)?;
     validate_swap_limit(swap_limit)?;
+
+    let user_setup = if let Some(spec) = new_user {
+        let valid_name = validate_login_username(&spec.name)?;
+        create_user_snippet(&NewUserSpec {
+            name: valid_name,
+            sudo: spec.sudo,
+            preferred_uid: spec.preferred_uid,
+        })
+    } else {
+        String::new()
+    };
 
     let os_entry = os_entries
         .iter()
@@ -343,7 +401,7 @@ pub fn prepare_create_environment(
         ),
     ]);
 
-    let script = create_environment_script_with_session(
+    let script = create_environment_script_with_session_and_user(
         &name,
         &local_alias,
         &format!("images:{}", os_entry.alias),
@@ -359,6 +417,7 @@ pub fn prepare_create_environment(
         swap_limit,
         is_vm,
         &session_script,
+        &user_setup,
     );
 
     Ok(CreateEnvironmentPlan {
@@ -509,7 +568,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 true, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::Busy
@@ -517,7 +576,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "!!!", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidName
@@ -525,7 +584,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "taken", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::AlreadyExists("taken".into())
@@ -533,7 +592,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 0,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidCpuCores
@@ -541,7 +600,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "bad", "6GiB", 4,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidDiskQuota
@@ -549,7 +608,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "bad", 4,
-                "512", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidRamLimit
@@ -557,7 +616,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "1", "200MB", "", "", "/tmp/ws", "/tmp/os"
+                "1", "200MB", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidProcessLimit
@@ -565,7 +624,7 @@ mod tests {
         assert_eq!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "bad", "", "", "/tmp/ws", "/tmp/os"
+                "512", "bad", "", "", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidIoLimit
@@ -573,7 +632,7 @@ mod tests {
         assert!(matches!(
             prepare_create_environment(
                 false, "box1", &existing, "arch", &os, "gui", "gui", &presets, "35GiB", "6GiB", 4,
-                "512", "200MB", "", "/etc/bad", "/tmp/ws", "/tmp/os"
+                "512", "200MB", "", "/etc/bad", "/tmp/ws", "/tmp/os", None
             )
             .unwrap_err(),
             ProvisionError::InvalidWorkspacePath(_)
@@ -596,7 +655,8 @@ mod tests {
                 "",
                 "",
                 "/tmp/ws",
-                "/tmp/os"
+                "/tmp/os",
+                None
             )
             .unwrap_err(),
             ProvisionError::EmptyOsCatalog
@@ -619,10 +679,39 @@ mod tests {
                 "",
                 "",
                 "/tmp/ws",
-                "/tmp/os"
+                "/tmp/os",
+                None
             )
             .unwrap_err(),
             ProvisionError::EmptyPresetCatalog
+        );
+        assert_eq!(
+            prepare_create_environment(
+                false,
+                "box1",
+                &existing,
+                "arch",
+                &os,
+                "gui",
+                "gui",
+                &presets,
+                "35GiB",
+                "6GiB",
+                4,
+                "512",
+                "200MB",
+                "",
+                "",
+                "/tmp/ws",
+                "/tmp/os",
+                Some(&NewUserSpec {
+                    name: "root".into(),
+                    sudo: true,
+                    preferred_uid: 1000,
+                }),
+            )
+            .unwrap_err(),
+            ProvisionError::InvalidLoginUser
         );
     }
 
@@ -810,5 +899,51 @@ exit 0
         assert!(marker.exists(), "pre-existing workspace must be preserved");
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn prepare_create_environment_includes_user_setup_before_done() {
+        let os = vec![OsEntry {
+            id: "arch".into(),
+            alias: "archlinux".into(),
+            name: "Arch".into(),
+            badge: "Rolling".into(),
+            description: "Arch Linux".into(),
+        }];
+        let presets = vec![Preset {
+            id: "headless".into(),
+            title: "Headless".into(),
+            sub: "CLI".into(),
+            flags: "-p default".into(),
+            x11: false,
+        }];
+        let plan = prepare_create_environment(
+            false,
+            "user-box",
+            &[],
+            "arch",
+            &os,
+            "headless",
+            "headless",
+            &presets,
+            "35GiB",
+            "6GiB",
+            4,
+            "",
+            "",
+            "",
+            "",
+            "/tmp/ws",
+            "/tmp/os",
+            Some(&NewUserSpec {
+                name: "dev".into(),
+                sudo: true,
+                preferred_uid: 1000,
+            }),
+        )
+        .expect("plan");
+        let user_at = plan.script.find("user.aibox.user=").expect("user config");
+        let done_at = plan.script.find("AIBOX_DONE=1").expect("done marker");
+        assert!(user_at < done_at);
     }
 }

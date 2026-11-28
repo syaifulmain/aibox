@@ -963,6 +963,24 @@ pub fn parse_with_now_checked(
         } else {
             crate::network::ports::local_domain_for(name)
         };
+        let raw_login_user = map_str(config, "user.aibox.user").trim();
+        let (login_user, login_uid, login_gid) = if raw_login_user.is_empty() {
+            (String::new(), 0, 0)
+        } else {
+            let parsed_uid = map_str(config, "user.aibox.uid")
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|&u| u > 0);
+            let parsed_gid = map_str(config, "user.aibox.gid").trim().parse::<u32>().ok();
+            match (
+                crate::provision::user::validate_login_username(raw_login_user),
+                parsed_uid,
+            ) {
+                (Ok(valid_name), Some(uid)) => (valid_name, uid, parsed_gid.unwrap_or(uid)),
+                _ => (String::new(), 0, 0),
+            }
+        };
 
         result.push(Environment {
             name: name.to_string(),
@@ -1054,6 +1072,9 @@ pub fn parse_with_now_checked(
             local_domain,
             swap_limit,
             root_pool: limits.root_pool.to_string(),
+            login_user,
+            login_uid,
+            login_gid,
         });
     }
 

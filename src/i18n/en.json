@@ -161,5 +161,13 @@
   "LAN": "LAN",
   "Expose on LAN (0.0.0.0)": "Expose on LAN (0.0.0.0)",
   "I understand devices on my local network can reach this port": "I understand devices on my local network can reach this port",
-  "Select previous or next environment": "Select previous or next environment"
+  "Select previous or next environment": "Select previous or next environment",
+  "Default User": "Default User",
+  "Root only": "Root only",
+  "Sessions run as root (current behaviour).": "Sessions run as root (current behaviour).",
+  "Create non-root user": "Create non-root user",
+  "Sessions log in as a regular user.": "Sessions log in as a regular user.",
+  "e.g. dev": "e.g. dev",
+  "Allow passwordless sudo": "Allow passwordless sudo",
+  "Terminal, aibox enter and aibox exec log in as this user. The UID matches your host user when possible so workspace files keep your ownership.": "Terminal, aibox enter and aibox exec log in as this user. The UID matches your host user when possible so workspace files keep your ownership."
 }

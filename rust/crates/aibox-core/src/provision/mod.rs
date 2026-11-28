@@ -5,6 +5,7 @@ pub mod error;
 pub mod lifecycle;
 pub mod resources;
 pub mod templates;
+pub mod user;
 
 pub use error::ProvisionError;
 

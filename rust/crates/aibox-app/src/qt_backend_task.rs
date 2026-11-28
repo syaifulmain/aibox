@@ -29,10 +29,14 @@ use aibox_core::network::allowlist::{
     SystemResolver,
 };
 use aibox_core::provision::lifecycle::{
-    build_enter_command_with_env, build_prepare_script_with_desktop,
+    build_enter_command_for_user, build_prepare_script_with_desktop,
     stop_environment_script_with_session,
 };
-use aibox_core::secrets::inject::{build_secret_env_file_content, create_host_temp_secret_file};
+use aibox_core::provision::user::runtime_dir_owner_script;
+use aibox_core::secrets::inject::{
+    build_incus_file_push_args_for_owner, build_secret_env_file_content,
+    create_host_temp_secret_file,
+};
 use aibox_core::session::{
     build_session_wrap_command, prepare_recorded_session_paths, sessions_dir_path,
 };
@@ -682,9 +686,21 @@ impl qobject::Backend {
         let auto_snap = self.auto_snapshot_snippet_for(&env_name);
         let allowlist_snippet = self.enter_allowlist_snippet.clone();
         let bridge_flags = EnvBridgeFlags::from_backend(&self, &env_name);
+        let login_user = self
+            .engine
+            .environments
+            .iter()
+            .find(|e| e.name == env_name)
+            .and_then(|e| e.login_user());
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
-            let (session_script, session_env) = bridge_flags.build_bridge_and_env();
+            let (mut session_script, session_env) = bridge_flags.build_bridge_and_env();
+            if let Some(ref user) = login_user {
+                let rt_script = runtime_dir_owner_script(&env_name, user, &session_env);
+                if !rt_script.is_empty() {
+                    session_script = combine_scripts(&[session_script, rt_script]);
+                }
+            }
             let script = build_prepare_script_with_desktop(
                 &env_name,
                 &auto_snap,
@@ -780,13 +796,23 @@ impl qobject::Backend {
             std::process::id(),
             now_epoch_secs()
         );
-        let dest = format!("{env_name}{remote_env_path}");
+        let owner = self
+            .engine
+            .environments
+            .iter()
+            .find(|e| e.name == env_name)
+            .and_then(|e| e.login_user())
+            .map(|u| (u.uid, u.gid));
+        let push_args = build_incus_file_push_args_for_owner(
+            &host_secret_file,
+            &env_name,
+            &remote_env_path,
+            owner,
+        );
 
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
-            let output = Command::new("incus")
-                .args(["file", "push", "--mode", "0400", &host_secret_file, &dest])
-                .output();
+            let output = Command::new("incus").args(&push_args).output();
             let _ = std::fs::remove_file(&host_secret_file);
 
             let _ = qt_thread.queue(move |mut backend| {
@@ -822,7 +848,14 @@ impl qobject::Backend {
             return;
         }
         let session_env = std::mem::take(&mut self.as_mut().rust_mut().enter_session_env);
-        let mut enter_cmd = build_enter_command_with_env(&name, remote_env_path, &session_env);
+        let login_user = self
+            .engine
+            .environments
+            .iter()
+            .find(|e| e.name == name)
+            .and_then(|e| e.login_user());
+        let mut enter_cmd =
+            build_enter_command_for_user(&name, remote_env_path, &session_env, login_user.as_ref());
         let record_enabled = self
             .engine
             .environments

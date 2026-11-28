@@ -107,6 +107,9 @@ ApplicationWindow {
     property string newEnvProcLimit: backend.defaultProcessLimit
     property string newEnvIoLimit: backend.defaultIoLimit
     property string newEnvSwap: "Off"
+    property bool newEnvCreateUser: false
+    property string newEnvUserName: backend.suggestedLoginUser
+    property bool newEnvUserSudo: true
     property bool historyVisible: false
     property string selectedHistoryId: ""
     property string selectedHistoryLog: ""
@@ -303,6 +306,9 @@ ApplicationWindow {
         win.newEnvProcLimit = backend.defaultProcessLimit
         win.newEnvIoLimit = backend.defaultIoLimit
         win.newEnvSwap = "Off"
+        win.newEnvCreateUser = false
+        win.newEnvUserName = backend.suggestedLoginUser
+        win.newEnvUserSudo = true
         if (templateName && templateName.length > 0) {
             win.createFromTemplate = true
             win.newEnvTemplateName = templateName

@@ -4,6 +4,7 @@ use std::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 
+use aibox_core::display::host_uid;
 use aibox_core::incus::list::environment_by_name;
 use aibox_core::network::acl::build_allowlist_refresh_if_needed;
 use aibox_core::network::allowlist::{
@@ -12,13 +13,14 @@ use aibox_core::network::allowlist::{
 use aibox_core::provision::clone::prepare_clone_environment;
 use aibox_core::provision::create::prepare_create_environment;
 use aibox_core::provision::lifecycle::{
-    ai_exec_command_text, prepare_toggle_start_stop_with_session_and_stop,
+    ai_exec_command_text_for_user, prepare_toggle_start_stop_with_session_and_stop,
     set_environment_template_script,
 };
 use aibox_core::provision::resources::{
     download_os_image_script, prepare_prefetch_os_image, remove_os_image_script,
     validate_and_prepare_update_resources,
 };
+use aibox_core::provision::user::NewUserSpec;
 use aibox_core::snapshot::auto::decide_auto_snapshot;
 use aibox_core::task::lock::is_task_lock_active;
 use aibox_core::util::paths::{cache_base_path, CONTAINER_WORKSPACE_PATH};
@@ -41,6 +43,9 @@ impl qobject::Backend {
         io_limit: &QString,
         swap_limit: &QString,
         workspace_parent: &QString,
+        create_user: bool,
+        login_user: &QString,
+        user_sudo: bool,
     ) {
         let existing_names: Vec<String> = self
             .engine
@@ -48,6 +53,15 @@ impl qobject::Backend {
             .iter()
             .map(|e| e.name.clone())
             .collect();
+        let new_user = if create_user {
+            Some(NewUserSpec {
+                name: login_user.to_string(),
+                sudo: user_sudo,
+                preferred_uid: host_uid(),
+            })
+        } else {
+            None
+        };
         let plan = match prepare_create_environment(
             *self.busy(),
             &name.to_string(),
@@ -66,6 +80,7 @@ impl qobject::Backend {
             &workspace_parent.to_string(),
             &self.engine.config.workspace_base,
             &self.engine.config.os_storage_path,
+            new_user.as_ref(),
         ) {
             Ok(p) => p,
             Err(err) => {
@@ -528,7 +543,9 @@ impl qobject::Backend {
             .map(|e| e.workspace_mount_path.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or(CONTAINER_WORKSPACE_PATH);
-        let cmd = ai_exec_command_text(&name_s, has_secrets, ws_mount);
+        let login_user = env.as_ref().and_then(|e| e.login_user());
+        let cmd =
+            ai_exec_command_text_for_user(&name_s, has_secrets, ws_mount, login_user.as_ref());
         self.copy_text_with_status(&cmd, &format!("Copied command: {cmd}"));
     }
 }

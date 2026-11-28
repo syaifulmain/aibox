@@ -124,6 +124,13 @@ pub mod qobject {
         #[qproperty(QString, default_disk, cxx_name = "defaultDisk", READ, NOTIFY = create_options_changed)]
         #[qproperty(QString, default_ram, cxx_name = "defaultRam", READ, NOTIFY = create_options_changed)]
         #[qproperty(i32, default_cpu, cxx_name = "defaultCpu", READ, NOTIFY = create_options_changed)]
+        #[qproperty(
+            QString,
+            suggested_login_user,
+            cxx_name = "suggestedLoginUser",
+            READ,
+            CONSTANT
+        )]
         #[qproperty(bool, auto_snapshot_enabled, cxx_name = "autoSnapshotEnabled", READ, NOTIFY = auto_snapshot_settings_changed)]
         #[qproperty(i32, auto_snapshot_keep, cxx_name = "autoSnapshotKeep", READ, NOTIFY = auto_snapshot_settings_changed)]
         #[qproperty(QList_QVariant, templates, READ = templates, NOTIFY = environments_changed)]
@@ -351,6 +358,9 @@ pub mod qobject {
             io_limit: &QString,
             swap_limit: &QString,
             workspace_parent: &QString,
+            create_user: bool,
+            login_user: &QString,
+            user_sudo: bool,
         );
 
         #[qinvokable]
@@ -993,6 +1003,7 @@ pub struct BackendRust {
     pub(crate) default_disk: QString,
     pub(crate) default_ram: QString,
     pub(crate) default_cpu: i32,
+    pub(crate) suggested_login_user: QString,
     pub(crate) auto_snapshot_enabled: bool,
     pub(crate) auto_snapshot_keep: i32,
     pub(crate) process_limit_options: QStringList,
@@ -1137,6 +1148,12 @@ impl Default for BackendRust {
             default_disk: QString::from("35GiB"),
             default_ram: QString::from("6GiB"),
             default_cpu: 4,
+            suggested_login_user: QString::from(
+                aibox_core::provision::user::suggested_login_user(
+                    &std::env::var("USER").unwrap_or_default(),
+                )
+                .as_str(),
+            ),
             auto_snapshot_enabled: true,
             auto_snapshot_keep: 5,
             process_limit_options: strings_to_qstringlist(&[

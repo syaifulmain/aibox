@@ -1,4 +1,5 @@
 use crate::display::strip_ephemeral_proxy_devices_script;
+use crate::provision::user::{exec_user_args, exec_user_flags_shell, LoginUser};
 use crate::provision::ProvisionError;
 use crate::snapshot::workspace::workspace_mount_migration_script;
 use crate::util::paths::CONTAINER_WORKSPACE_PATH;
@@ -145,6 +146,7 @@ pub fn enter_incus_exec_args(
         display_val,
         term,
         &[],
+        None,
     )
 }
 
@@ -157,6 +159,27 @@ pub fn enter_incus_exec_args_with_env(
     term: &str,
     extra_env: &[(String, String)],
 ) -> Vec<String> {
+    enter_incus_exec_args_for_user(
+        name,
+        remote_env_path,
+        container_workspace_path,
+        display,
+        term,
+        extra_env,
+        None,
+    )
+}
+
+/// Like [`enter_incus_exec_args_with_env`], optionally targeting a non-root user.
+pub fn enter_incus_exec_args_for_user(
+    name: &str,
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    display: &str,
+    term: &str,
+    extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
+) -> Vec<String> {
     enter_incus_exec_args_inner(
         name,
         remote_env_path,
@@ -164,6 +187,7 @@ pub fn enter_incus_exec_args_with_env(
         display,
         term,
         extra_env,
+        user,
     )
 }
 
@@ -174,6 +198,7 @@ fn enter_incus_exec_args_inner(
     display: &str,
     term: &str,
     extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
 ) -> Vec<String> {
     let term_val = if term.trim().is_empty() {
         "xterm-256color"
@@ -194,6 +219,9 @@ fn enter_incus_exec_args_inner(
         "--cwd".to_string(),
         container_workspace_path.to_string(),
     ];
+    if let Some(u) = user {
+        args.extend(exec_user_args(u));
+    }
     let display_overridden = extra_env.iter().any(|(key, _)| key == "DISPLAY");
     if !display.trim().is_empty() && !display_overridden {
         args.push("--env".to_string());
@@ -231,12 +259,52 @@ pub fn exec_incus_command_args_with_env(
     container_workspace_path: &str,
     extra_env: &[(String, String)],
 ) -> Vec<String> {
+    exec_incus_command_args_for_user(
+        name,
+        cmd,
+        remote_env_path,
+        container_workspace_path,
+        extra_env,
+        None,
+    )
+}
+
+/// Like [`exec_incus_command_args_with_env`], optionally targeting a non-root user.
+pub fn exec_incus_command_args_for_user(
+    name: &str,
+    cmd: &[String],
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
+) -> Vec<String> {
+    exec_incus_command_args_inner(
+        name,
+        cmd,
+        remote_env_path,
+        container_workspace_path,
+        extra_env,
+        user,
+    )
+}
+
+fn exec_incus_command_args_inner(
+    name: &str,
+    cmd: &[String],
+    remote_env_path: &str,
+    container_workspace_path: &str,
+    extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
+) -> Vec<String> {
     let mut args = vec![
         "exec".to_string(),
         name.to_string(),
         "--cwd".to_string(),
         container_workspace_path.to_string(),
     ];
+    if let Some(u) = user {
+        args.extend(exec_user_args(u));
+    }
     for (key, value) in extra_env {
         args.push("--env".to_string());
         args.push(format!("{key}={value}"));
@@ -258,7 +326,7 @@ pub fn exec_incus_command_args_with_env(
 }
 
 pub fn build_enter_command(name: &str, remote_env_path: &str) -> String {
-    build_enter_command_inner(name, remote_env_path, true, &[])
+    build_enter_command_inner(name, remote_env_path, true, &[], None)
 }
 
 /// Production Enter command with explicit desktop environment pairs.
@@ -267,7 +335,17 @@ pub fn build_enter_command_with_env(
     remote_env_path: &str,
     extra_env: &[(String, String)],
 ) -> String {
-    build_enter_command_inner(name, remote_env_path, false, extra_env)
+    build_enter_command_for_user(name, remote_env_path, extra_env, None)
+}
+
+/// Like [`build_enter_command_with_env`], optionally targeting a non-root user.
+pub fn build_enter_command_for_user(
+    name: &str,
+    remote_env_path: &str,
+    extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
+) -> String {
+    build_enter_command_inner(name, remote_env_path, false, extra_env, user)
 }
 
 fn build_enter_command_inner(
@@ -275,12 +353,14 @@ fn build_enter_command_inner(
     remote_env_path: &str,
     legacy_display: bool,
     extra_env: &[(String, String)],
+    user: Option<&LoginUser>,
 ) -> String {
     let q_name = shell_quote(name);
     let q_ws = shell_quote(CONTAINER_WORKSPACE_PATH);
     let ws_mount_arg = format!(
         "\"$(incus config device get {q_name} workspace path 2>/dev/null || echo {q_ws})\""
     );
+    let user_flags = user.map(exec_user_flags_shell).unwrap_or_default();
     let env_flags = build_enter_env_flags(legacy_display, extra_env);
     // The legacy wrapper only passed env flags to the bash branch; the
     // production variant must carry the desktop environment into both branches.
@@ -291,12 +371,12 @@ fn build_enter_command_inner(
     };
     if remote_env_path.is_empty() {
         format!(
-            "incus exec {q_name} --cwd {ws_mount_arg}{env_flags} -- bash -l || incus exec {q_name} --cwd {ws_mount_arg}{fallback_env} -- sh"
+            "incus exec {q_name} --cwd {ws_mount_arg}{user_flags}{env_flags} -- bash -l || incus exec {q_name} --cwd {ws_mount_arg}{user_flags}{fallback_env} -- sh"
         )
     } else {
         let q_env = shell_quote(remote_env_path);
         format!(
-            "incus exec {q_name} --cwd {ws_mount_arg}{env_flags} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter {q_env} || incus exec {q_name} --cwd {ws_mount_arg}{fallback_env} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter {q_env}"
+            "incus exec {q_name} --cwd {ws_mount_arg}{user_flags}{env_flags} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec bash -l' aibox-enter {q_env} || incus exec {q_name} --cwd {ws_mount_arg}{user_flags}{fallback_env} -- sh -c 'F=\"$1\"; if [ -f \"$F\" ]; then set -a; . \"$F\"; set +a; rm -f \"$F\"; fi; exec sh' aibox-enter {q_env}"
         )
     }
 }
@@ -318,6 +398,16 @@ fn build_enter_env_flags(legacy_display: bool, extra_env: &[(String, String)]) -
 }
 
 pub fn ai_exec_command_text(name: &str, has_secrets: bool, workspace_mount_path: &str) -> String {
+    ai_exec_command_text_for_user(name, has_secrets, workspace_mount_path, None)
+}
+
+/// Like [`ai_exec_command_text`], optionally targeting a non-root login user.
+pub fn ai_exec_command_text_for_user(
+    name: &str,
+    has_secrets: bool,
+    workspace_mount_path: &str,
+    user: Option<&LoginUser>,
+) -> String {
     if name.is_empty() {
         return String::new();
     }
@@ -330,6 +420,14 @@ pub fn ai_exec_command_text(name: &str, has_secrets: bool, workspace_mount_path:
     } else {
         trimmed
     };
+    if let Some(u) = user {
+        return format!(
+            "incus exec {name} --user {} --group {} --env HOME={} --cwd {ws} -- bash -l",
+            u.uid,
+            u.gid,
+            u.home()
+        );
+    }
     format!("incus exec {name} --cwd {ws} -- bash")
 }
 
@@ -561,6 +659,52 @@ mod tests {
         assert!(
             !stdout.contains("@@STAGE:100:Started."),
             "must not report Started on failure"
+        );
+    }
+
+    #[test]
+    fn user_exec_and_enter_builders_apply_user_flags_after_cwd() {
+        let user = LoginUser {
+            name: "dev".into(),
+            uid: 1000,
+            gid: 1000,
+        };
+        let enter_args = enter_incus_exec_args_for_user(
+            "box",
+            "",
+            "/home/workspace",
+            "",
+            "xterm-256color",
+            &[],
+            Some(&user),
+        );
+        let cwd_idx = enter_args.iter().position(|a| a == "--cwd").unwrap();
+        let user_idx = enter_args.iter().position(|a| a == "--user").unwrap();
+        assert_eq!(user_idx, cwd_idx + 2);
+        assert!(enter_args.contains(&"HOME=/home/dev".to_string()));
+
+        let cmd = vec!["id".to_string()];
+        let exec_args =
+            exec_incus_command_args_for_user("box", &cmd, "", "/home/workspace", &[], Some(&user));
+        let cwd_idx = exec_args.iter().position(|a| a == "--cwd").unwrap();
+        let user_idx = exec_args.iter().position(|a| a == "--user").unwrap();
+        assert_eq!(user_idx, cwd_idx + 2);
+
+        let enter_cmd = build_enter_command_for_user("box", "/run/env", &[], Some(&user));
+        assert_eq!(enter_cmd.matches("--user '1000'").count(), 2);
+
+        // None variants remain unchanged.
+        assert_eq!(
+            enter_incus_exec_args_with_env("box", "", "/home/workspace", "", "", &[]),
+            enter_incus_exec_args_for_user("box", "", "/home/workspace", "", "", &[], None)
+        );
+        assert_eq!(
+            ai_exec_command_text_for_user("box", false, "/home/workspace", Some(&user)),
+            "incus exec box --user 1000 --group 1000 --env HOME=/home/dev --cwd /home/workspace -- bash -l"
+        );
+        assert_eq!(
+            ai_exec_command_text_for_user("box", true, "/home/workspace", Some(&user)),
+            "aibox exec box -- bash"
         );
     }
 }

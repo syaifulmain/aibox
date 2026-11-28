@@ -45,7 +45,7 @@ pub use downloads::{
 pub use gpu::{
     detect_gpu, detect_gpu_at, detect_gpu_with, gpu_env, gpu_env_with, gpu_test_script, GpuInfo,
 };
-pub use host::{detect_host_session, detect_host_session_with, HostSession};
+pub use host::{detect_host_session, detect_host_session_with, host_uid, HostSession};
 pub use plan::{
     apply_devices_script, build_desktop_plan, combine_scripts, merge_env_pairs,
     remove_devices_script, session_bridge_script, set_desktop_mode_script,

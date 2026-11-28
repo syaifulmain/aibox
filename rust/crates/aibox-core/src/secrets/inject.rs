@@ -94,14 +94,31 @@ pub fn build_incus_file_push_args(
     env_name: &str,
     remote_path: &str,
 ) -> Vec<String> {
-    vec![
+    build_incus_file_push_args_for_owner(host_file, env_name, remote_path, None)
+}
+
+/// Like [`build_incus_file_push_args`], optionally setting `--uid`/`--gid` ownership.
+pub fn build_incus_file_push_args_for_owner(
+    host_file: &str,
+    env_name: &str,
+    remote_path: &str,
+    owner: Option<(u32, u32)>,
+) -> Vec<String> {
+    let mut args = vec![
         "file".to_string(),
         "push".to_string(),
         "--mode".to_string(),
         "0400".to_string(),
-        host_file.to_string(),
-        format!("{env_name}{remote_path}"),
-    ]
+    ];
+    if let Some((uid, gid)) = owner {
+        args.push("--uid".to_string());
+        args.push(uid.to_string());
+        args.push("--gid".to_string());
+        args.push(gid.to_string());
+    }
+    args.push(host_file.to_string());
+    args.push(format!("{env_name}{remote_path}"));
+    args
 }
 
 pub(crate) fn wait_child_with_timeout(child: Child, timeout: Duration) -> Option<Output> {
@@ -143,6 +160,15 @@ pub fn push_environment_secrets_to_container(
     env_name: &str,
     pairs: &[(String, String)],
 ) -> Result<Option<String>, SecretsError> {
+    push_environment_secrets_to_container_as(env_name, pairs, None)
+}
+
+/// Like [`push_environment_secrets_to_container`], optionally setting `--uid`/`--gid` on the pushed file.
+pub fn push_environment_secrets_to_container_as(
+    env_name: &str,
+    pairs: &[(String, String)],
+    owner: Option<(u32, u32)>,
+) -> Result<Option<String>, SecretsError> {
     if pairs.is_empty() {
         return Ok(None);
     }
@@ -153,7 +179,7 @@ pub fn push_environment_secrets_to_container(
     let host_file = host_file_res?;
 
     let remote_path = generate_remote_env_path();
-    let args = build_incus_file_push_args(&host_file, env_name, &remote_path);
+    let args = build_incus_file_push_args_for_owner(&host_file, env_name, &remote_path, owner);
 
     let child = match Command::new("incus")
         .args(&args)

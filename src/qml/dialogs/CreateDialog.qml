@@ -83,6 +83,10 @@ ModalDialog {
             ResourceSection {
                 app: createDialogRoot.app
             }
+
+            UserSection {
+                app: createDialogRoot.app
+            }
         }
     }
 
@@ -93,7 +97,9 @@ ModalDialog {
         ActionButton {
             label: app.createFromTemplate ? qsTr("Create from Template") : qsTr("Create Environment")
             variant: "primary"
-            disabled: backend.busy || app.newEnvName.trim().length === 0 || (app.createFromTemplate && app.newEnvTemplateName.length === 0)
+            disabled: backend.busy || app.newEnvName.trim().length === 0
+                      || (app.createFromTemplate && app.newEnvTemplateName.length === 0)
+                      || (!app.createFromTemplate && app.newEnvCreateUser && app.newEnvUserName.trim().length === 0)
             onClicked: {
                 if (app.createFromTemplate) {
                     backend.cloneEnvironment(app.newEnvTemplateName, app.newEnvName,
@@ -104,7 +110,9 @@ ModalDialog {
                     backend.createEnvironment(app.newEnvName, app.newEnvOsId, app.newEnvPreset,
                                               app.newEnvDisk, app.newEnvRam, app.newEnvCpu,
                                               app.newEnvProcLimit, app.newEnvIoLimit,
-                                              app.newEnvSwap, app.newEnvSharedPath)
+                                              app.newEnvSwap, app.newEnvSharedPath,
+                                              app.newEnvCreateUser, app.newEnvUserName,
+                                              app.newEnvUserSudo)
                 }
             }
         }

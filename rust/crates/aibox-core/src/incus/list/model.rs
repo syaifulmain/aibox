@@ -2,6 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ParseDefaults {
     pub auto_snapshot: bool,
@@ -157,6 +161,26 @@ pub struct Environment {
     /// Root storage pool name from `expanded_devices.root.pool` / `devices.root.pool` (not serialized).
     #[serde(skip)]
     pub root_pool: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub login_user: String,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub login_uid: u32,
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub login_gid: u32,
+}
+
+impl Environment {
+    /// Returns the configured non-root login user when both username and UID are valid.
+    pub fn login_user(&self) -> Option<crate::provision::user::LoginUser> {
+        if self.login_user.is_empty() || self.login_uid == 0 {
+            return None;
+        }
+        Some(crate::provision::user::LoginUser {
+            name: self.login_user.clone(),
+            uid: self.login_uid,
+            gid: self.login_gid,
+        })
+    }
 }
 
 pub fn environment_by_name<'a>(envs: &'a [Environment], name: &str) -> Option<&'a Environment> {

@@ -39,6 +39,8 @@ pub enum ProvisionError {
     TemplateStartNotAllowed,
     #[error("Unknown OS catalog entry: {0}")]
     UnknownOsEntry(String),
+    #[error("The user name is invalid. Use lowercase letters, digits, '-' or '_' (not root).")]
+    InvalidLoginUser,
 }
 
 #[cfg(test)]

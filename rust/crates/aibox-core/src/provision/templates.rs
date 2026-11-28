@@ -115,7 +115,7 @@ for _ in 1 2 3 4 5; do
     sleep 1
 done
 
-AIBOX_DONE=1
+{{USER_SETUP}}AIBOX_DONE=1
 echo "@@STAGE:100:Environment ready!"
 "#;
 

@@ -6,8 +6,9 @@ pub mod store;
 
 pub use error::SecretsError;
 pub use inject::{
-    build_incus_file_push_args, build_secret_env_file_content, create_host_temp_secret_file,
-    generate_remote_env_path, push_environment_secrets_to_container,
+    build_incus_file_push_args, build_incus_file_push_args_for_owner,
+    build_secret_env_file_content, create_host_temp_secret_file, generate_remote_env_path,
+    push_environment_secrets_to_container, push_environment_secrets_to_container_as,
 };
 pub use redact::{redact_secrets, redact_secrets_bytes, SecretRedactor, StreamingRedactor};
 pub use state::{EnvSecretRow, SecretsState};

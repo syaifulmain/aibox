@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Optional Non-Root Default User (`aibox-core`, `aibox-app`, QML, i18n, `README.md`)
+
+- **Default User choice in Create dialog (`UserSection.qml`, `CreateDialog.qml`, `AppState.qml`)**: New environments default to **Root only**; users can opt into **Create non-root user** (pre-filled with a sanitized host username and **Allow passwordless sudo** enabled by default). Hidden when creating from a template.
+- **User provisioning & UID matching (`provision/user.rs`, `provision/create.rs`, `provision/templates.rs`)**: Added `create_user_snippet` to create (or reuse) the user inside the container with the host UID when free, optionally install `sudo` and write `/etc/sudoers.d/90-aibox-user`, and persist `user.aibox.user`, `user.aibox.uid`, and `user.aibox.gid` in Incus config (inherited automatically by clones/templates).
+- **Non-root Enter, `exec`, and secrets ownership (`incus/list/{model,parse}.rs`, `provision/lifecycle.rs`, `secrets/inject.rs`, `cli/commands/env.rs`, `qt_backend*.rs`)**: `Environment::login_user()` drives `--user`/`--group`/`HOME`/`USER`/`LOGNAME` flags on GUI Enter, `aibox enter`, `aibox exec`, and copied AI exec commands, sets `incus file push --uid/--gid` on injected secrets, and ensures container `XDG_RUNTIME_DIR` ownership matches the login user.
+
 ### Non-Conflicting Host Appearance Mounts (`aibox-core`, `README.md`)
 
 - **Relocated system appearance mounts (`display/appearance.rs`)**: Moved read-only host mounts for `fonts-system`, `icons-system`, and `themes-system` from `/usr/share/{fonts,icons,themes}` to `/usr/local/share/fonts/aibox-host`, `/usr/local/share/aibox-host/icons`, and `/usr/local/share/aibox-host/themes` so guest package managers (`dpkg`/`apt`, `pacman`) can still write to `/usr/share/{fonts,icons,themes}` when installing GUI applications and themes.

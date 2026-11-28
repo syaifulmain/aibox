@@ -8,10 +8,11 @@ use crate::cli::commands::{require_environment, run_script_with_task_lock, to_js
 use crate::cli::{CliIo, ExitCode, ParsedArgs};
 use crate::display::{
     build_appearance_plan, build_audio_plan, build_dbus_plan, build_desktop_plan,
-    build_extra_devices_plan, detect_host_appearance, detect_host_audio, detect_host_dbus,
-    detect_host_devices, detect_host_session, download_env, gpu_env, merge_env_pairs,
-    session_bridge_script, stop_dbus_bridge_script_with, AppearancePlan, AudioMode, AudioPlan,
-    DbusMode, DbusPlan, DesktopMode, DisplayPlan, ExtraDeviceToggles, ExtraDevicesPlan,
+    build_extra_devices_plan, combine_scripts, detect_host_appearance, detect_host_audio,
+    detect_host_dbus, detect_host_devices, detect_host_session, download_env, gpu_env,
+    merge_env_pairs, session_bridge_script, stop_dbus_bridge_script_with, AppearancePlan,
+    AudioMode, AudioPlan, DbusMode, DbusPlan, DesktopMode, DisplayPlan, ExtraDeviceToggles,
+    ExtraDevicesPlan,
 };
 use crate::engine::Engine;
 use crate::history::{record_operation_history, RecordOperationParams};
@@ -20,11 +21,12 @@ use crate::network::acl::build_allowlist_refresh_if_needed;
 use crate::network::allowlist::SystemResolver;
 use crate::process::CommandRunner;
 use crate::provision::lifecycle::{
-    build_prepare_script_with_desktop, enter_incus_exec_args_with_env,
-    exec_incus_command_args_with_env, start_environment_script_with_desktop,
+    build_prepare_script_with_desktop, enter_incus_exec_args_for_user,
+    exec_incus_command_args_for_user, start_environment_script_with_desktop,
     stop_environment_script_with_session,
 };
-use crate::secrets::inject::push_environment_secrets_to_container;
+use crate::provision::user::runtime_dir_owner_script;
+use crate::secrets::inject::push_environment_secrets_to_container_as;
 use crate::services::system_diff::{
     capture_system_state_script, diff_system_state, format_system_change_summary,
     parse_system_state,
@@ -188,7 +190,13 @@ fn prepare_environment_script_with_plans(
 ) -> String {
     let auto_snap = build_auto_snapshot_if_needed(engine, env);
     let allow_refresh = build_allowlist_refresh_for_env(env);
-    let session = plans.bridge_script(&env.name);
+    let mut session = plans.bridge_script(&env.name);
+    if let Some(user) = env.login_user() {
+        let rt_script = runtime_dir_owner_script(&env.name, &user, &plans.session_env());
+        if !rt_script.is_empty() {
+            session = combine_scripts(&[session, rt_script]);
+        }
+    }
     build_prepare_script_with_desktop(&env.name, &auto_snap, &allow_refresh, &session)
 }
 
@@ -296,7 +304,8 @@ fn push_secrets_for_env(engine: &Engine, env: &Environment) -> Result<String, St
         engine
             .secrets
             .resolve_environment_secrets(&env.name, &env.secret_names, false)?;
-    Ok(push_environment_secrets_to_container(&env.name, &resolved)?.unwrap_or_default())
+    let owner = env.login_user().map(|u| (u.uid, u.gid));
+    Ok(push_environment_secrets_to_container_as(&env.name, &resolved, owner)?.unwrap_or_default())
 }
 
 pub fn run_list(engine: &mut Engine, io: &mut dyn CliIo, runner: &dyn CommandRunner) -> i32 {
@@ -352,15 +361,17 @@ pub fn run_enter(
     let term = std::env::var("TERM").unwrap_or_default();
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let session_env = plans.session_env();
+    let login_user = env.login_user();
     // The plan owns DISPLAY when desktop integration is on; passing an empty
     // display keeps Off purely headless instead of falling back to `:0`.
-    let exec_args = enter_incus_exec_args_with_env(
+    let exec_args = enter_incus_exec_args_for_user(
         &parsed.env_name,
         &remote_env_path,
         &c_ws_path,
         "",
         &term,
         &session_env,
+        login_user.as_ref(),
     );
 
     if env.record_enabled && find_executable("script") {
@@ -443,12 +454,14 @@ pub fn run_exec(
 
     let c_ws_path = container_workspace_path_for(&parsed.env_name, false);
     let session_env = plans.session_env();
-    let args = exec_incus_command_args_with_env(
+    let login_user = env.login_user();
+    let args = exec_incus_command_args_for_user(
         &parsed.env_name,
         &parsed.exec_command,
         &remote_env_path,
         &c_ws_path,
         &session_env,
+        login_user.as_ref(),
     );
     let before_state = if parsed.summary {
         let probe = capture_system_state_script(&parsed.env_name);
@@ -581,6 +594,9 @@ pub fn run_stop(
 mod tests {
     use super::*;
     use crate::display::DeviceSpec;
+    use crate::provision::lifecycle::{
+        enter_incus_exec_args_with_env, exec_incus_command_args_with_env,
+    };
 
     fn appearance_plan() -> AppearancePlan {
         AppearancePlan {

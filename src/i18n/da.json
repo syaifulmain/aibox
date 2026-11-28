@@ -522,5 +522,13 @@
   "LAN": "LAN",
   "Expose on LAN (0.0.0.0)": "Eksponér på LAN (0.0.0.0)",
   "I understand devices on my local network can reach this port": "Jeg forstår, at enheder på mit lokale netværk kan nå denne port",
-  "Select previous or next environment": "Vælg forrige eller næste miljø"
+  "Select previous or next environment": "Vælg forrige eller næste miljø",
+  "Default User": "Standardbruger",
+  "Root only": "Kun root",
+  "Sessions run as root (current behaviour).": "Sessioner kører som root (nuværende adfærd).",
+  "Create non-root user": "Opret ikke-root-bruger",
+  "Sessions log in as a regular user.": "Sessioner logger ind som en almindelig bruger.",
+  "e.g. dev": "f.eks. dev",
+  "Allow passwordless sudo": "Tillad sudo uden adgangskode",
+  "Terminal, aibox enter and aibox exec log in as this user. The UID matches your host user when possible so workspace files keep your ownership.": "Terminal, aibox enter og aibox exec logger ind som denne bruger. UID matcher din værtsbruger når det er muligt, så arbejdsområde-filer beholder dit ejerskab."
 }

@@ -19,10 +19,16 @@ pub struct HostSession {
     pub xdg_current_desktop: String,
 }
 
+/// Returns the current process's effective host user ID.
+pub fn host_uid() -> u32 {
+    // SAFETY: getuid is always safe to call and does not touch memory.
+    unsafe { libc::getuid() }
+}
+
 /// Reads the current process environment and OS user IDs.
 pub fn detect_host_session() -> HostSession {
     // SAFETY: getuid/getgid are always safe to call and do not touch memory.
-    let uid = unsafe { libc::getuid() };
+    let uid = host_uid();
     let gid = unsafe { libc::getgid() };
     detect_host_session_with(
         |key| env::var(key).ok().filter(|value| !value.trim().is_empty()),
