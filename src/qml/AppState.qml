@@ -351,7 +351,6 @@ ApplicationWindow {
         win.importWsFile = ""
         win.importNewName = ""
         backend.refreshBackups()
-        backend.refreshExportSpace(backend.selectedEnvironment.name || "", win.backupIncludeWorkspace)
         win.backupsVisible = true
     }
 

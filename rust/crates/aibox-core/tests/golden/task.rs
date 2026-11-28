@@ -19,7 +19,7 @@ fn dispatch(fn_name: &str, _case: &str, args: &Value) -> Value {
                 has_exit_code: false,
                 last_exit_code: -1,
                 pending_env_name: pending_env.to_string(),
-                line_buffer: String::new(),
+                line_buffer: Vec::new(),
             };
             task::progress::parse_process_output_chunk(&mut state, chunk.as_bytes(), &[]);
             json!({

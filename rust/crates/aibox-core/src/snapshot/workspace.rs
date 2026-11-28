@@ -6,9 +6,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::process::{CommandRunner, SystemRunner};
 use crate::util::paths::{clean_path, CONTAINER_WORKSPACE_PATH};
 use crate::util::shell::shell_quote;
 
@@ -166,34 +166,12 @@ pub fn container_workspace_path_for(name: &str, demo_mode: bool) -> String {
     if demo_mode || name.trim().is_empty() {
         return CONTAINER_WORKSPACE_PATH.to_string();
     }
-    let Ok(child) = Command::new("incus")
-        .args(["config", "device", "get", name, "workspace", "path"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    else {
-        return CONTAINER_WORKSPACE_PATH.to_string();
-    };
-
-    let pid = child.id();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
-    });
-
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(Ok(out)) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            parse_container_workspace_path_output(out.status.success(), &stdout)
-        }
-        Ok(Err(_)) => CONTAINER_WORKSPACE_PATH.to_string(),
-        Err(_) => {
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGKILL);
-            }
-            CONTAINER_WORKSPACE_PATH.to_string()
-        }
-    }
+    let out = SystemRunner.run_with_timeout(
+        "incus",
+        &["config", "device", "get", name, "workspace", "path"],
+        Some(Duration::from_secs(5)),
+    );
+    parse_container_workspace_path_output(out.exit_code == 0, &out.std_out)
 }
 
 /// Shell snippet that takes a read-only Btrfs snapshot of `workspace_path` at `snap_dir/snap_name`.

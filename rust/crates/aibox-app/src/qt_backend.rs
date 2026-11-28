@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::pin::Pin;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -1069,10 +1068,13 @@ pub struct BackendRust {
     pub(crate) stale_report_generation: Arc<AtomicU64>,
     pub(crate) export_space_generation: Arc<AtomicU64>,
     pub(crate) egress_generation: Arc<AtomicU64>,
+    pub(crate) preflight_generation: Arc<AtomicU64>,
+    pub(crate) backups_refresh_gen: Arc<AtomicU64>,
+    pub(crate) sessions_refresh_gen: Arc<AtomicU64>,
     pub(crate) prefetch_in_flight: Arc<Mutex<HashSet<String>>>,
     pub(crate) diff_cache: WorkspaceDiffCache,
     pub(crate) log_offset: i64,
-    pub(crate) line_buffer: String,
+    pub(crate) line_buffer: Vec<u8>,
     pub(crate) has_exit_code: bool,
     pub(crate) last_exit_code: i32,
     pub(crate) enter_env_name: String,
@@ -1087,6 +1089,7 @@ pub struct BackendRust {
     pub(crate) idle_warned: HashSet<String>,
     pub(crate) idle_check_in_flight: Arc<AtomicBool>,
     pub(crate) snapshot_size_cache: SnapshotSizeCache,
+    pub(crate) snapshot_size_cache_gen: u64,
     pub(crate) snapshot_sizes_in_flight: Arc<AtomicBool>,
     pub(crate) pending_snapshot_sizes: bool,
 }
@@ -1225,10 +1228,13 @@ impl Default for BackendRust {
             stale_report_generation: Arc::new(AtomicU64::new(0)),
             export_space_generation: Arc::new(AtomicU64::new(0)),
             egress_generation: Arc::new(AtomicU64::new(0)),
+            preflight_generation: Arc::new(AtomicU64::new(0)),
+            backups_refresh_gen: Arc::new(AtomicU64::new(0)),
+            sessions_refresh_gen: Arc::new(AtomicU64::new(0)),
             prefetch_in_flight: Arc::new(Mutex::new(HashSet::new())),
             diff_cache: WorkspaceDiffCache::default(),
             log_offset: 0,
-            line_buffer: String::new(),
+            line_buffer: Vec::new(),
             has_exit_code: false,
             last_exit_code: -1,
             enter_env_name: String::new(),
@@ -1243,6 +1249,7 @@ impl Default for BackendRust {
             idle_warned: HashSet::new(),
             idle_check_in_flight: Arc::new(AtomicBool::new(false)),
             snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_size_cache_gen: 0,
             snapshot_sizes_in_flight: Arc::new(AtomicBool::new(false)),
             pending_snapshot_sizes: false,
         }
@@ -1495,14 +1502,32 @@ impl qobject::Backend {
     }
 
     pub fn primary_action(mut self: Pin<&mut Self>) {
-        let next_count = self.count + 1;
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.count = next_count;
-        }
-        self.as_mut().count_changed();
-        if let Some(env) = self.engine.selected_environment(self.selected_index) {
-            let name = QString::from(env.name.as_str());
+        let selected = if self.selected_index >= 0 {
+            if self.demo_mode {
+                self.demo_environments
+                    .get(self.selected_index as usize)
+                    .and_then(|v| {
+                        let is_tmpl = v
+                            .get("isTemplate")
+                            .and_then(|b| b.as_bool())
+                            .unwrap_or(false);
+                        if is_tmpl {
+                            None
+                        } else {
+                            v.get("name").and_then(|n| n.as_str()).map(str::to_string)
+                        }
+                    })
+            } else {
+                self.engine
+                    .selected_environment(self.selected_index)
+                    .filter(|env| !env.is_template)
+                    .map(|env| env.name.clone())
+            }
+        } else {
+            None
+        };
+        if let Some(name_s) = selected {
+            let name = QString::from(name_s.as_str());
             self.as_mut().enter_environment(&name);
         }
     }
@@ -1562,41 +1587,7 @@ impl qobject::Backend {
     }
 }
 
-pub(crate) fn spawn_detached(
-    program: &str,
-    args: &[&str],
-    cwd: Option<&str>,
-) -> Result<u32, String> {
-    use std::os::unix::process::CommandExt;
-    let mut cmd = Command::new(program);
-    cmd.args(args);
-    if let Some(dir) = cwd {
-        if !dir.is_empty() {
-            cmd.current_dir(dir);
-        }
-    }
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // SAFETY: `setsid()` is async-signal-safe and detaches the child into its own session.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    cmd.spawn()
-        .map(|child| child.id())
-        .map_err(|e| e.to_string())
-}
-
-pub(crate) fn launch_command_in_terminal(shell_cmd: &str) {
-    if find_executable("xdg-terminal-exec").is_some() {
-        let _ = spawn_detached("xdg-terminal-exec", &["sh", "-c", shell_cmd], None);
-    } else if find_executable("foot").is_some() {
-        let _ = spawn_detached("foot", &["sh", "-c", shell_cmd], None);
-    }
-}
+pub(crate) use crate::qt_backend_task::{launch_command_in_terminal, spawn_detached};
 
 pub(crate) fn find_executable(name: &str) -> Option<String> {
     let path_var = std::env::var_os("PATH")?;

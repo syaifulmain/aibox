@@ -340,9 +340,12 @@ impl Engine {
             delta.list_parsed = true;
             if ctx.disk_warn_percent > 0 || ctx.disk_critical_percent > 0 {
                 for env in &mut envs {
-                    env.disk_alert_level = if env.disk_percent >= ctx.disk_critical_percent {
+                    env.disk_alert_level = if ctx.disk_critical_percent > 0
+                        && env.disk_percent >= ctx.disk_critical_percent
+                    {
                         2
-                    } else if env.disk_percent >= ctx.disk_warn_percent {
+                    } else if ctx.disk_warn_percent > 0 && env.disk_percent >= ctx.disk_warn_percent
+                    {
                         1
                     } else {
                         0

@@ -120,7 +120,7 @@ ModalDialog {
                         variant: "danger"
                         disabled: backend.busy
                         onClicked: backend.removeExtraMount(
-                            backend.selectedEnvironment.name || "", modelData.deviceName || "")
+                            mountsOverlay.env.name || "", modelData.deviceName || "")
                     }
                 }
             }

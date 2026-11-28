@@ -13,7 +13,7 @@ use crate::util::bytes::truncate_log_tail;
 use crate::util::json::to_json_compact;
 use crate::util::paths::atomic_write;
 
-const DEFAULT_LOG_TAIL_BYTES: i64 = 204_800;
+pub(crate) const DEFAULT_LOG_TAIL_BYTES: i64 = 204_800;
 
 static HISTORY_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -234,13 +234,17 @@ fn remove_pruned_entries(
     dir_path: &str,
     entries: Vec<LoadedEntry>,
     remove_indices: &HashSet<usize>,
+    extra_dirty_jsonl: Option<&Path>,
 ) -> Vec<Value> {
-    if remove_indices.is_empty() {
+    if remove_indices.is_empty() && extra_dirty_jsonl.is_none() {
         return entries.into_iter().map(|e| e.value).collect();
     }
 
     let mut affected_jsonl: BTreeMap<PathBuf, Vec<Value>> = BTreeMap::new();
     let mut dirty_jsonl: HashSet<PathBuf> = HashSet::new();
+    if let Some(p) = extra_dirty_jsonl {
+        dirty_jsonl.insert(p.to_path_buf());
+    }
     let mut kept = Vec::with_capacity(entries.len().saturating_sub(remove_indices.len()));
 
     for (idx, item) in entries.into_iter().enumerate() {
@@ -334,7 +338,7 @@ pub fn prune_operation_history(
         }
     }
 
-    remove_pruned_entries(&dir_path, entries, &remove_indices)
+    remove_pruned_entries(&dir_path, entries, &remove_indices, None)
 }
 
 /// Parameters for recording a completed or failed operation in history.
@@ -349,16 +353,6 @@ pub struct RecordOperationParams<'a> {
     pub log_bytes: &'a [u8],
     pub reason: &'a str,
     pub secret_values: &'a [String],
-}
-
-fn append_entry_to_monthly_jsonl(jsonl_path: &Path, compact_json: &str) {
-    let mut existing = fs::read(jsonl_path).unwrap_or_default();
-    if !existing.is_empty() && !existing.ends_with(b"\n") {
-        existing.push(b'\n');
-    }
-    existing.extend_from_slice(compact_json.as_bytes());
-    existing.push(b'\n');
-    let _ = atomic_write(jsonl_path, &existing);
 }
 
 /// Records an operation history entry (`.log` + monthly `.jsonl`), prunes old entries, and returns the updated list.
@@ -407,22 +401,30 @@ pub fn record_operation_history(params: &RecordOperationParams<'_>) -> Option<Ve
         entry.insert("reason".to_string(), json!(safe_reason));
     }
 
-    if let Ok(compact) = to_json_compact(&Value::Object(entry)) {
-        let month_name = format!("{}.jsonl", now.format("%Y-%m"));
-        let jsonl_path = Path::new(&dir_path).join(month_name);
-        append_entry_to_monthly_jsonl(&jsonl_path, &compact);
+    let month_name = format!("{}.jsonl", now.format("%Y-%m"));
+    let jsonl_path = Path::new(&dir_path).join(month_name);
+
+    let mut entries = load_entries_with_sources(&dir_path);
+    entries.push(LoadedEntry {
+        value: Value::Object(entry),
+        source: EntrySource::Jsonl(jsonl_path.clone()),
+    });
+    entries.sort_by(|a, b| entry_id(&b.value).cmp(entry_id(&a.value)));
+
+    let mut remove_indices = HashSet::new();
+    if params.max_entries >= 0 {
+        let limit = params.max_entries as usize;
+        for idx in limit..entries.len() {
+            remove_indices.insert(idx);
+        }
     }
 
-    if params.max_entries >= 0 {
-        Some(prune_operation_history(
-            params.state_dir,
-            Some(params.max_entries as usize),
-            None,
-            now,
-        ))
-    } else {
-        Some(load_operation_history(params.state_dir))
-    }
+    Some(remove_pruned_entries(
+        &dir_path,
+        entries,
+        &remove_indices,
+        Some(&jsonl_path),
+    ))
 }
 
 /// Reads an operation log by entry ID, returning `None` when the file is unavailable.
@@ -675,7 +677,13 @@ mod tests {
             }))
             .unwrap();
             let month_file = format!("{hist_dir}/{}.jsonl", dt.format("%Y-%m"));
-            append_entry_to_monthly_jsonl(Path::new(&month_file), &line);
+            let mut existing = fs::read(&month_file).unwrap_or_default();
+            if !existing.is_empty() && !existing.ends_with(b"\n") {
+                existing.push(b'\n');
+            }
+            existing.extend_from_slice(line.as_bytes());
+            existing.push(b'\n');
+            fs::write(&month_file, existing).unwrap();
         }
 
         // Age-based pruning: drop entries older than 30 days.

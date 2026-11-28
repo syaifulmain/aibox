@@ -74,7 +74,8 @@ pub fn build_export_steps_with_options(
                  WS_SHA=$(sha256sum {q_ws_out} | awk '{{print $1}}')\n    \
                  WS_SIZE=$(stat -c%s {q_ws_out})\n    \
                  WS_BASE=$(basename {q_ws_out})\n    \
-                 WS_JSON=$(printf ',\\n  \"workspaceArchiveFile\": \"%s\",\\n  \"workspaceArchiveSha256\": \"%s\",\\n  \"workspaceArchiveSizeBytes\": %s' \"$WS_BASE\" \"$WS_SHA\" \"$WS_SIZE\")\n\
+                 WS_BASE_ESC=$(printf '%s' \"$WS_BASE\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\n    \
+                 WS_JSON=$(printf ',\\n  \"workspaceArchiveFile\": \"%s\",\\n  \"workspaceArchiveSha256\": \"%s\",\\n  \"workspaceArchiveSizeBytes\": %s' \"$WS_BASE_ESC\" \"$WS_SHA\" \"$WS_SIZE\")\n\
                  fi"
             )
         } else {
@@ -85,9 +86,10 @@ pub fn build_export_steps_with_options(
              ARC_SHA=$(sha256sum {q_backup} | awk '{{print $1}}')\n\
              ARC_SIZE=$(stat -c%s {q_backup})\n\
              ARC_BASE=$(basename {q_backup})\n\
+             ARC_BASE_ESC=$(printf '%s' \"$ARC_BASE\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\n\
              CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n\
              {ws_block}\n\
-             printf '{{\\n  \"version\": 1,\\n  \"envName\": \"%s\",\\n  \"createdAt\": \"%s\",\\n  \"compression\": \"%s\",\\n  \"archiveFile\": \"%s\",\\n  \"archiveSha256\": \"%s\",\\n  \"archiveSizeBytes\": %s%s\\n}}\\n' {q_name} \"$CREATED_AT\" {q_comp} \"$ARC_BASE\" \"$ARC_SHA\" \"$ARC_SIZE\" \"$WS_JSON\" > {q_manifest}"
+             printf '{{\\n  \"version\": 1,\\n  \"envName\": \"%s\",\\n  \"createdAt\": \"%s\",\\n  \"compression\": \"%s\",\\n  \"archiveFile\": \"%s\",\\n  \"archiveSha256\": \"%s\",\\n  \"archiveSizeBytes\": %s%s\\n}}\\n' {q_name} \"$CREATED_AT\" {q_comp} \"$ARC_BASE_ESC\" \"$ARC_SHA\" \"$ARC_SIZE\" \"$WS_JSON\" > {q_manifest}"
         ));
     }
 
@@ -204,7 +206,8 @@ pub fn export_and_wipe_environment_script_with_options(
                  WS_SHA=$(sha256sum {q_ws_out} | awk '{{print $1}}')\n    \
                  WS_SIZE=$(stat -c%s {q_ws_out})\n    \
                  WS_BASE=$(basename {q_ws_out})\n    \
-                 WS_JSON=$(printf ',\\n  \"workspaceArchiveFile\": \"%s\",\\n  \"workspaceArchiveSha256\": \"%s\",\\n  \"workspaceArchiveSizeBytes\": %s' \"$WS_BASE\" \"$WS_SHA\" \"$WS_SIZE\")\n\
+                 WS_BASE_ESC=$(printf '%s' \"$WS_BASE\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\n    \
+                 WS_JSON=$(printf ',\\n  \"workspaceArchiveFile\": \"%s\",\\n  \"workspaceArchiveSha256\": \"%s\",\\n  \"workspaceArchiveSizeBytes\": %s' \"$WS_BASE_ESC\" \"$WS_SHA\" \"$WS_SIZE\")\n\
                  fi"
             )
         } else {
@@ -215,9 +218,10 @@ pub fn export_and_wipe_environment_script_with_options(
              ARC_SHA=$(sha256sum {q_backup} | awk '{{print $1}}')\n\
              ARC_SIZE=$(stat -c%s {q_backup})\n\
              ARC_BASE=$(basename {q_backup})\n\
+             ARC_BASE_ESC=$(printf '%s' \"$ARC_BASE\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\n\
              CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n\
              {ws_block}\n\
-             printf '{{\\n  \"version\": 1,\\n  \"envName\": \"%s\",\\n  \"createdAt\": \"%s\",\\n  \"compression\": \"%s\",\\n  \"archiveFile\": \"%s\",\\n  \"archiveSha256\": \"%s\",\\n  \"archiveSizeBytes\": %s%s\\n}}\\n' {q_name} \"$CREATED_AT\" {q_comp} \"$ARC_BASE\" \"$ARC_SHA\" \"$ARC_SIZE\" \"$WS_JSON\" > {q_manifest}\n"
+             printf '{{\\n  \"version\": 1,\\n  \"envName\": \"%s\",\\n  \"createdAt\": \"%s\",\\n  \"compression\": \"%s\",\\n  \"archiveFile\": \"%s\",\\n  \"archiveSha256\": \"%s\",\\n  \"archiveSizeBytes\": %s%s\\n}}\\n' {q_name} \"$CREATED_AT\" {q_comp} \"$ARC_BASE_ESC\" \"$ARC_SHA\" \"$ARC_SIZE\" \"$WS_JSON\" > {q_manifest}\n"
         ));
     }
     script.push_str(&wipe_environment_script(
@@ -299,6 +303,7 @@ pub fn import_environment_script_with_options(
         ));
     }
 
+    let q_stage_import = shell_quote(&format!("@@STAGE:35:Importing archive as {target_name}..."));
     script.push_str(&format!(
         "echo '@@STAGE:15:Preparing target workspace...'\n\
          {ws_create}\n\
@@ -306,7 +311,7 @@ pub fn import_environment_script_with_options(
          ACL_USER=\"${{SUDO_USER:-${{USER:-$(id -un)}}}}\"\n    \
          setfacl -R -m \"u:${{ACL_USER}}:rwx\" -m \"m::rwx\" -d -m \"u:${{ACL_USER}}:rwx\" -d -m \"m::rwx\" {q_ws} 2>/dev/null || true\n\
          fi\n\
-         echo '@@STAGE:35:Importing archive as {q_name}...'\n\
+         echo {q_stage_import}\n\
          incus import {q_backup} {q_name}\n\
          incus config unset {q_name} user.aibox.template >/dev/null 2>&1 || true\n\
          incus config set {q_name} user.aibox.workspace {q_ws} >/dev/null 2>&1 || true\n\

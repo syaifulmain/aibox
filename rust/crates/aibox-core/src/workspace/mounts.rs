@@ -116,9 +116,12 @@ pub fn add_extra_mount_script(
     let q_dev = shell_quote(device_name);
     let q_host = shell_quote(host_path);
     let q_container = shell_quote(container_path);
+    let q_stage = shell_quote(&format!(
+        "@@STAGE:45:Adding extra mount ({container_path})..."
+    ));
     format!(
         "set -euo pipefail\n\
-         echo '@@STAGE:45:Adding extra mount ({q_container})...'\n\
+         echo {q_stage}\n\
          if ! incus config device add {q_name} {q_dev} disk source={q_host} path={q_container} readonly={ro_flag} shift=true >/dev/null 2>&1; then\n    \
              incus config device add {q_name} {q_dev} disk source={q_host} path={q_container} readonly={ro_flag}\n\
          fi\n\

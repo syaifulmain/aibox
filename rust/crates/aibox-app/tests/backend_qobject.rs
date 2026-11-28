@@ -221,8 +221,8 @@ fn test_primary_action_counts() {
     backend.configure(dir.path(), false);
     assert_eq!(backend.count(), 0);
     let fired = backend.primary_action_with_spy();
-    assert_eq!(backend.count(), 1);
-    assert_eq!(fired, 1);
+    assert_eq!(backend.count(), 0);
+    assert_eq!(fired, 0);
 }
 
 fn test_enable_file_access_requires_known_running_environment() {

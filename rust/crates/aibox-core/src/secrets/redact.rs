@@ -267,11 +267,10 @@ pub fn redact_secrets(text: &str, values: &[String]) -> String {
     SecretRedactor::new(values).redact_str(text)
 }
 
-/// UTF-8 byte-stream wrapper around `redact_secrets`.
+/// Byte-stream wrapper around `SecretRedactor::redact_bytes`.
 pub fn redact_secrets_bytes(data: &[u8], values: &[String]) -> Vec<u8> {
     if data.is_empty() || values.is_empty() {
         return data.to_vec();
     }
-    let text = String::from_utf8_lossy(data);
-    redact_secrets(&text, values).into_bytes()
+    SecretRedactor::new(values).redact_bytes(data)
 }

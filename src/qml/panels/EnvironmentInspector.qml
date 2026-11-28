@@ -15,6 +15,10 @@ Item {
                                          && cpuExpandedEnv === (root.env.name || "")
     readonly property string snapshotNameText: snapshotsCard.snapshotNameText
 
+    function clearSnapshotName() {
+        snapshotsCard.clearSnapshotName()
+    }
+
     // Per-core load shown inside the expanded CPU card, two columns of cores.
     Component {
         id: cpuCoresGrid

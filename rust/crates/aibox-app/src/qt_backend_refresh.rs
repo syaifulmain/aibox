@@ -16,7 +16,9 @@ use aibox_core::incus::catalog::OsCatalogEntry;
 use aibox_core::incus::list::{templates as extract_templates, CounterState, Environment};
 use aibox_core::process::SystemRunner;
 use aibox_core::session::scan_recorded_sessions;
-use aibox_core::snapshot::{compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes};
+use aibox_core::snapshot::{
+    compute_workspace_snapshot_sizes, fetch_incus_snapshot_sizes, SnapshotSizeCache,
+};
 use aibox_core::workspace::file_access::{
     apply_file_access_state, attach_file_access_fields, ApplyFileAccessResult, FileAccessEnvInput,
 };
@@ -126,6 +128,8 @@ pub(crate) struct WorkerRefreshInput {
     pub(crate) prev_file_access: ApplyFileAccessResult,
     pub(crate) last_pool_quotas: (i64, i32),
     pub(crate) env_config_gen: u64,
+    pub(crate) snapshot_size_cache: SnapshotSizeCache,
+    pub(crate) snapshot_size_cache_gen: u64,
     pub(crate) ctx: RefreshContext,
 }
 
@@ -146,6 +150,7 @@ pub(crate) struct WorkerRefreshOutput {
     pub(crate) env_values_hash: u64,
     pub(crate) env_values_unchanged: bool,
     pub(crate) env_config_gen: u64,
+    pub(crate) snapshot_size_cache_gen: u64,
     pub(crate) pool_json: Option<serde_json::Value>,
 }
 
@@ -173,6 +178,12 @@ pub(crate) fn parse_refresh_in_worker(
     let delta = temp_engine
         .apply_snapshot(&snapshot, &input.ctx)
         .map_err(|e| e.to_string())?;
+
+    if delta.list_parsed {
+        for env in &mut temp_engine.environments {
+            input.snapshot_size_cache.apply_to_environment(env);
+        }
+    }
 
     let env_values_unchanged =
         !delta.list_parsed && temp_engine.file_access == input.prev_file_access;
@@ -229,6 +240,7 @@ pub(crate) fn parse_refresh_in_worker(
         env_values_hash,
         env_values_unchanged,
         env_config_gen: input.env_config_gen,
+        snapshot_size_cache_gen: input.snapshot_size_cache_gen,
         pool_json,
     })
 }
@@ -467,6 +479,8 @@ impl qobject::Backend {
                 prev_file_access: rust.engine.file_access.clone(),
                 last_pool_quotas: rust.last_pool_quotas,
                 env_config_gen: rust.env_config_gen,
+                snapshot_size_cache: rust.snapshot_size_cache.clone(),
+                snapshot_size_cache_gen: rust.snapshot_size_cache_gen,
                 ctx: RefreshContext {
                     elapsed_wall_ns,
                     track_cpu_and_net: true,
@@ -573,13 +587,16 @@ impl qobject::Backend {
                 let mut cache = std::mem::take(&mut rust.snapshot_size_cache);
                 let live_names: Vec<&str> = envs_vec.iter().map(|e| e.name.as_str()).collect();
                 cache.prune_deleted_envs(&live_names);
+                let cache_stale = output.snapshot_size_cache_gen != rust.snapshot_size_cache_gen;
 
                 for env in &mut envs_vec {
-                    if !env.snapshot_sizes.is_empty() {
-                        cache.insert_incus(&env.name, env.snapshot_sizes.clone());
+                    if !env.snapshot_sizes.is_empty()
+                        && cache.insert_incus(&env.name, env.snapshot_sizes.clone())
+                    {
+                        rust.snapshot_size_cache_gen = rust.snapshot_size_cache_gen.wrapping_add(1);
                     }
                     cache.prune_removed(&env.name, &env.snapshots, &env.workspace_snapshots);
-                    if cache.apply_to_environment(env) {
+                    if cache.apply_to_environment(env) && cache_stale {
                         cache_modified_env = true;
                     }
 
@@ -619,6 +636,8 @@ impl qobject::Backend {
                     };
                     let has_running = final_arc.iter().any(|e| e.running && !e.is_template);
                     rust.has_running_envs.store(has_running, Ordering::Relaxed);
+                    let templates_changed = output.templates != rust.engine.templates
+                        || rust.templates_cache.is_empty();
                     rust.engine.environments = envs_vec;
                     rust.engine.templates = output.templates;
                     rust.engine.file_access = output.file_access;
@@ -631,8 +650,18 @@ impl qobject::Backend {
                     if rust.selected_index >= rust.engine.environments.len() as i32 {
                         rust.selected_index = max_idx;
                     }
-                    rust.rebuild_templates_cache();
-                    rust.rebuild_selected_environment_cache();
+                    if templates_changed {
+                        rust.rebuild_templates_cache();
+                    }
+                    if rust.selected_index >= 0 {
+                        if let Some(sel_val) = output.env_values.get(rust.selected_index as usize) {
+                            rust.selected_environment_cache = value_to_qvariant_map(sel_val);
+                        } else {
+                            rust.selected_environment_cache = QMapQStringQVariant::default();
+                        }
+                    } else {
+                        rust.selected_environment_cache = QMapQStringQVariant::default();
+                    }
                     envs_changed = true;
                 }
             } else if !output.env_values_unchanged && output.file_access != rust.engine.file_access
@@ -747,6 +776,8 @@ impl qobject::Backend {
                             }
                         }
                         if any_new {
+                            rust.snapshot_size_cache_gen =
+                                rust.snapshot_size_cache_gen.wrapping_add(1);
                             let cache = rust.snapshot_size_cache.clone();
                             for env in &mut rust.engine.environments {
                                 cache.apply_to_environment(env);
@@ -813,32 +844,58 @@ impl qobject::Backend {
         });
     }
 
-    pub fn refresh_backups(mut self: Pin<&mut Self>) {
+    pub fn refresh_backups(self: Pin<&mut Self>) {
         if self.demo_mode {
             return;
         }
         let dir = aibox_core::backup::backups_dir_path(&self.engine.config.os_storage_path);
-        let archives = scan_backup_archives(&dir);
-        let q_archives = json_array_to_qvariant_list(&archives);
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.backup_archives = q_archives;
-        }
-        self.as_mut().backup_archives_changed();
+        let gen = self
+            .backups_refresh_gen
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
+        let gen_arc = Arc::clone(&self.backups_refresh_gen);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let archives = scan_backup_archives(&dir);
+            let _ = qt_thread.queue(move |mut backend| {
+                if gen_arc.load(Ordering::Acquire) != gen {
+                    return;
+                }
+                let q_archives = json_array_to_qvariant_list(&archives);
+                {
+                    let mut rust = backend.as_mut().rust_mut();
+                    rust.backup_archives = q_archives;
+                }
+                backend.as_mut().backup_archives_changed();
+            });
+        });
     }
 
-    pub fn refresh_recorded_sessions(mut self: Pin<&mut Self>) {
+    pub fn refresh_recorded_sessions(self: Pin<&mut Self>) {
         if self.demo_mode {
             return;
         }
         let dir = aibox_core::session::sessions_dir_path(&self.engine.paths.state_dir);
-        let sessions = scan_recorded_sessions(&dir);
-        let q_sessions = json_array_to_qvariant_list(&sessions);
-        {
-            let mut rust = self.as_mut().rust_mut();
-            rust.recorded_sessions = q_sessions;
-        }
-        self.as_mut().recorded_sessions_changed();
+        let gen = self
+            .sessions_refresh_gen
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
+        let gen_arc = Arc::clone(&self.sessions_refresh_gen);
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let sessions = scan_recorded_sessions(&dir);
+            let _ = qt_thread.queue(move |mut backend| {
+                if gen_arc.load(Ordering::Acquire) != gen {
+                    return;
+                }
+                let q_sessions = json_array_to_qvariant_list(&sessions);
+                {
+                    let mut rust = backend.as_mut().rust_mut();
+                    rust.recorded_sessions = q_sessions;
+                }
+                backend.as_mut().recorded_sessions_changed();
+            });
+        });
     }
 
     pub fn refresh_stale_report(mut self: Pin<&mut Self>) {
@@ -962,6 +1019,8 @@ mod tests {
             prev_file_access: ApplyFileAccessResult::default(),
             last_pool_quotas: (0, 0),
             env_config_gen: 0,
+            snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_size_cache_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -992,6 +1051,8 @@ mod tests {
             prev_file_access: out1.file_access.clone(),
             last_pool_quotas: out1.pool_quotas,
             env_config_gen: 0,
+            snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_size_cache_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -1050,6 +1111,8 @@ mod tests {
             prev_file_access: ApplyFileAccessResult::default(),
             last_pool_quotas: (0, 0),
             env_config_gen: 0,
+            snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_size_cache_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()
@@ -1083,6 +1146,8 @@ mod tests {
             prev_file_access: out1.file_access.clone(),
             last_pool_quotas: out1.pool_quotas,
             env_config_gen: 0,
+            snapshot_size_cache: SnapshotSizeCache::default(),
+            snapshot_size_cache_gen: 0,
             ctx: RefreshContext {
                 track_cpu_and_net: true,
                 ..RefreshContext::default()

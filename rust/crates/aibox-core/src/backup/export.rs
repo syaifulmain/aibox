@@ -290,7 +290,7 @@ pub fn scheduled_backups_to_prune(
     env_name: &str,
     keep_count: usize,
 ) -> Vec<(String, String)> {
-    let keep = keep_count.clamp(1, 50);
+    let keep = keep_count.min(50);
     let mut matching: Vec<&ArchiveScanEntry> = existing_archives
         .iter()
         .filter(|a| a.env_name == env_name)
@@ -357,7 +357,7 @@ pub fn decide_scheduled_backup(
     script.push_str("\necho '@@STAGE:100:Scheduled backup export complete.'\n");
 
     // Reserve one slot for the new backup being created.
-    let keep_existing = policy.keep_count.saturating_sub(1).max(1);
+    let keep_existing = policy.keep_count.saturating_sub(1);
     let prune_archives = scheduled_backups_to_prune(&entries, &clean_name, keep_existing);
 
     Some(ScheduledBackupPlan {

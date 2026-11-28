@@ -149,7 +149,7 @@ pub fn compute_workspace_snapshot_sizes(
             cmd.arg(path);
         }
         if let Ok(out) = cmd.stdout(Stdio::piped()).stderr(Stdio::null()).output() {
-            if out.status.success() {
+            if (out.status.success() || out.status.code() == Some(1)) && !out.stdout.is_empty() {
                 let du_sizes = parse_du_bytes_output(&String::from_utf8_lossy(&out.stdout));
                 for (k, v) in du_sizes {
                     sizes.insert(k, v);

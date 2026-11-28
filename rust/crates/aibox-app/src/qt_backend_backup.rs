@@ -228,6 +228,10 @@ impl qobject::Backend {
 
         self.as_mut()
             .set_busy(true, "Checking backup disk space...");
+        let preflight_gen = self
+            .preflight_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            .wrapping_add(1);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let space = check_export_space(
@@ -239,6 +243,14 @@ impl qobject::Backend {
                 &bdir,
             );
             let _ = qt_thread.queue(move |mut backend| {
+                if backend
+                    .preflight_generation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != preflight_gen
+                    || !*backend.busy()
+                {
+                    return;
+                }
                 backend.as_mut().rust_mut().busy = false;
                 backend.as_mut().busy_changed();
                 if !space.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -372,6 +384,10 @@ impl qobject::Backend {
 
         self.as_mut()
             .set_busy(true, "Checking backup disk space...");
+        let preflight_gen = self
+            .preflight_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            .wrapping_add(1);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let space = check_export_space(
@@ -383,6 +399,14 @@ impl qobject::Backend {
                 &bdir,
             );
             let _ = qt_thread.queue(move |mut backend| {
+                if backend
+                    .preflight_generation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != preflight_gen
+                    || !*backend.busy()
+                {
+                    return;
+                }
                 backend.as_mut().rust_mut().busy = false;
                 backend.as_mut().busy_changed();
                 if !space.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
@@ -434,10 +458,22 @@ impl qobject::Backend {
         }
 
         self.as_mut().set_busy(true, "Verifying backup archive...");
+        let preflight_gen = self
+            .preflight_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            .wrapping_add(1);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let res = verify_backup_archive(&clean_backup, &clean_ws_archive);
             let _ = qt_thread.queue(move |mut backend| {
+                if backend
+                    .preflight_generation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != preflight_gen
+                    || !*backend.busy()
+                {
+                    return;
+                }
                 backend.as_mut().rust_mut().busy = false;
                 backend.as_mut().busy_changed();
                 if let Err(err) = res {

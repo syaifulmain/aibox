@@ -181,7 +181,7 @@ impl qobject::Backend {
             .schedule_status_clear(Duration::from_millis(3000));
     }
 
-    pub fn open_file_access(mut self: Pin<&mut Self>, name: &QString) {
+    pub fn open_file_access(self: Pin<&mut Self>, name: &QString) {
         let name_s = name.to_string();
         if name_s.is_empty() {
             return;
@@ -194,37 +194,43 @@ impl qobject::Backend {
             return;
         }
 
-        let has_handler = Command::new("gio")
-            .args(["mime", "x-scheme-handler/sftp"])
-            .env("LC_ALL", "C")
-            .output()
-            .is_ok_and(|out| {
-                out.status.success()
-                    && !String::from_utf8_lossy(&out.stdout).contains("No default applications")
-            });
-        if has_handler && spawn_detached("xdg-open", &[&url], None).is_ok() {
-            return;
-        }
-
-        for fm in ["nautilus", "dolphin", "thunar", "nemo", "pcmanfm", "caja"] {
-            if find_executable(fm).is_none() {
-                continue;
-            }
-            let res = if fm == "nautilus" {
-                spawn_detached(fm, &["-w", &url], None)
-            } else {
-                spawn_detached(fm, &[&url], None)
-            };
-            if res.is_ok() {
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let has_handler = Command::new("gio")
+                .args(["mime", "x-scheme-handler/sftp"])
+                .env("LC_ALL", "C")
+                .output()
+                .is_ok_and(|out| {
+                    out.status.success()
+                        && !String::from_utf8_lossy(&out.stdout).contains("No default applications")
+                });
+            if has_handler && spawn_detached("xdg-open", &[&url], None).is_ok() {
                 return;
             }
-        }
 
-        self.as_mut()
-            .copy_text_with_status(&url, "Copied SFTP URL to clipboard.");
-        self.as_mut().set_error_message(
-            "No file manager accepted the SFTP URL; it has been copied to the clipboard.",
-        );
+            for fm in ["nautilus", "dolphin", "thunar", "nemo", "pcmanfm", "caja"] {
+                if find_executable(fm).is_none() {
+                    continue;
+                }
+                let res = if fm == "nautilus" {
+                    spawn_detached(fm, &["-w", &url], None)
+                } else {
+                    spawn_detached(fm, &[&url], None)
+                };
+                if res.is_ok() {
+                    return;
+                }
+            }
+
+            let _ = qt_thread.queue(move |mut backend| {
+                backend
+                    .as_mut()
+                    .copy_text_with_status(&url, "Copied SFTP URL to clipboard.");
+                backend.as_mut().set_error_message(
+                    "No file manager accepted the SFTP URL; it has been copied to the clipboard.",
+                );
+            });
+        });
     }
 
     pub fn paste_image_to_workspace(mut self: Pin<&mut Self>, name: &QString) -> QString {

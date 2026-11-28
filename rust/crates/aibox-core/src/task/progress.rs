@@ -1,19 +1,21 @@
 use std::fs::{self, File};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::OnceLock;
 
 use chrono::{Local, NaiveDateTime};
 use regex::Regex;
 
-use crate::history::{record_operation_history, RecordOperationParams};
-use crate::secrets::redact::{redact_secrets, redact_secrets_bytes};
+use crate::history::{record_operation_history, RecordOperationParams, DEFAULT_LOG_TAIL_BYTES};
+use crate::secrets::redact::{redact_secrets, SecretRedactor, StreamingRedactor};
 use crate::task::files::{
     clear_task_files, read_process_start_time, read_task_lock, read_task_meta, task_log_path,
     write_task_result, TaskResult,
 };
 use crate::task::lock::{is_pid_alive, is_task_lock_active, send_signal_group};
-use crate::util::paths::atomic_write;
+
+const MAX_LINE_BUFFER_BYTES: usize = 64 * 1024;
+const STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TaskProgressState {
@@ -23,7 +25,7 @@ pub struct TaskProgressState {
     pub has_exit_code: bool,
     pub last_exit_code: i32,
     pub pending_env_name: String,
-    pub line_buffer: String,
+    pub line_buffer: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -126,21 +128,20 @@ pub fn feed_process_output_streaming(
     chunk: &[u8],
     secret_values: &[String],
 ) -> TaskOutputDelta {
-    let raw = String::from_utf8_lossy(chunk);
+    let redactor = SecretRedactor::new(secret_values);
     let mut line_buf = std::mem::take(&mut state.line_buffer);
-    line_buf.push_str(&raw);
+    line_buf.extend_from_slice(chunk);
 
     let mut progress_changed = false;
     let mut cursor = 0usize;
-    let bytes = line_buf.as_bytes();
-    while let Some(rel_pos) = bytes[cursor..]
+    while let Some(rel_pos) = line_buf[cursor..]
         .iter()
         .position(|&b| b == b'\r' || b == b'\n')
     {
         let end = cursor + rel_pos;
-        let raw_line = &line_buf[cursor..end];
+        let raw_line = String::from_utf8_lossy(&line_buf[cursor..end]);
         cursor = end + 1;
-        let redacted = redact_secrets(raw_line, secret_values);
+        let redacted = redactor.redact_str(&raw_line);
         let clean = strip_csi_ansi(&redacted);
         if process_line(state, &clean) {
             progress_changed = true;
@@ -148,6 +149,15 @@ pub fn feed_process_output_streaming(
     }
     if cursor > 0 {
         line_buf.drain(..cursor);
+    }
+    if line_buf.len() > MAX_LINE_BUFFER_BYTES {
+        let raw_line = String::from_utf8_lossy(&line_buf);
+        let redacted = redactor.redact_str(&raw_line);
+        let clean = strip_csi_ansi(&redacted);
+        if process_line(state, &clean) {
+            progress_changed = true;
+        }
+        line_buf.clear();
     }
     state.line_buffer = line_buf;
     TaskOutputDelta { progress_changed }
@@ -163,20 +173,100 @@ pub fn flush_process_output_streaming(
         };
     }
     let rem = std::mem::take(&mut state.line_buffer);
-    let redacted = redact_secrets(&rem, secret_values);
+    let raw_line = String::from_utf8_lossy(&rem);
+    let redacted = redact_secrets(&raw_line, secret_values);
     let clean = strip_csi_ansi(&redacted);
     let progress_changed = process_line(state, &clean);
     TaskOutputDelta { progress_changed }
 }
 
-fn redact_log_file_in_place(log_path: &Path, raw_log: &[u8], secret_values: &[String]) {
-    if secret_values.is_empty() || raw_log.is_empty() {
+fn append_tail_ring(tail: &mut Vec<u8>, chunk: &[u8], limit: usize) {
+    if limit == 0 || chunk.is_empty() {
         return;
     }
-    let scrubbed = redact_secrets_bytes(raw_log, secret_values);
-    if scrubbed != raw_log {
-        let _ = atomic_write(log_path, &scrubbed);
+    if chunk.len() >= limit {
+        tail.clear();
+        tail.extend_from_slice(&chunk[chunk.len() - limit..]);
+        return;
     }
+    let total = tail.len() + chunk.len();
+    if total > limit {
+        tail.drain(..total - limit);
+    }
+    tail.extend_from_slice(chunk);
+}
+
+fn read_log_tail(log_path: &Path, limit: usize) -> Vec<u8> {
+    let Ok(mut f) = File::open(log_path) else {
+        return Vec::new();
+    };
+    let Ok(meta) = f.metadata() else {
+        return Vec::new();
+    };
+    let len = meta.len();
+    let start = len.saturating_sub(limit as u64);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    if f.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+    buf
+}
+
+fn redact_log_file_streaming_and_read_tail(
+    log_path: &Path,
+    secret_values: &[String],
+    tail_limit: usize,
+) -> Vec<u8> {
+    if secret_values.is_empty() {
+        return read_log_tail(log_path, tail_limit);
+    }
+    let Ok(mut src) = File::open(log_path) else {
+        return Vec::new();
+    };
+
+    let tmp_path = log_path.with_extension("log.redact.tmp");
+    let mut writer = File::create(&tmp_path).ok().map(BufWriter::new);
+    let mut redactor = StreamingRedactor::new(secret_values);
+    let mut tail = Vec::with_capacity(tail_limit);
+    let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
+
+    while let Ok(n) = src.read(&mut buf) {
+        if n == 0 {
+            break;
+        }
+        let out = redactor.feed(&buf[..n]);
+        if !out.is_empty() {
+            append_tail_ring(&mut tail, &out, tail_limit);
+            if let Some(w) = writer.as_mut() {
+                let _ = w.write_all(&out);
+            }
+        }
+    }
+
+    let (rem, modified) = redactor.finish_with_status();
+    if !rem.is_empty() {
+        append_tail_ring(&mut tail, &rem, tail_limit);
+        if let Some(w) = writer.as_mut() {
+            let _ = w.write_all(&rem);
+        }
+    }
+
+    if let Some(mut w) = writer {
+        let _ = w.flush();
+        drop(w);
+        if modified {
+            if fs::rename(&tmp_path, log_path).is_err() {
+                let _ = fs::remove_file(&tmp_path);
+            }
+        } else {
+            let _ = fs::remove_file(&tmp_path);
+        }
+    }
+
+    tail
 }
 
 fn compute_duration_ms(started_at_iso: &str) -> u64 {
@@ -234,8 +324,7 @@ pub fn evaluate_attach_existing_task(
     let still_running = is_task_lock_active(state_dir, false).0;
 
     let log_path = task_log_path(state_dir);
-    let raw_log = fs::read(&log_path).unwrap_or_default();
-    let log_offset = raw_log.len() as i64;
+    let mut log_offset = 0i64;
 
     let mut progress = TaskProgressState {
         task_progress: 5,
@@ -244,10 +333,17 @@ pub fn evaluate_attach_existing_task(
         has_exit_code: false,
         last_exit_code: -1,
         pending_env_name: meta.env_name.clone(),
-        line_buffer: String::new(),
+        line_buffer: Vec::new(),
     };
-    if !raw_log.is_empty() {
-        feed_process_output_streaming(&mut progress, &raw_log, secret_values);
+    if let Ok(mut f) = File::open(&log_path) {
+        let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
+        while let Ok(n) = f.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            log_offset = log_offset.saturating_add(n as i64);
+            feed_process_output_streaming(&mut progress, &buf[..n], secret_values);
+        }
     }
 
     if still_running && !progress.has_exit_code {
@@ -267,7 +363,11 @@ pub fn evaluate_attach_existing_task(
     } else {
         1
     };
-    redact_log_file_in_place(&log_path, &raw_log, secret_values);
+    let log_tail = redact_log_file_streaming_and_read_tail(
+        &log_path,
+        secret_values,
+        DEFAULT_LOG_TAIL_BYTES as usize,
+    );
 
     let target_env = if meta.target_env_name.is_empty() {
         &meta.env_name
@@ -290,7 +390,7 @@ pub fn evaluate_attach_existing_task(
         status,
         exit_code,
         started_at_iso: &meta.started_at,
-        log_bytes: &raw_log,
+        log_bytes: &log_tail,
         secret_values,
         reason: meta.reason.as_deref().unwrap_or(""),
         max_entries: max_history_entries,
@@ -419,8 +519,11 @@ pub fn evaluate_check_background_task(
         task_reason = meta.reason.unwrap_or_default();
     }
 
-    let full_log = fs::read(&log_path).unwrap_or_default();
-    redact_log_file_in_place(&log_path, &full_log, secret_values);
+    let log_tail = redact_log_file_streaming_and_read_tail(
+        &log_path,
+        secret_values,
+        DEFAULT_LOG_TAIL_BYTES as usize,
+    );
 
     let status = if exit_code == 0 { "success" } else { "failed" };
     persist_task_result(
@@ -438,7 +541,7 @@ pub fn evaluate_check_background_task(
         status,
         exit_code,
         started_at_iso: &started_at,
-        log_bytes: &full_log,
+        log_bytes: &log_tail,
         secret_values,
         reason: &task_reason,
         max_entries: max_history_entries,
@@ -512,8 +615,11 @@ pub fn cancel_running_task(
     }
 
     let log_path = task_log_path(state_dir);
-    let full_log = fs::read(&log_path).unwrap_or_default();
-    redact_log_file_in_place(&log_path, &full_log, secret_values);
+    let log_tail = redact_log_file_streaming_and_read_tail(
+        &log_path,
+        secret_values,
+        DEFAULT_LOG_TAIL_BYTES as usize,
+    );
     persist_task_result(state_dir, 130, &started_at, task_stage, "cancelled");
 
     let state_dir_str = state_dir.to_string_lossy();
@@ -524,7 +630,7 @@ pub fn cancel_running_task(
         status: "cancelled",
         exit_code: 130,
         started_at_iso: &started_at,
-        log_bytes: &full_log,
+        log_bytes: &log_tail,
         secret_values,
         reason: &task_reason,
         max_entries: max_history_entries,
@@ -666,7 +772,7 @@ mod tests {
         assert_eq!(tick1.log_offset, 15);
         // Incomplete line stays buffered; stage has not been applied yet.
         assert_eq!(tick1.progress.task_progress, 5);
-        assert_eq!(tick1.progress.line_buffer, "@@STAGE:40:Down");
+        assert_eq!(tick1.progress.line_buffer, b"@@STAGE:40:Down");
 
         // Complete the line and start another mid-line split for @@EXIT
         f.write_all(b"loading image...\n@@STAGE:90:Unpacking\n@@EX")
@@ -677,7 +783,7 @@ mod tests {
         assert!(!tick2.finished);
         assert_eq!(tick2.progress.task_progress, 90);
         assert_eq!(tick2.progress.task_stage, "Unpacking");
-        assert_eq!(tick2.progress.line_buffer, "@@EX");
+        assert_eq!(tick2.progress.line_buffer, b"@@EX");
 
         // Finish @@EXIT without trailing newline and stop the sleeper process
         f.write_all(b"IT:0").expect("write chunk 3");
@@ -713,10 +819,21 @@ mod tests {
         let delta = feed_process_output_streaming(&mut state, &payload, &[]);
         assert!(delta.progress_changed);
         assert_eq!(state.task_log, "line-499");
-        assert_eq!(state.line_buffer, "@@STAGE:77:Finalizing");
+        assert_eq!(state.line_buffer, b"@@STAGE:77:Finalizing");
         flush_process_output_streaming(&mut state, &[]);
         assert_eq!(state.task_progress, 77);
         assert_eq!(state.task_stage, "Finalizing");
         assert!(state.line_buffer.is_empty());
+    }
+
+    #[test]
+    fn streaming_preserves_multibyte_utf8_across_chunk_boundary() {
+        let mut state = TaskProgressState::default();
+        let line = "@@STAGE:50:Preparing — étape\n".as_bytes();
+        let split = line.iter().position(|&b| b > 0x7f).expect("multibyte") + 1;
+        feed_process_output_streaming(&mut state, &line[..split], &[]);
+        feed_process_output_streaming(&mut state, &line[split..], &[]);
+        assert_eq!(state.task_progress, 50);
+        assert_eq!(state.task_stage, "Preparing — étape");
     }
 }

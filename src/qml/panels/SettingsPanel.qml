@@ -49,10 +49,8 @@ ModalDialog {
         appearanceSection.reload()
     }
 
-    // The loader creates this panel only when it is already open, so reload on
-    // completion as well as on later visibility changes.
+    // The loader creates this panel only when it is already open, so reload on completion.
     Component.onCompleted: if (visible) reloadAll()
-    onVisibleChanged: if (visible) reloadAll()
 
     RowLayout {
         Layout.fillWidth: true

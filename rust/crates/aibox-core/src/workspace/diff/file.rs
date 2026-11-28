@@ -75,6 +75,35 @@ pub(crate) fn is_safe_snapshot_name(snapshot_name: &str) -> bool {
         && !snapshot_name.contains('\0')
 }
 
+pub fn has_intermediate_symlink_escape(root_dir: &Path, relative_path: &str) -> bool {
+    let Ok(canon_root) = fs::canonicalize(root_dir) else {
+        return false;
+    };
+    let mut cur = root_dir.to_path_buf();
+    let parts: Vec<&str> = relative_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() <= 1 {
+        return false;
+    }
+    for seg in &parts[..parts.len() - 1] {
+        cur.push(seg);
+        match fs::symlink_metadata(&cur) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    return true;
+                }
+                if let Ok(canon_cur) = fs::canonicalize(&cur) {
+                    if !canon_cur.starts_with(&canon_root) {
+                        return true;
+                    }
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(_) => return true,
+        }
+    }
+    false
+}
+
 pub fn prepare_file_diff(
     name: &str,
     snapshot_name: &str,
@@ -93,11 +122,22 @@ pub fn prepare_file_diff(
     }
 
     let snap_dir = workspace_snapshot_dir(ws_path, name);
-    let snap_file = format!("{snap_dir}/{snapshot_name}/{relative_path}");
-    let ws_file = format!("{}/{relative_path}", clean_path(ws_path));
+    let snap_root = format!("{snap_dir}/{snapshot_name}");
+    let clean_ws = clean_path(ws_path);
+    let snap_file = format!("{snap_root}/{relative_path}");
+    let ws_file = format!("{clean_ws}/{relative_path}");
 
     let check_snap = status != "added";
     let check_ws = status != "deleted";
+
+    if (check_snap && has_intermediate_symlink_escape(Path::new(&snap_root), relative_path))
+        || (check_ws && has_intermediate_symlink_escape(Path::new(&clean_ws), relative_path))
+    {
+        return FileDiffPrep::Immediate {
+            text: String::new(),
+            info: "Invalid file path (symlink escape).".to_string(),
+        };
+    }
 
     let snap_path = Path::new(&snap_file);
     let ws_file_path = Path::new(&ws_file);

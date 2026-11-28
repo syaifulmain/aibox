@@ -47,7 +47,7 @@ use aibox_core::task::runner::{prepare_shell_task, PrepareShellTaskParams};
 use aibox_core::util::shell::shell_quote;
 use aibox_core::util::time::{now_compact_stamp, now_epoch_millis, now_epoch_secs, now_utc_iso};
 
-use crate::qt_backend::{find_executable, launch_command_in_terminal, qobject, spawn_detached};
+use crate::qt_backend::{find_executable, qobject};
 use crate::qt_convert::json_array_to_qvariant_list;
 
 static REMOTE_ENV_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -479,29 +479,17 @@ impl qobject::Backend {
         if !*self.busy() {
             return;
         }
+        self.preflight_generation.fetch_add(1, Ordering::AcqRel);
         self.set_task_watch_active(false);
         let state_dir = self.engine.paths.state_dir.clone();
         let task_stage = self.task_stage().to_string();
         let cleanup_name = self.pending_env_name().to_string();
+        let ws_path = if cleanup_name.is_empty() {
+            String::new()
+        } else {
+            self.workspace_path_for(&cleanup_name)
+        };
         let secret_values = self.engine.secrets.all_secret_values();
-        let hist_json = cancel_running_task(
-            Path::new(&state_dir),
-            &task_stage,
-            &cleanup_name,
-            &secret_values,
-            50,
-        );
-        if !hist_json.is_empty() {
-            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&hist_json) {
-                let q_hist = json_array_to_qvariant_list(&arr);
-                {
-                    let mut rust = self.as_mut().rust_mut();
-                    rust.engine.set_history_cache(arr);
-                    rust.operation_history = q_hist;
-                }
-                self.as_mut().operation_history_changed();
-            }
-        }
 
         {
             let mut rust = self.as_mut().rust_mut();
@@ -513,20 +501,43 @@ impl qobject::Backend {
         self.as_mut().rebuild_os_catalog();
         self.as_mut().set_busy(false, "Operation cancelled.");
 
-        if !cleanup_name.is_empty() {
-            let ws_path = self.workspace_path_for(&cleanup_name);
-            let cmd = format!(
-                "incus delete {} --force >/dev/null 2>&1 || true; rmdir {} 2>/dev/null || true",
-                shell_quote(&cleanup_name),
-                shell_quote(&ws_path)
+        let qt_thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let hist_json = cancel_running_task(
+                Path::new(&state_dir),
+                &task_stage,
+                &cleanup_name,
+                &secret_values,
+                50,
             );
-            let _ = spawn_detached("/bin/bash", &["-c", &cmd], None);
-        }
-
-        self.as_mut()
-            .schedule_refresh(Duration::from_millis(800), true);
-        self.as_mut()
-            .schedule_status_clear(Duration::from_millis(3000));
+            if !cleanup_name.is_empty() {
+                let cmd = format!(
+                    "incus delete {} --force >/dev/null 2>&1 || true; rmdir {} 2>/dev/null || true",
+                    shell_quote(&cleanup_name),
+                    shell_quote(&ws_path)
+                );
+                let _ = spawn_detached("/bin/bash", &["-c", &cmd], None);
+            }
+            let _ = qt_thread.queue(move |mut backend| {
+                if !hist_json.is_empty() {
+                    if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&hist_json) {
+                        let q_hist = json_array_to_qvariant_list(&arr);
+                        {
+                            let mut rust = backend.as_mut().rust_mut();
+                            rust.engine.set_history_cache(arr);
+                            rust.operation_history = q_hist;
+                        }
+                        backend.as_mut().operation_history_changed();
+                    }
+                }
+                backend
+                    .as_mut()
+                    .schedule_refresh(Duration::from_millis(800), true);
+                backend
+                    .as_mut()
+                    .schedule_status_clear(Duration::from_millis(3000));
+            });
+        });
     }
 
     pub fn enter_environment(mut self: Pin<&mut Self>, name: &QString) {
@@ -1146,5 +1157,72 @@ impl qobject::Backend {
             self.as_mut()
                 .run_shell_task_with_reason(&desc, &script, "", &idle_stop_target, "idle");
         }
+    }
+}
+
+fn detached_reaper_tx() -> &'static std::sync::mpsc::Sender<std::process::Child> {
+    static REAPER: std::sync::OnceLock<std::sync::mpsc::Sender<std::process::Child>> =
+        std::sync::OnceLock::new();
+    REAPER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<std::process::Child>();
+        std::thread::spawn(move || {
+            let mut active: Vec<std::process::Child> = Vec::new();
+            loop {
+                if active.is_empty() {
+                    let Ok(child) = rx.recv() else {
+                        break;
+                    };
+                    active.push(child);
+                } else {
+                    match rx.recv_timeout(std::time::Duration::from_millis(250)) {
+                        Ok(child) => active.push(child),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                }
+                while let Ok(child) = rx.try_recv() {
+                    active.push(child);
+                }
+                active.retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_)) | Err(_)));
+            }
+        });
+        tx
+    })
+}
+
+pub(crate) fn spawn_detached(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&str>,
+) -> Result<u32, String> {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        if !dir.is_empty() {
+            cmd.current_dir(dir);
+        }
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // SAFETY: `setsid()` is async-signal-safe and detaches the child into its own session.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().map_err(|e| e.to_string())?;
+    let pid = child.id();
+    let _ = detached_reaper_tx().send(child);
+    Ok(pid)
+}
+
+pub(crate) fn launch_command_in_terminal(shell_cmd: &str) {
+    if find_executable("xdg-terminal-exec").is_some() {
+        let _ = spawn_detached("xdg-terminal-exec", &["sh", "-c", shell_cmd], None);
+    } else if find_executable("foot").is_some() {
+        let _ = spawn_detached("foot", &["sh", "-c", shell_cmd], None);
     }
 }

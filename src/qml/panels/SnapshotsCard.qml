@@ -10,6 +10,10 @@ Card {
     property var env: backend.selectedEnvironment
     readonly property string snapshotNameText: snapNameInput.text
 
+    function clearSnapshotName() {
+        snapNameInput.text = ""
+    }
+
     Layout.fillHeight: true
     Layout.minimumHeight: 150
     title: qsTr("Btrfs Snapshots")

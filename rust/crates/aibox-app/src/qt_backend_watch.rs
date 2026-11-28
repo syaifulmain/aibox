@@ -254,11 +254,19 @@ impl qobject::Backend {
                     has_running_poll.load(Ordering::Relaxed),
                     monitor_active_poll.load(Ordering::Relaxed),
                 );
-                if let Ok(guard) = lock.lock() {
-                    let _ = cv.wait_timeout(guard, interval);
-                }
+                let timed_out = if let Ok(guard) = lock.lock() {
+                    cv.wait_timeout(guard, interval)
+                        .map(|(_, r)| r.timed_out())
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
                 if stop_poll.load(Ordering::Relaxed) {
                     return;
+                }
+                if !timed_out {
+                    // Woken early (e.g. window focus); recompute interval without queueing a duplicate refresh.
+                    continue;
                 }
                 let _ = qt_thread_poll.queue(|mut backend| {
                     if !backend.busy {
@@ -284,7 +292,7 @@ impl qobject::Backend {
                     .stderr(Stdio::null())
                     .spawn();
 
-                let Ok(mut child) = child_res else {
+                let Ok(child) = child_res else {
                     monitor_active_mon.store(false, Ordering::Relaxed);
                     for _ in 0..25 {
                         if stop_mon.load(Ordering::Relaxed) {
@@ -295,20 +303,25 @@ impl qobject::Backend {
                     continue;
                 };
 
-                let stdout = child.stdout.take();
+                let mut child_opt = Some(child);
+                let stdout = child_opt.as_mut().and_then(|c| c.stdout.take());
                 let stopped_before_store = {
-                    let mut guard = monitor_child_slot.lock();
+                    let guard = monitor_child_slot.lock();
                     if stop_mon.load(Ordering::Acquire) {
                         true
-                    } else if let Ok(ref mut g) = guard {
-                        **g = Some(child);
+                    } else if let Ok(mut g) = guard {
+                        *g = child_opt.take();
                         false
                     } else {
                         true
                     }
                 };
                 if stopped_before_store {
-                    // If `stop_flag` raced before storing `child`, ensure we never leak it.
+                    // Kill and reap directly if `stop_flag` raced before storing `child` in the slot.
+                    if let Some(mut c) = child_opt.take() {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
                     if let Ok(mut guard) = monitor_child_slot.lock() {
                         if let Some(mut c) = guard.take() {
                             let _ = c.kill();
@@ -438,6 +451,8 @@ impl qobject::Backend {
 
                 if active {
                     if fs_rx.recv_timeout(Duration::from_millis(500)).is_ok() {
+                        // Coalesce rapid task.log write bursts into ~80ms UI updates.
+                        std::thread::sleep(Duration::from_millis(80));
                         while fs_rx.try_recv().is_ok() {}
                     }
                     let still_running = watch_state

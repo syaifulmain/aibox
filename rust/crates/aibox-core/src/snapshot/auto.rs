@@ -154,7 +154,8 @@ pub fn auto_snapshots_to_prune_tiered(
         let date = dt.date_naive();
         let age_days = (today - date).num_days();
         if age_days < 0 {
-            // Future-dated snapshots are kept in recent/daily if within bounds.
+            // Future-dated snapshots are kept so clock skew never triggers deletion.
+            kept.insert(name.clone());
             continue;
         }
         let mut keep_this = false;

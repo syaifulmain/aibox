@@ -1,3 +1,5 @@
+use std::fs::OpenOptions;
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
 use chrono::Local;
@@ -6,6 +8,40 @@ use crate::task::files::{
     clear_task_files, read_process_start_time, read_task_lock, write_task_lock, write_task_meta,
     TaskMeta,
 };
+
+struct FlockGuard(std::fs::File);
+
+impl FlockGuard {
+    fn lock_exclusive(path: &Path) -> Option<Self> {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(path)
+            .ok()?;
+        let fd = file.as_raw_fd();
+        loop {
+            let rc = unsafe { libc::flock(fd, libc::LOCK_EX) };
+            if rc == 0 {
+                return Some(Self(file));
+            }
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                return None;
+            }
+        }
+    }
+}
+
+impl Drop for FlockGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.0.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
 
 pub fn is_pid_alive(pid: i64) -> bool {
     if pid <= 0 {
@@ -54,6 +90,7 @@ pub fn acquire_cli_task_lock(
     description: &str,
     env_name: &str,
 ) -> bool {
+    let _guard = FlockGuard::lock_exclusive(&state_dir.join("task.flock"));
     if is_task_lock_active(state_dir, busy).0 {
         return false;
     }

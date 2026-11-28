@@ -521,5 +521,6 @@
   "DNS setup command": "DNS-opsætningskommando",
   "LAN": "LAN",
   "Expose on LAN (0.0.0.0)": "Eksponér på LAN (0.0.0.0)",
-  "I understand devices on my local network can reach this port": "Jeg forstår, at enheder på mit lokale netværk kan nå denne port"
+  "I understand devices on my local network can reach this port": "Jeg forstår, at enheder på mit lokale netværk kan nå denne port",
+  "Select previous or next environment": "Vælg forrige eller næste miljø"
 }

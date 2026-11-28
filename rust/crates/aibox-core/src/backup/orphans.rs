@@ -53,6 +53,15 @@ pub fn detect_orphans(
     workspace_base: &str,
     backups_dir: &str,
 ) -> Vec<Value> {
+    detect_orphans_with_options(environments, workspace_base, backups_dir, true)
+}
+
+fn detect_orphans_with_options(
+    environments: &[Value],
+    workspace_base: &str,
+    backups_dir: &str,
+    compute_sizes: bool,
+) -> Vec<Value> {
     let mut known_env_names = BTreeSet::new();
     let mut known_workspace_paths = BTreeSet::new();
     let home = home_dir();
@@ -91,7 +100,11 @@ pub fn detect_orphans(
                 && !known_env_names.contains(env_candidate)
                 && !known_workspace_paths.contains(&abs_path)
             {
-                let bytes = directory_size_bytes(&abs_path);
+                let bytes = if compute_sizes {
+                    directory_size_bytes(&abs_path)
+                } else {
+                    0
+                };
                 orphans.push(json!({
                     "kind": "workspace",
                     "kindLabel": "Orphan workspace",
@@ -110,7 +123,11 @@ pub fn detect_orphans(
                 if known_env_names.contains(&env_name) {
                     continue;
                 }
-                let bytes = directory_size_bytes(&abs_path);
+                let bytes = if compute_sizes {
+                    directory_size_bytes(&abs_path)
+                } else {
+                    0
+                };
                 orphans.push(json!({
                     "kind": "workspace-snapshot",
                     "kindLabel": "Orphan ws snapshots",
@@ -302,7 +319,7 @@ pub fn delete_orphan_script(kind: &str, target_path: &str) -> String {
              fi\n\
              if [ -e {q_target} ]; then\n    \
              echo 'Could not completely remove orphan workspace snapshots (root-owned files or Btrfs subvolumes).' >&2\n    \
-             echo \"Fix (admin): sudo rm -rf {q_target}\" >&2\n    \
+             printf 'Fix (admin): sudo rm -rf %s\\n' {q_target} >&2\n    \
              exit 1\n\
              fi\n\
              echo '@@STAGE:100:Orphan workspace snapshots removed.'"
@@ -320,7 +337,7 @@ pub fn delete_orphan_script(kind: &str, target_path: &str) -> String {
          fi\n\
          if [ -e {q_target} ]; then\n    \
          echo 'Could not completely remove orphan workspace folder (root-owned files or Btrfs subvolumes).' >&2\n    \
-         echo \"Fix (admin): sudo rm -rf {q_target}\" >&2\n    \
+         printf 'Fix (admin): sudo rm -rf %s\\n' {q_target} >&2\n    \
          exit 1\n\
          fi\n\
          echo '@@STAGE:100:Orphan workspace removed.'"
@@ -530,9 +547,9 @@ pub fn execute_orphan_cleanup(
         return Err("Orphan cleanup requires a non-empty explicit confirmation list.".to_string());
     }
 
-    // Re-scan live orphans so any newly-active environment is protected.
+    // Re-scan live orphans without recursive directory size walks so active envs stay protected.
     let current_orphans: BTreeSet<String> =
-        detect_orphans(environments, workspace_base, backups_dir)
+        detect_orphans_with_options(environments, workspace_base, backups_dir, false)
             .into_iter()
             .filter_map(|v| {
                 v.get("path")

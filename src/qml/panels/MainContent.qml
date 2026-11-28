@@ -11,6 +11,10 @@ Item {
     Layout.fillHeight: true
     readonly property string snapshotNameText: environmentInspector.snapshotNameText
 
+    function clearSnapshotName() {
+        environmentInspector.clearSnapshotName()
+    }
+
     // --------------------------------------------------------------
     // TAB 0: ENVIRONMENTS (MASTER-DETAIL VIEW)
     // --------------------------------------------------------------

@@ -26,10 +26,8 @@ ModalDialog {
     size: "md"
     onDismissed: app.editQuotasVisible = false
 
-    // The loader creates this dialog only when it is already open, so a
-    // visibleChanged handler never runs. Load the saved values on completion.
+    // The loader creates this dialog only when it is already open, so load on completion.
     Component.onCompleted: if (open) loadValues()
-    onOpenChanged: if (open) loadValues()
 
     function unitOptions(base, current) {
         return base.indexOf(current) >= 0 ? base : [current].concat(base)

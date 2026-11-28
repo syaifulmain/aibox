@@ -1,5 +1,5 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::fs::{self, OpenOptions};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use chrono::{Local, Utc};
 use serde_json::Value;
@@ -31,7 +31,7 @@ use crate::services::system_diff::{
 };
 use crate::session::{
     prepare_recorded_session_paths, prune_recorded_sessions, redact_session_log_file,
-    sessions_dir_path,
+    sessions_dir_path, DEFAULT_PRUNE_MAX_PER_ENV, DEFAULT_PRUNE_MAX_TOTAL_BYTES,
 };
 use crate::snapshot::auto::decide_auto_snapshot;
 use crate::snapshot::workspace::container_workspace_path_for;
@@ -367,6 +367,18 @@ pub fn run_enter(
         if let Some((log_file, timing_file)) =
             prepare_recorded_session_paths(&engine.paths.state_dir, &parsed.env_name)
         {
+            for path in [&log_file, &timing_file] {
+                if OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(false)
+                    .mode(0o600)
+                    .open(path)
+                    .is_ok()
+                {
+                    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+                }
+            }
             let mut quoted_cmd = String::from("incus");
             for arg in &exec_args {
                 let q = arg.replace('\'', "'\\''");
@@ -387,8 +399,8 @@ pub fn run_enter(
             let _ = fs::set_permissions(&log_file, fs::Permissions::from_mode(0o600));
             prune_recorded_sessions(
                 &sessions_dir_path(&engine.paths.state_dir),
-                20,
-                50 * 1024 * 1024,
+                DEFAULT_PRUNE_MAX_PER_ENV,
+                DEFAULT_PRUNE_MAX_TOTAL_BYTES,
             );
             return exit_code;
         }

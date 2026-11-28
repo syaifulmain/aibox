@@ -62,6 +62,10 @@ impl qobject::Backend {
 
         self.as_mut()
             .set_busy(true, "Resolving network allowlist...");
+        let preflight_gen = self
+            .preflight_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            .wrapping_add(1);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let res = prepare_set_network_mode(
@@ -72,6 +76,14 @@ impl qobject::Backend {
                 &SystemResolver,
             );
             let _ = qt_thread.queue(move |mut backend| {
+                if backend
+                    .preflight_generation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != preflight_gen
+                    || !*backend.busy()
+                {
+                    return;
+                }
                 backend.as_mut().set_busy(false, "");
                 match res {
                     Ok(plan) => {
@@ -134,6 +146,10 @@ impl qobject::Backend {
 
         self.as_mut()
             .set_busy(true, "Resolving network allowlist...");
+        let preflight_gen = self
+            .preflight_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            .wrapping_add(1);
         let qt_thread = self.qt_thread();
         std::thread::spawn(move || {
             let res = prepare_set_egress_recording(
@@ -144,6 +160,14 @@ impl qobject::Backend {
                 &SystemResolver,
             );
             let _ = qt_thread.queue(move |mut backend| {
+                if backend
+                    .preflight_generation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    != preflight_gen
+                    || !*backend.busy()
+                {
+                    return;
+                }
                 backend.as_mut().set_busy(false, "");
                 match res {
                     Ok(plan) => {

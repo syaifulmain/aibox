@@ -116,6 +116,12 @@ impl CommandRunner for SystemRunner {
                         }
                         let _ = waiter.join();
                         let _ = child.wait();
+                        if let Some(h) = stdout_handle {
+                            let _ = h.join();
+                        }
+                        if let Some(h) = stderr_handle {
+                            let _ = h.join();
+                        }
                         return CommandOutput {
                             exit_code: 124,
                             std_out: String::new(),

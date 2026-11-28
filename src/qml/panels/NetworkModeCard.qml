@@ -175,11 +175,12 @@ Card {
         FlatInput {
             id: allowlistInput
             Layout.fillWidth: true
+            disabled: backend.busy || root.template
             text: app.netAllowlistDraft
             onTextChanged: app.netAllowlistDraft = text
             placeholder: qsTr("Allowed domains or CIDRs (e.g. github.com, 1.1.1.1)")
             onAccepted: {
-                if (!backend.busy)
+                if (!backend.busy && !root.template && app.netAllowlistDraft.trim().length > 0)
                     backend.setNetworkMode(root.env.name || "", "allowlist", app.netAllowlistDraft)
             }
         }

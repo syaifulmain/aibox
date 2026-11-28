@@ -40,7 +40,6 @@ Item {
         }
 
         Component.onCompleted: if (visible) syncFields()
-        onVisibleChanged: if (visible) syncFields()
 
         RowLayout {
             Layout.fillWidth: true

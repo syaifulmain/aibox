@@ -103,6 +103,7 @@ For headless scripting and terminal workflows, use `aibox [--project <dir>] <com
 | Key | Action |
 | :--- | :--- |
 | `Space` / `Enter` | Enter selected OS terminal in `/home/workspace` |
+| `↑` / `↓` | Select previous or next environment |
 | `N` | Create a new isolated OS environment |
 | `F` | Open shared workspace folder on Host |
 | `S` | Start or stop selected environment (stop asks for confirmation) |

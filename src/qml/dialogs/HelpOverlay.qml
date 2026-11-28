@@ -33,6 +33,7 @@ ModalDialog {
             Repeater {
         model: [
             { k: "Space / Enter", d: qsTr("Enter selected OS terminal in %1").arg(backend.containerWorkspacePath) },
+            { k: "↑ / ↓", d: qsTr("Select previous or next environment") },
             { k: "N", d: qsTr("Create a new isolated OS environment") },
             { k: "F", d: qsTr("Open shared workspace folder on Host") },
             { k: "S", d: qsTr("Start or stop selected environment (stop asks for confirmation)") },

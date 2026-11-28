@@ -155,7 +155,7 @@ Rectangle {
                                 return
                             if (modelData.isTemplate) {
                                 if (listRoot.app)
-                                    listRoot.app.openCreateDialog(modelData.name)
+                                    listRoot.app.openCreateDialog("", modelData.name)
                             } else {
                                 backend.enterEnvironment(modelData.name)
                             }
@@ -254,7 +254,8 @@ Rectangle {
 
             MouseArea {
                 anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
+                enabled: !backend.busy && !backend.firstRun
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: app.openPoolSettings()
             }
         }

@@ -160,5 +160,6 @@
   "DNS setup command": "DNS setup command",
   "LAN": "LAN",
   "Expose on LAN (0.0.0.0)": "Expose on LAN (0.0.0.0)",
-  "I understand devices on my local network can reach this port": "I understand devices on my local network can reach this port"
+  "I understand devices on my local network can reach this port": "I understand devices on my local network can reach this port",
+  "Select previous or next environment": "Select previous or next environment"
 }
