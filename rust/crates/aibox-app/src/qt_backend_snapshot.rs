@@ -29,7 +29,7 @@ impl qobject::Backend {
         let val = if enabled { "true" } else { "false" };
         let script = format!(
             "set -euo pipefail\necho '@@STAGE:50:Updating auto-snapshot setting...'\n\
-             incus config set {} user.aibox.autosnap {}\n\
+             incus config set {} user.aibox.autosnap={}\n\
              echo '@@STAGE:100:Auto-snapshot updated.'",
             shell_quote(&name_s),
             val
@@ -54,7 +54,7 @@ impl qobject::Backend {
         let val = if enabled { "true" } else { "false" };
         let script = format!(
             "set -euo pipefail\necho '@@STAGE:50:Updating workspace snapshot setting...'\n\
-             incus config set {} user.aibox.wssnap {}\n\
+             incus config set {} user.aibox.wssnap={}\n\
              echo '@@STAGE:100:Workspace snapshot setting updated.'",
             shell_quote(&name_s),
             val

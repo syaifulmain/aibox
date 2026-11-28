@@ -275,15 +275,15 @@ pub fn set_extra_devices_script(
     let mut lines = vec![
         "set -euo pipefail".to_string(),
         format!(
-            "incus config set {q_name} user.aibox.camera {}",
+            "incus config set {q_name} user.aibox.camera={}",
             shell_quote(ExtraDeviceToggles::config_value(toggles.camera))
         ),
         format!(
-            "incus config set {q_name} user.aibox.usb {}",
+            "incus config set {q_name} user.aibox.usb={}",
             shell_quote(ExtraDeviceToggles::config_value(toggles.usb))
         ),
         format!(
-            "incus config set {q_name} user.aibox.printer {}",
+            "incus config set {q_name} user.aibox.printer={}",
             shell_quote(ExtraDeviceToggles::config_value(toggles.printer))
         ),
     ];
@@ -548,9 +548,9 @@ mod tests {
             &ExtraDeviceToggles::from_envs(false, false, false),
             &host_ready(),
         );
-        assert!(off.contains("incus config set 'box' user.aibox.camera 'off'"));
-        assert!(off.contains("incus config set 'box' user.aibox.usb 'off'"));
-        assert!(off.contains("incus config set 'box' user.aibox.printer 'off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.camera='off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.usb='off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.printer='off'"));
         assert!(off.contains("config device show"));
         assert!(!off.contains("STATUS="));
         assert!(!off.contains("config device add"));
@@ -563,9 +563,9 @@ mod tests {
             &ExtraDeviceToggles::from_envs(true, false, true),
             &host_ready(),
         );
-        assert!(on.contains("user.aibox.camera 'on'"));
-        assert!(on.contains("user.aibox.usb 'off'"));
-        assert!(on.contains("user.aibox.printer 'on'"));
+        assert!(on.contains("user.aibox.camera='on'"));
+        assert!(on.contains("user.aibox.usb='off'"));
+        assert!(on.contains("user.aibox.printer='on'"));
         let guard_at = on
             .find("if [[ \"$STATUS\" == \"RUNNING\" ]]; then")
             .expect("running guard");

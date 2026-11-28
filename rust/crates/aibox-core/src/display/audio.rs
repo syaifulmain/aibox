@@ -303,7 +303,7 @@ pub fn set_audio_mode_script(name: &str, mode: AudioMode, host: &HostAudio) -> S
     let mut lines = vec![
         "set -euo pipefail".to_string(),
         format!(
-            "incus config set {q_name} user.aibox.audio {}",
+            "incus config set {q_name} user.aibox.audio={}",
             shell_quote(mode.config_value())
         ),
     ];
@@ -611,7 +611,7 @@ mod tests {
     fn set_mode_script_applies_only_while_running_and_off_always_removes() {
         let host = host_ready();
         let output = set_audio_mode_script("box", AudioMode::Output, &host);
-        assert!(output.contains("incus config set 'box' user.aibox.audio 'output'"));
+        assert!(output.contains("incus config set 'box' user.aibox.audio='output'"));
         assert!(output.contains("incus config device remove 'box' 'pipewire'"));
         assert!(output.contains("STATUS=$(incus info 'box' | awk '/^Status:/ {print $2}')"));
         let guard_at = output
@@ -627,7 +627,7 @@ mod tests {
         assert!(guard_at < add_at);
 
         let off = set_audio_mode_script("box", AudioMode::Off, &host);
-        assert!(off.contains("incus config set 'box' user.aibox.audio 'off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.audio='off'"));
         assert!(off.contains("incus config device remove 'box' 'pulse'"));
         assert!(!off.contains("STATUS="));
     }

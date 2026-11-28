@@ -74,21 +74,21 @@ pub fn clone_environment_script_with_source(
     let mut quota_lines = String::new();
     if cpu_cores > 0 {
         quota_lines.push_str(&format!(
-            "incus config set {q_new} limits.cpu {}\n",
+            "incus config set {q_new} limits.cpu={}\n",
             shell_quote(&cpu_cores.to_string())
         ));
     }
     let trimmed_ram = ram_gib.trim();
     if !trimmed_ram.is_empty() {
         quota_lines.push_str(&format!(
-            "incus config set {q_new} limits.memory {}\n",
+            "incus config set {q_new} limits.memory={}\n",
             shell_quote(trimmed_ram)
         ));
     }
     let clean_proc = process_limit.trim();
     if !is_vm && !clean_proc.is_empty() && !clean_proc.eq_ignore_ascii_case("unlimited") {
         quota_lines.push_str(&format!(
-            "incus config set {q_new} limits.processes {}\n",
+            "incus config set {q_new} limits.processes={}\n",
             shell_quote(clean_proc)
         ));
     }
@@ -98,7 +98,7 @@ pub fn clone_environment_script_with_source(
             quota_lines.push_str(&format!("incus config unset {q_new} limits.memory.swap\n"));
         } else if let Some(swap_value) = swap_config_value(clean_swap) {
             quota_lines.push_str(&format!(
-                "incus config set {q_new} limits.memory.swap {}\n",
+                "incus config set {q_new} limits.memory.swap={}\n",
                 shell_quote(&swap_value)
             ));
         }
@@ -310,8 +310,8 @@ mod tests {
         assert!(log.contains(&format!(
             "config device add cloned-box workspace disk source={workspace_str} path=/home/workspace shift=true"
         )));
-        assert!(log.contains("config set cloned-box limits.cpu 4"));
-        assert!(log.contains("config set cloned-box limits.memory 8GiB"));
+        assert!(log.contains("config set cloned-box limits.cpu=4"));
+        assert!(log.contains("config set cloned-box limits.memory=8GiB"));
         assert!(workspace.is_dir());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -334,9 +334,9 @@ mod tests {
             "Off",
             false,
         );
-        assert!(clone_script.contains("limits.processes '1024'"));
+        assert!(clone_script.contains("limits.processes='1024'"));
         assert!(clone_script.contains("limits.read='100MB' limits.write='100MB'"));
-        assert!(clone_script.contains("limits.memory.swap 'false'"));
+        assert!(clone_script.contains("limits.memory.swap='false'"));
     }
 
     #[test]

@@ -52,7 +52,7 @@ fn build_prepare_script_inner(
         format!("{desktop}\n")
     };
     format!(
-        "\n{legacy_xhost}{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n    incus start {q_name}\n    sleep 1\nfi\n{desktop_line}incus config set {q_name} user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n"
+        "\n{legacy_xhost}{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n    incus start {q_name}\n    sleep 1\nfi\n{desktop_line}incus config set {q_name} user.aibox.lastused=\"$(date +%s)\" >/dev/null 2>&1 || true\n"
     )
 }
 
@@ -86,7 +86,7 @@ pub fn start_environment_script_with_desktop(
     };
     script.push_str(&format!(
         "echo '@@STAGE:55:Starting container...'\n{migrate}\nincus start {q_name} && sleep 1\n{desktop_line}\
-         incus config set {q_name} user.aibox.lastused \"$(date +%s)\" >/dev/null 2>&1 || true\n\
+         incus config set {q_name} user.aibox.lastused=\"$(date +%s)\" >/dev/null 2>&1 || true\n\
          echo '@@STAGE:100:Started.'"
     ));
     script
@@ -413,7 +413,7 @@ pub fn set_environment_template_script(
             script.push_str(&format!("incus stop {q_name}\n"));
         }
         script.push_str(&format!(
-            "incus config set {q_name} user.aibox.template true\necho '@@STAGE:100:Marked as template.'"
+            "incus config set {q_name} user.aibox.template=true\necho '@@STAGE:100:Marked as template.'"
         ));
         TemplateTaskPlan {
             title: format!("Marking '{name}' as template"),

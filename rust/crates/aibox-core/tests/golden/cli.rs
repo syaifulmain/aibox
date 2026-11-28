@@ -189,7 +189,7 @@ exit 0
             }
 
             let auto_re = regex::Regex::new(r"auto-\d{8}-\d{6}").unwrap();
-            let last_used_re = regex::Regex::new(r"user\.aibox\.lastused \d+").unwrap();
+            let last_used_re = regex::Regex::new(r"user\.aibox\.lastused=\d+").unwrap();
             let stdout_str = auto_re
                 .replace_all(&String::from_utf8_lossy(&io.stdout), "auto-<TS>")
                 .replace(work_dir, "/tmp/aibox-golden-cli");
@@ -203,7 +203,7 @@ exit 0
                 )
                 .replace(work_dir, "/tmp/aibox-golden-cli");
             let log_str = last_used_re
-                .replace_all(&log_raw, "user.aibox.lastused <EPOCH>")
+                .replace_all(&log_raw, "user.aibox.lastused=<EPOCH>")
                 .to_string();
 
             let _ = fs::remove_dir_all(work_dir);

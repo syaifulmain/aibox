@@ -117,7 +117,7 @@ impl qobject::Backend {
         } else {
             format!(
                 "set -euo pipefail\necho '@@STAGE:50:Updating session recording setting...'\n\
-                 incus config set {q_name} user.aibox.record {val}\n\
+                 incus config set {q_name} user.aibox.record={val}\n\
                  echo '@@STAGE:100:Session recording updated.'"
             )
         };

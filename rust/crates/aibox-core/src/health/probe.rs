@@ -107,7 +107,7 @@ pub fn set_healthcheck_script(env_name: &str, target: &str, auto_restart: bool) 
         let q_target = shell_quote(target.trim());
         let restart_val = if auto_restart { "true" } else { "false" };
         format!(
-            "incus config set {q_name} user.aibox.healthcheck {q_target} user.aibox.healthcheck_restart {restart_val}"
+            "incus config set {q_name} user.aibox.healthcheck={q_target} user.aibox.healthcheck_restart={restart_val}"
         )
     }
 }
@@ -163,8 +163,8 @@ mod tests {
         assert!(ipv6.contains("'::1' '8080'"));
 
         let set = set_healthcheck_script("web", "127.0.0.1:8080", true);
-        assert!(set.contains("user.aibox.healthcheck '127.0.0.1:8080'"));
-        assert!(set.contains("user.aibox.healthcheck_restart true"));
+        assert!(set.contains("user.aibox.healthcheck='127.0.0.1:8080'"));
+        assert!(set.contains("user.aibox.healthcheck_restart=true"));
 
         let unset = set_healthcheck_script("web", "", false);
         assert!(unset.contains("incus config unset 'web' user.aibox.healthcheck"));

@@ -223,7 +223,7 @@ pub fn set_environment_auto_stop_script(name: &str, enabled: bool) -> String {
     let val = if enabled { "true" } else { "false" };
     format!(
         "echo '@@STAGE:50:Updating watchdog auto-stop policy...'; \
-         incus config set {q_name} user.aibox.autostop {val}; \
+         incus config set {q_name} user.aibox.autostop={val}; \
          echo '@@STAGE:100:Updated.'"
     )
 }
@@ -249,7 +249,7 @@ pub fn set_environment_idle_stop_script(
     };
     format!(
         "echo '@@STAGE:50:Updating idle auto-stop policy...'; \
-         incus config set {q_name} user.aibox.idlestop {q_stored} user.aibox.idlestop_ports {ports_flag}; \
+         incus config set {q_name} user.aibox.idlestop={q_stored} user.aibox.idlestop_ports={ports_flag}; \
          echo '@@STAGE:100:Updated.'"
     )
 }

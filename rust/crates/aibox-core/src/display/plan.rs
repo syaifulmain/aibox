@@ -435,7 +435,7 @@ pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession
     let mut lines = vec![
         "set -euo pipefail".to_string(),
         format!(
-            "incus config set {q_name} user.aibox.desktop {}",
+            "incus config set {q_name} user.aibox.desktop={}",
             shell_quote(mode.config_value())
         ),
     ];
@@ -692,7 +692,7 @@ mod tests {
     #[test]
     fn set_mode_script_applies_devices_only_while_running() {
         let on = set_desktop_mode_script("box", DesktopMode::On, &host_with_both());
-        assert!(on.contains("incus config set 'box' user.aibox.desktop 'on'"));
+        assert!(on.contains("incus config set 'box' user.aibox.desktop='on'"));
         assert!(on.contains("STATUS=$(incus info 'box' | awk '/^Status:/ {print $2}')"));
         let guard_at = on
             .find("if [[ \"$STATUS\" == \"RUNNING\" ]]; then")
@@ -704,7 +704,7 @@ mod tests {
         assert!(on.contains("incus config device add 'box' 'x11' 'proxy'"));
 
         let off = set_desktop_mode_script("box", DesktopMode::Off, &host_with_both());
-        assert!(off.contains("incus config set 'box' user.aibox.desktop 'off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.desktop='off'"));
         assert!(off.contains("incus config device remove 'box' 'wayland'"));
         assert!(off.contains("incus config device remove 'box' 'x11'"));
         assert!(off.contains("incus config device remove 'box' 'fonts-system'"));

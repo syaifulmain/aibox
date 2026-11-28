@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn desktop_create_script_uses_the_proxy_bridge_not_legacy_xhost() {
-        let desktop = "incus config set 'box' user.aibox.desktop 'on'\nincus config device add 'box' 'x11' 'proxy' connect='unix:/tmp/.X11-unix/X0' listen='unix:/tmp/.X11-unix/X0' bind='container'";
+        let desktop = "incus config set 'box' user.aibox.desktop='on'\nincus config device add 'box' 'x11' 'proxy' connect='unix:/tmp/.X11-unix/X0' listen='unix:/tmp/.X11-unix/X0' bind='container'";
         let script = create_environment_script_with_desktop(
             "box",
             "aibox-archlinux",
@@ -646,7 +646,7 @@ mod tests {
             false,
             desktop,
         );
-        assert!(script.contains("user.aibox.desktop 'on'"));
+        assert!(script.contains("user.aibox.desktop='on'"));
         assert!(script.contains("'x11' 'proxy'"));
         assert!(script.contains("connect='unix:/tmp/.X11-unix/X0'"));
         assert!(!script.contains("xhost +local:"));
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn session_create_script_carries_display_and_audio_setup() {
-        let session = "incus config set 'box' user.aibox.desktop 'on'\nincus config set 'box' user.aibox.audio 'output'\nincus config device add 'box' 'pulse' 'proxy'";
+        let session = "incus config set 'box' user.aibox.desktop='on'\nincus config set 'box' user.aibox.audio='output'\nincus config device add 'box' 'pulse' 'proxy'";
         let script = create_environment_script_with_session(
             "box",
             "aibox-archlinux",
@@ -677,8 +677,8 @@ mod tests {
             false,
             session,
         );
-        assert!(script.contains("user.aibox.desktop 'on'"));
-        assert!(script.contains("user.aibox.audio 'output'"));
+        assert!(script.contains("user.aibox.desktop='on'"));
+        assert!(script.contains("user.aibox.audio='output'"));
         assert!(script.contains("'pulse' 'proxy'"));
         assert!(script.contains("mkdir -p ") && script.contains("/home/workspace/download"));
         assert!(script.contains("user-dirs.dirs"));

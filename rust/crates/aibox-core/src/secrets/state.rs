@@ -695,7 +695,7 @@ pub fn build_clear_global_secret_script(updates: &[(String, Vec<String>)]) -> St
         } else {
             let csv = names.join(",");
             script.push_str(&format!(
-                "incus config set {q_env} user.aibox.secrets {}\n",
+                "incus config set {q_env} user.aibox.secrets={}\n",
                 shell_quote(&csv)
             ));
         }
@@ -719,7 +719,7 @@ pub fn build_set_environment_secrets_script(env_name: &str, clean_names: &[Strin
         format!(
             "set -euo pipefail\n\
              echo '@@STAGE:50:Updating environment secret bindings...'\n\
-             incus config set {q_name} user.aibox.secrets {}\n\
+             incus config set {q_name} user.aibox.secrets={}\n\
              echo '@@STAGE:100:Secrets updated.'",
             shell_quote(&csv)
         )

@@ -314,7 +314,7 @@ pub fn import_environment_script_with_options(
          echo {q_stage_import}\n\
          incus import {q_backup} {q_name}\n\
          incus config unset {q_name} user.aibox.template >/dev/null 2>&1 || true\n\
-         incus config set {q_name} user.aibox.workspace {q_ws} >/dev/null 2>&1 || true\n\
+         incus config set {q_name} user.aibox.workspace={q_ws} >/dev/null 2>&1 || true\n\
          incus config device set {q_name} workspace source={q_ws} path={q_container_ws} >/dev/null 2>&1 || \
          incus config device add {q_name} workspace disk source={q_ws} path={q_container_ws} >/dev/null 2>&1 || true"
     ));

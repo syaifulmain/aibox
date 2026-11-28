@@ -545,7 +545,7 @@ pub fn reconcile_manifest_script(m: &EnvManifest, existing_ports: &[i32]) -> Str
     } else {
         let q_secrets = shell_quote(&m.secrets.join(","));
         parts.push(format!(
-            "incus config set {q_name} user.aibox.secrets {q_secrets}"
+            "incus config set {q_name} user.aibox.secrets={q_secrets}"
         ));
     }
 

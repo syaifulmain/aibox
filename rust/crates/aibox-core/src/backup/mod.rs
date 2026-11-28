@@ -251,7 +251,7 @@ mod tests {
         assert!(log_text.contains(&format!("import {} myenv-copy", backup_file.display())));
         assert!(log_text.contains("config unset myenv-copy user.aibox.template"));
         assert!(log_text.contains(&format!(
-            "config set myenv-copy user.aibox.workspace {}",
+            "config set myenv-copy user.aibox.workspace={}",
             ws_dst.display()
         )));
     }

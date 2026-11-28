@@ -63,6 +63,11 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Incus 7.x `config set` Syntax Migration (`aibox-core`, `aibox-app`)
+
+- **Deprecated syntax removal**: Switched all `incus config set <instance> <key> <value>` invocations across provisioning (`create`, `clone`, `resources`, `lifecycle`), display/audio/D-Bus/device bridges, network ACLs, health probes/idle watchdog, secrets, manifest reconciliation, backup import, and Qt snapshot/session toggles to Incus's `<key>=<value>` syntax, eliminating `Warning: the “<key> <value>” syntax is deprecated` during environment creation and management.
+- **Tests**: Updated inline unit tests and golden replay fixtures (`backup.jsonl`, `provision.jsonl`, `network.jsonl`, `cli.jsonl`) to match the `<key>=<value>` format.
+
 ### Performance Optimization & Bug-Fix Pass (Core, Qt Backend, QML/i18n) (`aibox-core`, `aibox-app`, `src/qml/`, `src/i18n/`)
 
 - **Core security, quoting & correctness**: Fixed double-quoted `shell_quote` in `backup/orphans.rs`, nested single-quoted `shell_quote` in `backup/scripts.rs` and `workspace/mounts.rs`, and JSON-escaped manifest archive filenames in `backup/scripts.rs`; blocked intermediate symlink directory escapes in `workspace/diff/file.rs`; pre-created `0600` session log/timing files and aligned prune limits in `cli/commands/env.rs`; fixed independent zero-threshold disk alert guards in `engine.rs`, non-UTF-8 byte preservation in `secrets/redact.rs`, `keep_count == 1` retention in `backup/export.rs`, `du -sb` partial exit code `1` handling in `snapshot/sizes.rs`, future-dated snapshot retention in `snapshot/auto.rs`, `flock` serialization in `task/lock.rs`, and `SystemRunner::run_with_timeout` thread joining + PID-reuse safety in `process.rs` and `snapshot/workspace.rs`.

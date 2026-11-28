@@ -107,7 +107,7 @@ pub fn acl_diff_shell_snippet(
         lines.push(format_acl_rule_add(&q_acl, cidr, egress_logging));
     }
     lines.push(format!(
-        "incus config set {q_name} user.aibox.netallow {q_allow}"
+        "incus config set {q_name} user.aibox.netallow={q_allow}"
     ));
     lines.join("\n")
 }
@@ -144,7 +144,7 @@ pub fn acl_apply_shell_snippet(
             "incus config device override {q_name} eth0 security.acls={q_acl} security.acls.default.egress.action=drop security.acls.default.egress.logged=true"
         ));
         lines.push(format!(
-            "incus config set {q_name} user.aibox.egresslog true"
+            "incus config set {q_name} user.aibox.egresslog=true"
         ));
     } else {
         lines.push(format!(
@@ -155,10 +155,10 @@ pub fn acl_apply_shell_snippet(
         ));
     }
     lines.push(format!(
-        "incus config set {q_name} user.aibox.netmode allowlist"
+        "incus config set {q_name} user.aibox.netmode=allowlist"
     ));
     lines.push(format!(
-        "incus config set {q_name} user.aibox.netallow {q_allow}"
+        "incus config set {q_name} user.aibox.netallow={q_allow}"
     ));
     lines.join("\n")
 }
@@ -189,7 +189,7 @@ pub fn network_control_script(
             "incus network acl delete {q_log_acl} >/dev/null 2>&1 || true"
         ));
         lines.push(format!(
-            "incus config set {q_name} user.aibox.netmode offline"
+            "incus config set {q_name} user.aibox.netmode=offline"
         ));
         lines.push(format!(
             "incus config unset {q_name} user.aibox.egresslog >/dev/null 2>&1 || true"
@@ -232,7 +232,7 @@ pub fn network_control_script(
                 "incus config device override {q_name} eth0 security.acls={q_log_acl} security.acls.default.egress.action=allow security.acls.default.egress.logged=true"
             ));
             lines.push(format!(
-                "incus config set {q_name} user.aibox.egresslog true"
+                "incus config set {q_name} user.aibox.egresslog=true"
             ));
         } else {
             lines.push(format!(
@@ -405,7 +405,7 @@ mod tests {
 
         let offline_script = network_control_script("agent-1", "offline", "", &[], false);
         assert!(offline_script.contains("incus config device add 'agent-1' eth0 none"));
-        assert!(offline_script.contains("user.aibox.netmode offline"));
+        assert!(offline_script.contains("user.aibox.netmode=offline"));
 
         let online_script = network_control_script("agent-1", "online", "", &[], false);
         assert!(online_script.contains("incus config device remove 'agent-1' eth0"));

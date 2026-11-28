@@ -37,14 +37,14 @@ pub fn update_resources_script(
     lines.push("echo '@@STAGE:25:Updating CPU and memory quotas...'".to_string());
     if cpu_cores > 0 {
         lines.push(format!(
-            "incus config set {q_name} limits.cpu {}",
+            "incus config set {q_name} limits.cpu={}",
             shell_quote(&cpu_cores.to_string())
         ));
     }
     let trimmed_ram = ram_gib.trim();
     if !trimmed_ram.is_empty() {
         lines.push(format!(
-            "incus config set {q_name} limits.memory {}",
+            "incus config set {q_name} limits.memory={}",
             shell_quote(trimmed_ram)
         ));
     }
@@ -57,7 +57,7 @@ pub fn update_resources_script(
             ));
         } else {
             lines.push(format!(
-                "incus config set {q_name} limits.processes {}",
+                "incus config set {q_name} limits.processes={}",
                 shell_quote(clean_proc)
             ));
         }
@@ -70,7 +70,7 @@ pub fn update_resources_script(
                 ));
             } else if let Some(swap_value) = swap_config_value(clean_swap) {
                 lines.push(format!(
-                    "incus config set {q_name} limits.memory.swap {}",
+                    "incus config set {q_name} limits.memory.swap={}",
                     shell_quote(&swap_value)
                 ));
             }
@@ -264,10 +264,10 @@ mod tests {
 
         let ct_update =
             update_resources_script("box1", 6, "12GiB", "80GiB", "2048", "200MB", "4GiB", false);
-        assert!(ct_update.contains("limits.cpu '6'"));
-        assert!(ct_update.contains("limits.memory '12GiB'"));
-        assert!(ct_update.contains("limits.processes '2048'"));
-        assert!(ct_update.contains("limits.memory.swap '4GiB'"));
+        assert!(ct_update.contains("limits.cpu='6'"));
+        assert!(ct_update.contains("limits.memory='12GiB'"));
+        assert!(ct_update.contains("limits.processes='2048'"));
+        assert!(ct_update.contains("limits.memory.swap='4GiB'"));
         assert!(ct_update.contains("root size='80GiB'"));
         assert!(ct_update.contains("limits.read='200MB' limits.write='200MB'"));
 

@@ -395,7 +395,7 @@ pub fn set_dbus_mode_script(name: &str, mode: DbusMode, host: &HostDbus) -> Stri
     let mut lines = vec![
         "set -euo pipefail".to_string(),
         format!(
-            "incus config set {q_name} user.aibox.dbus {}",
+            "incus config set {q_name} user.aibox.dbus={}",
             shell_quote(mode.config_value())
         ),
     ];
@@ -631,7 +631,7 @@ mod tests {
     fn set_mode_script_guards_apply_and_off_always_tears_down() {
         let host = host_ready();
         let on = set_dbus_mode_script("box", DbusMode::On, &host);
-        assert!(on.contains("incus config set 'box' user.aibox.dbus 'on'"));
+        assert!(on.contains("incus config set 'box' user.aibox.dbus='on'"));
         assert!(on.contains("STATUS=$(incus info 'box' | awk '/^Status:/ {print $2}')"));
         let guard_at = on
             .find("if [[ \"$STATUS\" == \"RUNNING\" ]]; then")
@@ -642,7 +642,7 @@ mod tests {
         assert!(guard_at < add_at);
 
         let off = set_dbus_mode_script("box", DbusMode::Off, &host);
-        assert!(off.contains("incus config set 'box' user.aibox.dbus 'off'"));
+        assert!(off.contains("incus config set 'box' user.aibox.dbus='off'"));
         assert!(off.contains("kill \"$AUTH_PID\""));
         assert!(off.contains("incus config device remove 'box' 'dbus'"));
         assert!(!off.contains("STATUS="));
