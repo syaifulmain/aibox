@@ -63,6 +63,12 @@ Built with Rust (edition 2021) + `cxx-qt` + Qt Quick 6, compiled via Cargo (`mak
 
 ## 3. Changelog
 
+### Stale Proxy Cleanup & `incus start` Failure Propagation (`aibox-core`)
+
+- **Pre-start stale proxy cleanup (`display/plan.rs`, `display/mod.rs`, `provision/lifecycle.rs`)**: Added `strip_ephemeral_proxy_devices_script` (`EPHEMERAL_PROXY_DEVICES`: `wayland`, `x11`, `pulse`, `pipewire`, `dbus`, `printer`) and invoked it right before `incus start` in both `start_environment_script_with_desktop` and `build_prepare_script_inner` (inside the non-running branch). Prevents `incus start` from failing with `bind: no such file or directory` on `/run/user/<uid>/bus` (or other container-bound proxy paths) before `/run/user/<uid>` exists in the fresh container `tmpfs`, while preserving legacy device inference on stopped instances.
+- **Strict `set -e` failure propagation (`provision/lifecycle.rs`)**: Split `incus start {q_name} && sleep 1` onto separate lines in `start_environment_script_with_desktop` so a failed `incus start` immediately aborts the script under `set -euo pipefail` instead of continuing to `@@STAGE:100:Started.` and `@@EXIT:0`.
+- **Tests**: Added unit test `start_strips_ephemeral_proxies_and_aborts_on_incus_start_failure` in `provision/lifecycle.rs` and updated golden fixtures (`provision.jsonl`, `cli.jsonl`).
+
 ### Incus 7.x `config set` Syntax Migration (`aibox-core`, `aibox-app`)
 
 - **Deprecated syntax removal**: Switched all `incus config set <instance> <key> <value>` invocations across provisioning (`create`, `clone`, `resources`, `lifecycle`), display/audio/D-Bus/device bridges, network ACLs, health probes/idle watchdog, secrets, manifest reconciliation, backup import, and Qt snapshot/session toggles to Incus's `<key>=<value>` syntax, eliminating `Warning: the “<key> <value>” syntax is deprecated` during environment creation and management.

@@ -1,3 +1,4 @@
+use crate::display::strip_ephemeral_proxy_devices_script;
 use crate::provision::ProvisionError;
 use crate::snapshot::workspace::workspace_mount_migration_script;
 use crate::util::paths::CONTAINER_WORKSPACE_PATH;
@@ -42,6 +43,7 @@ fn build_prepare_script_inner(
 ) -> String {
     let q_name = shell_quote(name);
     let migrate = workspace_mount_migration_script(name);
+    let strip_proxies = strip_ephemeral_proxy_devices_script(name);
     let (legacy_xhost, desktop) = match desktop_script {
         Some(script) => ("", script),
         None => (LEGACY_XHOST_LOCAL, ""),
@@ -52,7 +54,7 @@ fn build_prepare_script_inner(
         format!("{desktop}\n")
     };
     format!(
-        "\n{legacy_xhost}{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n    incus start {q_name}\n    sleep 1\nfi\n{desktop_line}incus config set {q_name} user.aibox.lastused=\"$(date +%s)\" >/dev/null 2>&1 || true\n"
+        "\n{legacy_xhost}{auto_snap}\n{allow_refresh}\n{migrate}\nSTATUS=$(incus info {q_name} | awk '/^Status:/ {{print $2}}')\nif [[ \"$STATUS\" != \"RUNNING\" ]]; then\n{strip_proxies}\n    incus start {q_name}\n    sleep 1\nfi\n{desktop_line}incus config set {q_name} user.aibox.lastused=\"$(date +%s)\" >/dev/null 2>&1 || true\n"
     )
 }
 
@@ -69,6 +71,7 @@ pub fn start_environment_script_with_desktop(
 ) -> String {
     let q_name = shell_quote(name);
     let migrate = workspace_mount_migration_script(name);
+    let strip_proxies = strip_ephemeral_proxy_devices_script(name);
     let mut script =
         String::from("set -euo pipefail\necho '@@STAGE:20:Preparing environment...'\n");
     if !auto_snap.is_empty() {
@@ -85,7 +88,7 @@ pub fn start_environment_script_with_desktop(
         format!("{desktop_script}\n")
     };
     script.push_str(&format!(
-        "echo '@@STAGE:55:Starting container...'\n{migrate}\nincus start {q_name} && sleep 1\n{desktop_line}\
+        "echo '@@STAGE:55:Starting container...'\n{migrate}\n{strip_proxies}\nincus start {q_name}\nsleep 1\n{desktop_line}\
          incus config set {q_name} user.aibox.lastused=\"$(date +%s)\" >/dev/null 2>&1 || true\n\
          echo '@@STAGE:100:Started.'"
     ));
@@ -496,5 +499,68 @@ mod tests {
         let enter = build_enter_command_with_env("box", "/run/env", &env);
         assert_eq!(enter.matches("DISPLAY=:0").count(), 2);
         assert!(!build_enter_command_with_env("box", "/run/env", &[]).contains("DISPLAY="));
+    }
+
+    #[test]
+    fn start_strips_ephemeral_proxies_and_aborts_on_incus_start_failure() {
+        let start = start_environment_script_with_desktop("box", "", "", "echo BRIDGE_RAN");
+        let strip_at = start
+            .find("incus config device show 'box'")
+            .expect("strip proxies");
+        let start_at = start.find("incus start 'box'").expect("start");
+        assert!(strip_at < start_at);
+        assert!(!start.contains("incus start 'box' &&"));
+
+        let prepare = build_prepare_script_with_desktop("box", "", "", "echo BRIDGE_RAN");
+        let prep_status_at = prepare
+            .find("if [[ \"$STATUS\" != \"RUNNING\" ]]")
+            .expect("status");
+        let prep_strip_at = prepare
+            .find("incus config device show 'box'")
+            .expect("prep strip");
+        let prep_start_at = prepare.find("incus start 'box'").expect("prep start");
+        assert!(prep_status_at < prep_strip_at && prep_strip_at < prep_start_at);
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let bin_dir = std::env::temp_dir().join(format!("aibox_start_fail_test_{nanos}"));
+        std::fs::create_dir_all(&bin_dir).expect("mkdir");
+        let stub = bin_dir.join("incus");
+        std::fs::write(
+            &stub,
+            "#!/usr/bin/env bash\nif [ \"$1\" = \"start\" ]; then\n  echo 'Error: Failed to listen on /run/user/1000/bus' >&2\n  exit 1\nfi\nif [ \"$1\" = \"config\" ] && [ \"$2\" = \"device\" ] && [ \"$3\" = \"show\" ]; then\n  printf 'dbus:\\n  type: proxy\\nwayland:\\n  type: proxy\\nworkspace:\\n  type: disk\\nfwd-3000:\\n  type: proxy\\n'\nfi\nexit 0\n",
+        )
+        .expect("write stub");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        }
+
+        let old_path = std::env::var("PATH").unwrap_or_default();
+        let test_path = format!("{}:{old_path}", bin_dir.display());
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&start)
+            .env("PATH", test_path)
+            .output()
+            .expect("run bash");
+        let _ = std::fs::remove_dir_all(&bin_dir);
+
+        assert!(
+            !output.status.success(),
+            "incus start failure must fail the script"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.contains("BRIDGE_RAN"),
+            "desktop bridge must not run on start failure"
+        );
+        assert!(
+            !stdout.contains("@@STAGE:100:Started."),
+            "must not report Started on failure"
+        );
     }
 }

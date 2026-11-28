@@ -429,6 +429,30 @@ pub fn remove_devices_script(name: &str, _plan: &DisplayPlan) -> String {
     remove_device_lines(name, &[WAYLAND_DEVICE, X11_DEVICE])
 }
 
+/// Container-bound session proxy devices that cannot bind before `/run/user/<uid>`
+/// or `/tmp/.X11-unix` exist on a fresh boot.
+pub const EPHEMERAL_PROXY_DEVICES: [&str; 6] = [
+    WAYLAND_DEVICE,
+    X11_DEVICE,
+    "pulse",
+    "pipewire",
+    "dbus",
+    crate::display::PRINTER_DEVICE,
+];
+
+/// Removes stale container-bound session proxy devices before `incus start`.
+///
+/// Leaving these devices attached on a stopped instance blocks `incus start`
+/// because `/run` is a fresh empty tmpfs at boot and the listen parent
+/// directory does not exist yet.
+pub fn strip_ephemeral_proxy_devices_script(name: &str) -> String {
+    let q_name = shell_quote(name);
+    let case_pat = EPHEMERAL_PROXY_DEVICES.join("|");
+    format!(
+        "incus config device show {q_name} 2>/dev/null | awk '/^[^[:space:]][^:]*:$/ {{ sub(/:$/, \"\"); print }}' | while IFS= read -r dev; do\n    case \"$dev\" in\n        {case_pat})\n            incus config device remove {q_name} \"$dev\" >/dev/null 2>&1 || true\n            ;;\n    esac\ndone || true"
+    )
+}
+
 /// Writes the mode and applies or removes the matching desktop devices.
 pub fn set_desktop_mode_script(name: &str, mode: DesktopMode, host: &HostSession) -> String {
     let q_name = shell_quote(name);

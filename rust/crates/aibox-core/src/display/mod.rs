@@ -48,6 +48,7 @@ pub use gpu::{
 pub use host::{detect_host_session, detect_host_session_with, HostSession};
 pub use plan::{
     apply_devices_script, build_desktop_plan, combine_scripts, merge_env_pairs,
-    remove_devices_script, session_bridge_script, set_desktop_mode_script, DesktopMode, DeviceSpec,
-    DisplayPlan,
+    remove_devices_script, session_bridge_script, set_desktop_mode_script,
+    strip_ephemeral_proxy_devices_script, DesktopMode, DeviceSpec, DisplayPlan,
+    EPHEMERAL_PROXY_DEVICES,
 };
